@@ -5,9 +5,10 @@ import crypto from 'crypto';
 export interface BsimProviderConfig {
   bsimId: string;
   name: string;
-  issuer: string;
+  issuer: string;           // OIDC issuer URL (e.g., https://auth-dev.banksim.ca)
   clientId: string;
   clientSecret: string;
+  apiUrl?: string;          // Optional: explicit API base URL (e.g., https://dev.banksim.ca)
   logoUrl?: string;
 }
 
@@ -167,15 +168,43 @@ export interface BsimCard {
 }
 
 /**
+ * Derive the BSIM API base URL from the issuer URL
+ * Examples:
+ *   https://auth-dev.banksim.ca -> https://dev.banksim.ca
+ *   https://auth.banksim.ca -> https://banksim.ca (or https://api.banksim.ca)
+ *   http://localhost:3002 -> http://localhost:3001
+ */
+function getBsimApiUrl(issuer: string): string {
+  const url = new URL(issuer);
+
+  // Handle local development (port-based)
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    // Auth is on :3002, API is on :3001
+    url.port = '3001';
+    return url.origin;
+  }
+
+  // Handle dev/prod environments (subdomain-based)
+  // auth-dev.banksim.ca -> dev.banksim.ca
+  // auth.banksim.ca -> banksim.ca (API at root or api.banksim.ca)
+  if (url.hostname.startsWith('auth-')) {
+    url.hostname = url.hostname.replace('auth-', '');
+  } else if (url.hostname.startsWith('auth.')) {
+    url.hostname = url.hostname.replace('auth.', '');
+  }
+
+  return url.origin;
+}
+
+/**
  * Fetch user's cards from BSIM using wallet credential
  */
 export async function fetchCards(
   provider: BsimProviderConfig,
   accessToken: string
 ): Promise<BsimCard[]> {
-  // Construct the cards API URL from the issuer
-  // BSIM API is typically at the same base as the auth server, on /api/wallet/cards
-  const baseUrl = provider.issuer.replace('/auth', '').replace(':3002', ':3001');
+  // Use explicit apiUrl if provided, otherwise derive from issuer
+  const baseUrl = provider.apiUrl || getBsimApiUrl(provider.issuer);
   const cardsUrl = `${baseUrl}/api/wallet/cards`;
 
   console.log(`[BSIM OIDC] Fetching cards from ${cardsUrl}`);
