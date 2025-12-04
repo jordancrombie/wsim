@@ -1,0 +1,52 @@
+<h1><%= title %></h1>
+
+<% if (typeof payment !== 'undefined' && (payment.amount || payment.merchantName)) { %>
+  <div class="payment-info">
+    <% if (payment.merchantName) { %>
+      <p>Payment to: <strong><%= payment.merchantName %></strong></p>
+    <% } else if (clientName) { %>
+      <p>Payment to: <strong><%= clientName %></strong></p>
+    <% } %>
+    <% if (payment.amount) { %>
+      <p class="payment-amount">
+        $<%= payment.amount %> <%= payment.currency || 'CAD' %>
+      </p>
+    <% } %>
+  </div>
+<% } %>
+
+<form method="POST" action="/interaction/<%= uid %>/select-card">
+  <div class="card-list">
+    <% if (cards && cards.length > 0) { %>
+      <% cards.forEach(function(card, index) { %>
+        <label class="card-option">
+          <input type="radio" name="walletCardId" value="<%= card.id %>" <%= index === 0 ? 'checked' : '' %> required>
+          <div class="card-info">
+            <span class="card-type"><%= card.cardType %></span>
+            <span class="card-number">****<%= card.lastFour %></span>
+            <div class="card-bank">via <%= card.enrollment.bsimId %></div>
+          </div>
+        </label>
+      <% }); %>
+    <% } else { %>
+      <p style="text-align: center; color: #666; padding: 2rem;">
+        No cards available. Please enroll a bank first.
+      </p>
+    <% } %>
+  </div>
+
+  <% if (cards && cards.length > 0) { %>
+    <div class="button-group">
+      <button type="submit" formaction="/interaction/<%= uid %>/abort" class="btn btn-secondary">
+        Cancel
+      </button>
+      <button type="submit" class="btn btn-primary">
+        Authorize Payment
+      </button>
+    </div>
+  <% } else { %>
+    <button type="submit" formaction="/interaction/<%= uid %>/abort" class="btn btn-secondary" style="width: 100%;">
+      Cancel
+    </button>
+  <% } %>
+</form>

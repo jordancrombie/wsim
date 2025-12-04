@@ -1,0 +1,37 @@
+<h1><%= title %></h1>
+
+<p style="margin-bottom: 1rem; color: #666; font-size: 0.875rem;">
+  <strong><%= clientId %></strong> is requesting access to:
+</p>
+
+<div class="scopes-list">
+  <% scopes.forEach(function(scope) { %>
+    <div class="scope-item">
+      <span class="scope-icon">&#x2713;</span>
+      <span class="scope-name">
+        <% if (scope === 'openid') { %>
+          Verify your identity
+        <% } else if (scope === 'profile') { %>
+          Access your profile information
+        <% } else if (scope === 'email') { %>
+          Access your email address
+        <% } else if (scope === 'payment:authorize') { %>
+          Authorize a payment on your behalf
+        <% } else { %>
+          <%= scope %>
+        <% } %>
+      </span>
+    </div>
+  <% }); %>
+</div>
+
+<form method="POST" action="/interaction/<%= uid %>/consent">
+  <div class="button-group">
+    <button type="submit" formaction="/interaction/<%= uid %>/abort" class="btn btn-secondary">
+      Deny
+    </button>
+    <button type="submit" class="btn btn-primary">
+      Allow
+    </button>
+  </div>
+</form>

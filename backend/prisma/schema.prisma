@@ -1,0 +1,167 @@
+// WSIM - Wallet Simulator Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// WALLET USER & PROFILE
+// =============================================================================
+
+model WalletUser {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  firstName String?
+  lastName  String?
+  walletId  String   @unique @default(uuid()) // Public wallet identifier
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  enrollments     BsimEnrollment[]
+  walletCards     WalletCard[]
+  paymentConsents WalletPaymentConsent[]
+}
+
+// =============================================================================
+// BSIM ENROLLMENT
+// =============================================================================
+
+model BsimEnrollment {
+  id     String     @id @default(uuid())
+  userId String
+  user   WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // BSIM identification
+  bsimId     String // e.g., "td-bank", "rbc-bank"
+  bsimIssuer String // OIDC issuer URL
+  fiUserRef  String // User's ID at this bsim (sub claim)
+
+  // Wallet credential (long-lived token from bsim)
+  walletCredential String // Encrypted credential
+  credentialExpiry DateTime?
+
+  // Refresh token for re-enrollment
+  refreshToken String? // Encrypted
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Cards from this enrollment
+  cards WalletCard[]
+
+  @@unique([userId, bsimId])
+  @@index([userId])
+}
+
+// =============================================================================
+// WALLET CARDS
+// =============================================================================
+
+model WalletCard {
+  id           String         @id @default(uuid())
+  userId       String
+  user         WalletUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enrollmentId String
+  enrollment   BsimEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  // Card display info (masked - no full card numbers stored)
+  cardType       String // VISA, MC, AMEX, VISA_DEBIT, MC_DEBIT
+  lastFour       String // Last 4 digits
+  cardholderName String
+  expiryMonth    Int
+  expiryYear     Int
+
+  // Card reference at bsim (NOT the actual card number)
+  bsimCardRef String // Reference ID at bsim
+
+  // Wallet card token (wsim-issued, for nsim routing)
+  // Format: wsim_{bsimId}_{uniqueId}
+  walletCardToken String @unique
+
+  // Status
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([enrollmentId, bsimCardRef])
+  @@index([userId])
+  @@index([walletCardToken])
+}
+
+// =============================================================================
+// PAYMENT CONSENTS (for SSIM payments)
+// =============================================================================
+
+model WalletPaymentConsent {
+  id     String     @id @default(uuid())
+  userId String
+  user   WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Merchant info
+  merchantId   String
+  merchantName String
+
+  // Selected card
+  walletCardId String
+
+  // Consent details
+  scope     String // e.g., "payment:single" or "payment:recurring"
+  maxAmount Decimal? @db.Decimal(15, 2)
+
+  // Token issued to merchant (returned in OIDC token claims)
+  consentToken String @unique
+
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([consentToken])
+}
+
+// =============================================================================
+// OIDC PROVIDER STORAGE (for auth-server)
+// =============================================================================
+
+model OidcPayload {
+  id         String    @id
+  type       String // e.g., "Session", "AccessToken", "AuthorizationCode", etc.
+  payload    String    @db.Text
+  grantId    String?
+  userCode   String?
+  uid        String?
+  expiresAt  DateTime?
+  consumedAt DateTime?
+
+  @@index([grantId])
+  @@index([userCode])
+  @@index([uid])
+}
+
+// =============================================================================
+// OAUTH CLIENTS (SSIMs registered to use WSIM)
+// =============================================================================
+
+model OAuthClient {
+  id                     String   @id @default(uuid())
+  clientId               String   @unique
+  clientSecret           String // Hashed
+  clientName             String
+  redirectUris           String[]
+  postLogoutRedirectUris String[]
+  grantTypes             String[] // e.g., ["authorization_code", "refresh_token"]
+  scope                  String // Space-separated scopes
+  logoUri                String?
+  trusted                Boolean  @default(false) // Skip consent for trusted clients
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: wsim-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: wsim
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wsim-backend
+    ports:
+      - "3003:3003"
+    environment:
+      NODE_ENV: development
+      PORT: 3003
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/wsim
+      APP_URL: http://localhost:3003
+      FRONTEND_URL: http://localhost:3004
+      AUTH_SERVER_URL: http://localhost:3005
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
+      BSIM_PROVIDERS: ${BSIM_PROVIDERS:-[]}
+      CORS_ORIGINS: http://localhost:3004,http://localhost:3005
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src:ro
+    command: npm run dev
+
+  # OIDC Auth Server
+  auth-server:
+    build:
+      context: ./auth-server
+      dockerfile: Dockerfile
+    container_name: wsim-auth-server
+    ports:
+      - "3005:3005"
+    environment:
+      NODE_ENV: development
+      PORT: 3005
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/wsim
+      ISSUER: http://localhost:3005
+      BACKEND_URL: http://backend:3003
+      COOKIE_SECRET: ${COOKIE_SECRET:-dev-cookie-secret-change-in-production}
+      CORS_ORIGINS: http://localhost:3003,http://localhost:3004
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./auth-server/src:/app/src:ro
+    command: npm run dev
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wsim-frontend
+    ports:
+      - "3004:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3003
+      NEXT_PUBLIC_AUTH_URL: http://localhost:3005
+    depends_on:
+      - backend
+      - auth-server
+    volumes:
+      - ./frontend/src:/app/src:ro
+    command: npm run dev
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: wsim-network
