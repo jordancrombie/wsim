@@ -1,18 +1,19 @@
 import { Router } from 'express';
 import { optionalAuth, requireAuth } from '../middleware/auth';
 import { env } from '../config/env';
+import { prisma } from '../config/database';
+import { encrypt, generateWalletCardToken } from '../utils/crypto';
+import {
+  BsimProviderConfig,
+  buildAuthorizationUrl,
+  exchangeCode,
+  fetchCards,
+  generatePkce,
+  generateState,
+  generateNonce,
+} from '../services/bsim-oidc';
 
 const router = Router();
-
-// BSIM provider configuration type
-interface BsimProviderConfig {
-  bsimId: string;
-  name: string;
-  issuer: string;
-  clientId: string;
-  clientSecret: string;
-  logoUrl?: string;
-}
 
 // Parse BSIM providers from environment
 function getBsimProviders(): BsimProviderConfig[] {
@@ -43,9 +44,6 @@ router.get('/banks', optionalAuth, (req, res) => {
 /**
  * POST /api/enrollment/start/:bsimId
  * Initiate enrollment with a bank
- *
- * NOTE: Full implementation requires BSIM wallet:enroll scope to be available.
- * This is a placeholder that sets up the session state.
  */
 router.post('/start/:bsimId', optionalAuth, async (req, res) => {
   const { bsimId } = req.params;
@@ -58,43 +56,285 @@ router.post('/start/:bsimId', optionalAuth, async (req, res) => {
     return;
   }
 
-  // TODO: Initialize openid-client and build authorization URL
-  // This requires the BSIM team to implement wallet:enroll scope
+  try {
+    // Generate PKCE, state, and nonce
+    const { codeVerifier, codeChallenge } = await generatePkce();
+    const state = generateState();
+    const nonce = generateNonce();
 
-  // For now, return a placeholder that indicates the flow is not yet available
-  res.status(503).json({
-    error: 'not_available',
-    message: 'Bank enrollment is not yet available. Waiting for BSIM integration.',
-    bsimId: provider.bsimId,
-    // When ready, this will return:
-    // authUrl: 'https://auth.bsim.../authorize?...'
-  });
+    // Build redirect URI
+    const redirectUri = `${env.APP_URL}/api/enrollment/callback/${bsimId}`;
+
+    // Build authorization URL
+    const authUrl = await buildAuthorizationUrl(
+      provider,
+      redirectUri,
+      state,
+      codeChallenge,
+      nonce
+    );
+
+    // Store enrollment state in session
+    req.session.enrollmentState = {
+      bsimId,
+      state,
+      nonce,
+      codeVerifier,
+    };
+
+    console.log(`[Enrollment] Starting enrollment for ${bsimId}, redirecting to auth`);
+
+    res.json({
+      authUrl,
+      bsimId: provider.bsimId,
+      bankName: provider.name,
+    });
+  } catch (error) {
+    console.error('[Enrollment] Failed to build auth URL:', error);
+    res.status(500).json({
+      error: 'enrollment_failed',
+      message: error instanceof Error ? error.message : 'Failed to start enrollment',
+    });
+  }
 });
 
 /**
  * GET /api/enrollment/callback/:bsimId
  * Handle OIDC callback from bank
- *
- * NOTE: Placeholder - full implementation pending BSIM integration
  */
 router.get('/callback/:bsimId', async (req, res) => {
   const { bsimId } = req.params;
-  const { code, state, error } = req.query;
+  const { code, state, error, error_description } = req.query;
 
+  // Handle error from BSIM
   if (error) {
-    res.redirect(`${env.FRONTEND_URL}/enroll?error=${error}`);
+    console.error(`[Enrollment] Error from BSIM: ${error} - ${error_description}`);
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=${error}&message=${encodeURIComponent(String(error_description || ''))}`);
     return;
   }
 
-  // TODO: Implement full OIDC callback handling
-  // 1. Validate state against session
-  // 2. Exchange code for tokens
-  // 3. Extract wallet_credential from token claims
-  // 4. Create/update user profile
-  // 5. Fetch cards from BSIM
-  // 6. Store enrollment and cards
+  // Validate we have code
+  if (!code || typeof code !== 'string') {
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=missing_code`);
+    return;
+  }
 
-  res.redirect(`${env.FRONTEND_URL}/enroll?error=not_implemented`);
+  // Validate enrollment state from session
+  const enrollmentState = req.session.enrollmentState;
+  if (!enrollmentState) {
+    console.error('[Enrollment] No enrollment state in session');
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=invalid_session`);
+    return;
+  }
+
+  // Validate state matches
+  if (state !== enrollmentState.state) {
+    console.error('[Enrollment] State mismatch');
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=invalid_state`);
+    return;
+  }
+
+  // Validate bsimId matches
+  if (bsimId !== enrollmentState.bsimId) {
+    console.error('[Enrollment] BSIM ID mismatch');
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=invalid_bsim`);
+    return;
+  }
+
+  // Get provider config
+  const providers = getBsimProviders();
+  const provider = providers.find(p => p.bsimId === bsimId);
+
+  if (!provider) {
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=provider_not_found`);
+    return;
+  }
+
+  try {
+    const redirectUri = `${env.APP_URL}/api/enrollment/callback/${bsimId}`;
+
+    // Exchange code for tokens
+    console.log(`[Enrollment] Exchanging code for tokens...`);
+    const tokenResponse = await exchangeCode(
+      provider,
+      redirectUri,
+      code,
+      enrollmentState.codeVerifier,
+      enrollmentState.state,
+      enrollmentState.nonce
+    );
+
+    console.log(`[Enrollment] Got tokens for user: ${tokenResponse.email}`);
+
+    // Find or create user
+    let user = await prisma.walletUser.findUnique({
+      where: { email: tokenResponse.email },
+    });
+
+    if (!user) {
+      console.log(`[Enrollment] Creating new user: ${tokenResponse.email}`);
+      user = await prisma.walletUser.create({
+        data: {
+          email: tokenResponse.email,
+          firstName: tokenResponse.firstName,
+          lastName: tokenResponse.lastName,
+        },
+      });
+    } else {
+      // Update user info if we have new data
+      if (tokenResponse.firstName || tokenResponse.lastName) {
+        user = await prisma.walletUser.update({
+          where: { id: user.id },
+          data: {
+            firstName: tokenResponse.firstName || user.firstName,
+            lastName: tokenResponse.lastName || user.lastName,
+          },
+        });
+      }
+    }
+
+    // Check if already enrolled with this BSIM
+    let enrollment = await prisma.bsimEnrollment.findUnique({
+      where: {
+        userId_bsimId: {
+          userId: user.id,
+          bsimId: bsimId,
+        },
+      },
+    });
+
+    if (enrollment) {
+      // Update existing enrollment
+      console.log(`[Enrollment] Updating existing enrollment for ${bsimId}`);
+      enrollment = await prisma.bsimEnrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
+          credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
+        },
+      });
+    } else {
+      // Create new enrollment
+      console.log(`[Enrollment] Creating new enrollment for ${bsimId}`);
+      enrollment = await prisma.bsimEnrollment.create({
+        data: {
+          userId: user.id,
+          bsimId: bsimId,
+          bsimIssuer: provider.issuer,
+          fiUserRef: tokenResponse.fiUserRef,
+          walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
+          credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
+        },
+      });
+    }
+
+    // Fetch cards from BSIM
+    console.log(`[Enrollment] Fetching cards from ${bsimId}...`);
+    try {
+      const cards = await fetchCards(provider, tokenResponse.accessToken);
+      console.log(`[Enrollment] Got ${cards.length} cards from ${bsimId}`);
+
+      // Store cards
+      for (const card of cards) {
+        // Check if card already exists
+        const existingCard = await prisma.walletCard.findUnique({
+          where: {
+            enrollmentId_bsimCardRef: {
+              enrollmentId: enrollment.id,
+              bsimCardRef: card.cardRef,
+            },
+          },
+        });
+
+        if (existingCard) {
+          // Update existing card
+          await prisma.walletCard.update({
+            where: { id: existingCard.id },
+            data: {
+              cardType: card.cardType,
+              lastFour: card.lastFour,
+              cardholderName: card.cardholderName,
+              expiryMonth: card.expiryMonth,
+              expiryYear: card.expiryYear,
+              isActive: card.isActive,
+            },
+          });
+        } else {
+          // Create new card
+          await prisma.walletCard.create({
+            data: {
+              userId: user.id,
+              enrollmentId: enrollment.id,
+              cardType: card.cardType,
+              lastFour: card.lastFour,
+              cardholderName: card.cardholderName,
+              expiryMonth: card.expiryMonth,
+              expiryYear: card.expiryYear,
+              bsimCardRef: card.cardRef,
+              walletCardToken: generateWalletCardToken(bsimId),
+              isActive: card.isActive,
+            },
+          });
+        }
+      }
+    } catch (cardError) {
+      console.error('[Enrollment] Failed to fetch cards:', cardError);
+      // Don't fail enrollment if card fetch fails - user can retry later
+    }
+
+    // Set user session
+    req.session.userId = user.id;
+
+    // Clear enrollment state
+    delete req.session.enrollmentState;
+
+    console.log(`[Enrollment] Enrollment complete for ${tokenResponse.email}`);
+
+    // Redirect to wallet dashboard
+    res.redirect(`${env.FRONTEND_URL}/wallet?enrolled=${bsimId}`);
+
+  } catch (error) {
+    console.error('[Enrollment] Callback error:', error);
+    res.redirect(`${env.FRONTEND_URL}/enroll?error=callback_failed&message=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`);
+  }
+});
+
+/**
+ * GET /api/enrollment/list
+ * List user's enrolled banks
+ */
+router.get('/list', requireAuth, async (req, res) => {
+  const enrollments = await prisma.bsimEnrollment.findMany({
+    where: { userId: req.userId },
+    select: {
+      id: true,
+      bsimId: true,
+      createdAt: true,
+      credentialExpiry: true,
+      _count: {
+        select: { cards: true },
+      },
+    },
+  });
+
+  const providers = getBsimProviders();
+
+  res.json({
+    enrollments: enrollments.map(e => {
+      const provider = providers.find(p => p.bsimId === e.bsimId);
+      return {
+        id: e.id,
+        bsimId: e.bsimId,
+        bankName: provider?.name || e.bsimId,
+        logoUrl: provider?.logoUrl,
+        cardCount: e._count.cards,
+        enrolledAt: e.createdAt,
+        credentialExpiry: e.credentialExpiry,
+      };
+    }),
+  });
 });
 
 /**
@@ -102,15 +342,37 @@ router.get('/callback/:bsimId', async (req, res) => {
  * Remove a bank enrollment and all associated cards
  */
 router.delete('/:enrollmentId', requireAuth, async (req, res) => {
-  // TODO: Implement enrollment removal
-  // 1. Verify enrollment belongs to user
-  // 2. Revoke credential at BSIM (if supported)
-  // 3. Soft-delete all cards from this enrollment
-  // 4. Delete enrollment record
+  const { enrollmentId } = req.params;
 
-  res.status(501).json({
-    error: 'not_implemented',
-    message: 'Enrollment removal not yet implemented',
+  // Verify enrollment belongs to user
+  const enrollment = await prisma.bsimEnrollment.findFirst({
+    where: {
+      id: enrollmentId,
+      userId: req.userId,
+    },
+    include: {
+      cards: true,
+    },
+  });
+
+  if (!enrollment) {
+    res.status(404).json({ error: 'not_found', message: 'Enrollment not found' });
+    return;
+  }
+
+  // TODO: Revoke credential at BSIM (if supported)
+  // This would call BSIM's /api/wallet/revoke endpoint
+
+  // Delete enrollment (cards will cascade)
+  await prisma.bsimEnrollment.delete({
+    where: { id: enrollmentId },
+  });
+
+  console.log(`[Enrollment] Deleted enrollment ${enrollmentId} for user ${req.userId}`);
+
+  res.json({
+    success: true,
+    deletedCards: enrollment.cards.length,
   });
 });
 

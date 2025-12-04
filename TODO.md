@@ -2,9 +2,9 @@
 
 > **Last Updated**: 2025-12-04
 
-## Current Status: 🚧 Scaffolding Complete - Awaiting BSIM Integration
+## Current Status: 🟢 Enrollment Flow Ready for Testing
 
-WSIM project scaffolding is complete. The application runs but enrollment flow is blocked pending BSIM team implementation of `wallet:enroll` scope and wallet APIs.
+BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM enrollment flow is now implemented and ready for end-to-end testing.
 
 ---
 
@@ -27,18 +27,18 @@ WSIM project scaffolding is complete. The application runs but enrollment flow i
 - Docker Compose with all services
 - Full Prisma schema (WalletUser, BsimEnrollment, WalletCard, etc.)
 
-### BSIM Team (Blocking) 🔴 NOT STARTED
+### BSIM Team ✅ PHASE 1 COMPLETE
 > See [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) for details
 > See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for local dev setup
 
-- [ ] Add `wallet:enroll` OIDC scope
-- [ ] Create `WalletCredential` data model
-- [ ] Implement `GET /api/wallet/cards` endpoint
-- [ ] Implement `POST /api/wallet/request-token` endpoint
-- [ ] Implement `POST /api/wallet/revoke` endpoint
-- [ ] Update consent UI for wallet enrollment
-- [ ] Create `GET /api/registry/info` endpoint
-- [ ] Register WSIM as OAuth client in BSIM auth-server
+- [x] Add `wallet:enroll` OIDC scope
+- [x] Create `WalletCredential` data model
+- [x] Implement `GET /api/wallet/cards` endpoint
+- [x] Implement `POST /api/wallet/request-token` endpoint
+- [x] Implement `POST /api/wallet/revoke` endpoint
+- [x] Update consent UI for wallet enrollment
+- [x] Create `GET /api/registry/info` endpoint
+- [x] Register WSIM as OAuth client in BSIM auth-server
 - [ ] **Integrate WSIM into docker-compose stack** (see BSIM_DEPLOYMENT_INTEGRATION.md)
 - [ ] Testing and documentation
 
@@ -68,25 +68,28 @@ WSIM project scaffolding is complete. The application runs but enrollment flow i
 - [x] Bank enrollment page (frontend)
 - [x] Profile management (frontend)
 
-#### Blocked - Requires BSIM wallet:enroll
-- [ ] **BSIM OIDC Client** (enrollment flow)
-  - [x] Configure bsim providers (structure ready)
-  - [ ] Implement enrollment initiation route (needs BSIM scope)
-  - [ ] Implement enrollment callback handler (needs BSIM scope)
-  - [ ] Create user profile from bsim data (needs BSIM response)
+#### ✅ Enrollment Flow Implemented
+- [x] **BSIM OIDC Client** (enrollment flow)
+  - [x] Configure bsim providers
+  - [x] Implement enrollment initiation route with PKCE
+  - [x] Implement enrollment callback handler
+  - [x] Create user profile from bsim data
+  - [x] Session management for enrollment state
 
-- [ ] **Card Management** (needs BSIM wallet APIs)
-  - [ ] Implement card fetching from bsim
-  - [ ] Store cards with wallet tokens
-  - [x] Create wallet management APIs (routes ready, need data)
-  - [x] Implement card removal (route ready)
+- [x] **Card Management**
+  - [x] Implement card fetching from bsim
+  - [x] Store cards with wallet tokens
+  - [x] Create wallet management APIs
+  - [x] Implement card removal
+  - [x] List enrolled banks endpoint
 
-- [ ] **OIDC Provider Payment Flow** (needs cards in system)
+#### 🟡 In Progress - Payment Flow
+- [ ] **OIDC Provider Payment Flow** (needs E2E testing with cards)
   - [x] Configure oidc-provider
   - [x] Create Prisma adapter
   - [x] Build card selection UI
-  - [ ] Implement payment interaction flow (needs cards)
-  - [ ] Add extraTokenClaims for card tokens (needs BSIM token API)
+  - [ ] Implement payment interaction flow (ready for testing)
+  - [ ] Add extraTokenClaims for card tokens (needs testing with BSIM token API)
 
 ---
 
@@ -150,8 +153,8 @@ Access at: https://wsim-dev.banksim.ca
 | Checkpoint | Target | Teams | Milestone | Status |
 |------------|--------|-------|-----------|--------|
 | Checkpoint 0 | Now | WSIM | Scaffolding complete | ✅ Done |
-| Checkpoint 1 | Week 1 | BSIM | wallet:enroll scope ready | 🔴 Waiting |
-| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | 🔴 Blocked |
+| Checkpoint 1 | Week 1 | BSIM | wallet:enroll scope ready | ✅ Done |
+| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | 🟡 Ready for Testing |
 | Checkpoint 3 | Week 3 | All | Token format validation | 🔴 Blocked |
 | Checkpoint 4 | Week 4 | All | First E2E wallet payment | 🔴 Blocked |
 | Final Demo | Week 5 | All | Complete flow, all scenarios | 🔴 Blocked |
