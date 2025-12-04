@@ -444,6 +444,145 @@ Estimated effort: 3-5 days
 
 ---
 
+## Frequently Asked Questions
+
+### Q1: What scope does SSIM request from WSIM when initiating a wallet payment?
+
+**Answer: `openid payment:authorize`**
+
+When a user clicks "Pay with Wallet" at an SSIM checkout, the SSIM redirects to WSIM's OIDC provider requesting:
+```
+scope=openid payment:authorize
+```
+
+Payment details are passed via the `claims` parameter:
+```json
+{
+  "payment": {
+    "amount": "125.00",
+    "currency": "CAD",
+    "merchantId": "bestbuy-ssim",
+    "merchantName": "BestBuy Electronics",
+    "orderId": "order-456"
+  }
+}
+```
+
+Note: This is SSIM → WSIM flow. The WSIM → BSIM enrollment flow uses `openid profile email wallet:enroll`.
+
+---
+
+### Q2: Does NSIM need changes to accept wallet tokens?
+
+**Answer: Yes - NSIM must accept TWO tokens for wallet payments**
+
+WSIM introduces a new token (`walletCardToken`) **in addition to** the existing `cardToken`:
+
+| Token | Purpose | Format | Issuer |
+|-------|---------|--------|--------|
+| `walletCardToken` | **Routing** - tells NSIM which BSIM to route to | `wsim_{bsimId}_{uniqueId}` | WSIM |
+| `cardToken` | **Authorization** - used by BSIM to authorize payment | Opaque (existing format) | BSIM |
+
+NSIM parses the `walletCardToken` to extract the `bsimId`:
+```typescript
+// NSIM routing logic
+const parts = walletCardToken.split('_');
+// parts[0] = "wsim"
+// parts[1] = "td-bank"  ← route to this BSIM
+// parts[2] = "abc123"
+```
+
+**Backward Compatibility**: The `walletCardToken` is optional. If not provided (direct bank payment), NSIM falls back to the default BSIM.
+
+---
+
+### Q3: Does WSIM have its own auth server?
+
+**Answer: Yes - WSIM runs a separate OIDC provider**
+
+The ecosystem has **multiple** OIDC providers:
+
+| Service | OIDC Provider | Purpose |
+|---------|---------------|---------|
+| BSIM | `auth.{bsimId}.banksim.ca` | User authentication, `wallet:enroll` for WSIM |
+| WSIM | `wsim-auth.banksim.ca` | Card selection, `payment:authorize` for SSIMs |
+
+**OAuth Client Registrations:**
+
+1. **WSIM registered with BSIM** (for enrollment):
+   ```
+   client_id: wsim-wallet
+   redirect_uri: https://wsim.banksim.ca/auth/callback/{bsimId}
+   scope: openid profile email wallet:enroll
+   ```
+
+2. **SSIM registered with WSIM** (for payment):
+   ```
+   client_id: ssim-merchant
+   redirect_uri: https://{ssim}.banksim.ca/payment/wallet-callback
+   scope: openid payment:authorize
+   ```
+
+WSIM uses `oidc-provider` (same library as BSIM) for its auth server.
+
+---
+
+### Q4: Is the "Pay with Wallet" flow redirect-based or an embedded widget?
+
+**Answer: Redirect-based (OIDC standard flow)**
+
+When a user clicks "Pay with Wallet" at SSIM:
+
+1. SSIM **redirects** browser to `https://wsim-auth.banksim.ca/authorize?...`
+2. WSIM shows card selection UI (user picks which card)
+3. User clicks "Authorize"
+4. WSIM **redirects** back to `https://{ssim}.banksim.ca/payment/wallet-callback?code=...`
+5. SSIM exchanges code for tokens containing `walletCardToken` + `cardToken`
+
+This mirrors the existing "Pay with Bank" flow - just redirecting to WSIM instead of BSIM.
+
+**No embedded SDK/widget is planned for MVP** - keeping integration simple and consistent with existing OIDC patterns.
+
+---
+
+### Q5: What's the relationship between tokens in the system?
+
+**Token Lifecycle:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ ENROLLMENT (WSIM → BSIM)                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. WSIM requests wallet:enroll scope from BSIM                     │
+│  2. BSIM issues: access_token containing wallet_credential claim    │
+│  3. WSIM stores wallet_credential (long-lived, 90 days)             │
+│  4. WSIM generates walletCardToken for each card (permanent)        │
+│     Format: wsim_{bsimId}_{uniqueId}                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ PAYMENT (SSIM → WSIM → BSIM → NSIM)                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. SSIM requests payment:authorize from WSIM                       │
+│  2. User selects card in WSIM                                       │
+│  3. WSIM calls BSIM POST /api/wallet/request-token                  │
+│     (using stored wallet_credential)                                │
+│  4. BSIM issues: cardToken (ephemeral, single-use)                  │
+│  5. WSIM returns to SSIM:                                           │
+│     - walletCardToken (for NSIM routing)                            │
+│     - cardToken (for BSIM authorization)                            │
+│  6. SSIM calls NSIM with both tokens                                │
+│  7. NSIM parses walletCardToken → routes to correct BSIM            │
+│  8. BSIM validates cardToken → authorizes payment                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Questions for WSIM Team
 
 1. What should the wallet credential JWT contain? (suggested: userId, walletId, cardIds, scope, exp)
