@@ -1,27 +1,35 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2024-01-15
+> **Last Updated**: 2025-12-04
 
-## Current Status: 📋 Planning Complete
+## Current Status: 🚧 Scaffolding Complete - Awaiting BSIM Integration
 
-We have completed the architectural planning phase. Implementation is ready to begin.
+WSIM project scaffolding is complete. The application runs but enrollment flow is blocked pending BSIM team implementation of `wallet:enroll` scope and wallet APIs.
 
 ---
 
 ## Phase 1: Foundation (Week 1-2)
 
-### WSIM Team
-- [ ] **Project Setup**
-  - [ ] Initialize backend (Express + TypeScript)
-  - [ ] Initialize auth-server (oidc-provider)
-  - [ ] Initialize frontend (Next.js 14)
-  - [ ] Set up PostgreSQL + Prisma
-  - [ ] Create database schema and run migrations
-  - [ ] Configure Docker Compose
-  - [ ] Set up environment configuration
+### WSIM Team ✅ COMPLETE
+- [x] **Project Setup**
+  - [x] Initialize backend (Express + TypeScript)
+  - [x] Initialize auth-server (oidc-provider)
+  - [x] Initialize frontend (Next.js 14)
+  - [x] Set up PostgreSQL + Prisma
+  - [x] Create database schema and run migrations
+  - [x] Configure Docker Compose
+  - [x] Set up environment configuration
 
-### BSIM Team (Blocking)
+**Completed Components:**
+- Backend API server with routes for auth, wallet, enrollment, health
+- Auth server with OIDC provider, Prisma adapter, interaction views
+- Frontend with wallet dashboard, enrollment page, profile page
+- Docker Compose with all services
+- Full Prisma schema (WalletUser, BsimEnrollment, WalletCard, etc.)
+
+### BSIM Team (Blocking) 🔴 NOT STARTED
 > See [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) for details
+> See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for local dev setup
 
 - [ ] Add `wallet:enroll` OIDC scope
 - [ ] Create `WalletCredential` data model
@@ -30,9 +38,11 @@ We have completed the architectural planning phase. Implementation is ready to b
 - [ ] Implement `POST /api/wallet/revoke` endpoint
 - [ ] Update consent UI for wallet enrollment
 - [ ] Create `GET /api/registry/info` endpoint
+- [ ] Register WSIM as OAuth client in BSIM auth-server
+- [ ] **Integrate WSIM into docker-compose stack** (see BSIM_DEPLOYMENT_INTEGRATION.md)
 - [ ] Testing and documentation
 
-### NSIM Team
+### NSIM Team 🟡 CAN START IN PARALLEL
 > See [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) for details
 
 - [ ] Design BSIM registry data structure
@@ -47,37 +57,42 @@ We have completed the architectural planning phase. Implementation is ready to b
 
 ## Phase 2: Core WSIM Development (Week 2-4)
 
-### WSIM Team
-- [ ] **BSIM OIDC Client**
-  - [ ] Configure bsim providers
-  - [ ] Implement enrollment initiation route
-  - [ ] Implement enrollment callback handler
-  - [ ] Create user profile from bsim data
+### WSIM Team - Blocked by BSIM
 
-- [ ] **Card Management**
+#### Completed (UI/Structure Ready)
+- [x] Configure oidc-provider (auth-server)
+- [x] Create Prisma adapter for OIDC storage
+- [x] Build card selection UI (EJS views)
+- [x] Wallet dashboard page (frontend)
+- [x] Card list component (frontend)
+- [x] Bank enrollment page (frontend)
+- [x] Profile management (frontend)
+
+#### Blocked - Requires BSIM wallet:enroll
+- [ ] **BSIM OIDC Client** (enrollment flow)
+  - [x] Configure bsim providers (structure ready)
+  - [ ] Implement enrollment initiation route (needs BSIM scope)
+  - [ ] Implement enrollment callback handler (needs BSIM scope)
+  - [ ] Create user profile from bsim data (needs BSIM response)
+
+- [ ] **Card Management** (needs BSIM wallet APIs)
   - [ ] Implement card fetching from bsim
   - [ ] Store cards with wallet tokens
-  - [ ] Create wallet management APIs
-  - [ ] Implement card removal
+  - [x] Create wallet management APIs (routes ready, need data)
+  - [x] Implement card removal (route ready)
 
-- [ ] **OIDC Provider (for SSIMs)**
-  - [ ] Configure oidc-provider
-  - [ ] Create Prisma adapter
-  - [ ] Implement payment interaction flow
-  - [ ] Build card selection UI
-  - [ ] Add extraTokenClaims for card tokens
-
-- [ ] **Frontend**
-  - [ ] Wallet dashboard page
-  - [ ] Card list component
-  - [ ] Bank enrollment page
-  - [ ] Profile management
+- [ ] **OIDC Provider Payment Flow** (needs cards in system)
+  - [x] Configure oidc-provider
+  - [x] Create Prisma adapter
+  - [x] Build card selection UI
+  - [ ] Implement payment interaction flow (needs cards)
+  - [ ] Add extraTokenClaims for card tokens (needs BSIM token API)
 
 ---
 
 ## Phase 3: SSIM Integration (Week 4-5)
 
-### SSIM Team
+### SSIM Team 🟡 CAN PREPARE
 > See [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) for details
 
 - [ ] Add WSIM as OIDC provider
@@ -93,56 +108,74 @@ We have completed the architectural planning phase. Implementation is ready to b
 
 ### All Teams
 - [ ] **E2E Scenario: First-time wallet user**
-  - [ ] User visits wsim → enrollment
-  - [ ] Selects bsim → authenticates
-  - [ ] Cards imported to wsim
-  - [ ] Visits ssim → "Pay with Wallet"
-  - [ ] Selects card → payment authorized
-
 - [ ] **E2E Scenario: Returning wallet user**
-  - [ ] Existing wsim session
-  - [ ] ssim checkout → wallet payment
-  - [ ] Card selection → payment completes
-
 - [ ] **E2E Scenario: Multi-bsim user**
-  - [ ] Cards from 2+ bsims
-  - [ ] Correct routing to each bsim
-
 - [ ] **E2E Scenario: Error handling**
-  - [ ] Expired credentials
-  - [ ] Declined payments
-  - [ ] Unavailable bsim
 
 ---
 
-## Future Enhancements (Post-MVP)
+## Local Development Setup
 
-> See [FUTURE_CONSIDERATIONS.md](./FUTURE_CONSIDERATIONS.md) for details
+### For WSIM Standalone (without BSIM integration)
+```bash
+# Start PostgreSQL
+docker-compose up postgres -d
 
-- [ ] Native WSIM accounts (Option B authentication)
-- [ ] Token-encoded routing (Option C)
-- [ ] Open Banking expansion (accounts, balances, transactions)
-- [ ] Recurring payments / Card-on-file
-- [ ] Push provisioning
-- [ ] Multi-wallet support
-- [ ] Wallet-to-wallet transfers
+# Run backend (terminal 1)
+cd backend && cp .env.example .env && npm run dev
+
+# Run auth-server (terminal 2)
+cd auth-server && cp .env.example .env && npm run dev
+
+# Run frontend (terminal 3)
+cd frontend && npm run dev
+```
+
+Access at: http://localhost:3004
+
+### For Full Stack (BSIM-orchestrated)
+> Requires BSIM team to implement changes in [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md)
+
+```bash
+# From bsim directory
+make dev-build
+```
+
+Access at: https://wsim-dev.banksim.ca
 
 ---
 
 ## Coordination Checkpoints
 
-| Checkpoint | Date | Teams | Milestone |
-|------------|------|-------|-----------|
-| Checkpoint 1 | End of Week 1 | BSIM, NSIM | wallet:enroll demo, registry working |
-| Checkpoint 2 | End of Week 2 | WSIM, NSIM | Enrollment with live bsim |
-| Checkpoint 3 | End of Week 3 | All | Token format validation |
-| Checkpoint 4 | End of Week 4 | All | First E2E wallet payment |
-| Final Demo | End of Week 5 | All | Complete flow, all scenarios |
+| Checkpoint | Target | Teams | Milestone | Status |
+|------------|--------|-------|-----------|--------|
+| Checkpoint 0 | Now | WSIM | Scaffolding complete | ✅ Done |
+| Checkpoint 1 | Week 1 | BSIM | wallet:enroll scope ready | 🔴 Waiting |
+| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | 🔴 Blocked |
+| Checkpoint 3 | Week 3 | All | Token format validation | 🔴 Blocked |
+| Checkpoint 4 | Week 4 | All | First E2E wallet payment | 🔴 Blocked |
+| Final Demo | Week 5 | All | Complete flow, all scenarios | 🔴 Blocked |
+
+---
+
+## Key Documents
+
+| Document | Purpose |
+|----------|---------|
+| [ARCHITECTURE_PLAN.md](./ARCHITECTURE_PLAN.md) | System design, data models, flows |
+| [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) | BSIM team task list |
+| [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) | **NEW** - How to add WSIM to BSIM docker stack |
+| [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) | NSIM team task list |
+| [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) | SSIM team task list |
+| [WSIM_IMPLEMENTATION_PLAN.md](./WSIM_IMPLEMENTATION_PLAN.md) | WSIM implementation details |
+| [FUTURE_CONSIDERATIONS.md](./FUTURE_CONSIDERATIONS.md) | Post-MVP features |
 
 ---
 
 ## Notes
 
-- BSIM work is **critical path** - blocks WSIM enrollment development
+- **BSIM work is critical path** - blocks WSIM enrollment development
+- **BSIM team should review [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md)** for nginx/docker-compose changes
 - NSIM routing can proceed in parallel once basic registry structure is agreed
 - SSIM integration is last in sequence - needs working WSIM OIDC provider
+- WSIM uses Prisma 5.x (not 7.x) for compatibility
