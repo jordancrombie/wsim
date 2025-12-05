@@ -16,6 +16,7 @@ export const env = {
 
   // Backend API
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:3003',
+  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3004', // Public URL for browser API calls
   INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET || 'dev-internal-secret-change-in-production',
 
   // Cookie/Session

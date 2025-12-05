@@ -115,6 +115,7 @@
   <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
   <script>
     const ALLOWED_ORIGIN = '<%= allowedOrigin %>';
+    const API_URL = '<%= apiUrl %>';
 
     function sendToOpener(message) {
       if (window.opener && !window.opener.closed && ALLOWED_ORIGIN) {
@@ -134,9 +135,10 @@
     async function signInWithPasskey() {
       try {
         // Get authentication options (discoverable credentials)
-        const optionsRes = await fetch('/api/passkey/authenticate/options', {
+        const optionsRes = await fetch(`${API_URL}/api/passkey/authenticate/options`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({})
         });
 
@@ -151,7 +153,7 @@
         const credential = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: options });
 
         // Verify
-        const verifyRes = await fetch('/api/passkey/authenticate/verify', {
+        const verifyRes = await fetch(`${API_URL}/api/passkey/authenticate/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',

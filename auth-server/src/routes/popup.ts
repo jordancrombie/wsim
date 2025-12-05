@@ -133,6 +133,7 @@ router.get('/card-picker', async (req: Request, res: Response) => {
         currency: currency || 'CAD',
         allowedOrigin: origin,
         queryParams: new URLSearchParams(req.query as Record<string, string>).toString(),
+        apiUrl: env.FRONTEND_URL, // Public API URL for browser calls
       });
     }
 
