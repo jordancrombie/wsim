@@ -36,11 +36,12 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ## Project Status
 
-**Current Phase**: Enrollment Flow Ready for Testing
+**Current Phase**: Docker Containers Ready - Awaiting BSIM Integration
 
 - BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs)
 - WSIM enrollment flow is implemented and ready for E2E testing
-- Payment flow implementation in progress
+- Production-ready Dockerfiles created for all services
+- Awaiting BSIM team to integrate WSIM into docker-compose stack
 
 See [TODO.md](./TODO.md) for detailed progress and [CHANGELOG.md](./CHANGELOG.md) for history.
 
@@ -108,9 +109,10 @@ BSIM_PROVIDERS='[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth
 
 - **Backend**: Express.js + TypeScript + Prisma
 - **Database**: PostgreSQL
-- **Frontend**: Next.js 14 + React + Tailwind CSS
+- **Frontend**: Next.js 16 + React 19 + Tailwind CSS
 - **Auth Server**: oidc-provider
 - **OIDC Client**: openid-client v6 (for BSIM integration)
+- **Containers**: Multi-stage Docker builds (node:20-alpine)
 
 ### Key Flows
 
@@ -122,6 +124,24 @@ BSIM_PROVIDERS='[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth
    - SSIM → WSIM OAuth with `payment:authorize` scope
    - WSIM fetches ephemeral `cardToken` from BSIM
    - SSIM → NSIM with both `walletCardToken` and `cardToken`
+
+## Docker
+
+All services have production-ready Dockerfiles with multi-stage builds:
+
+| Service | Dockerfile | Internal Port |
+|---------|------------|---------------|
+| Backend | `backend/Dockerfile` | 3003 |
+| Auth Server | `auth-server/Dockerfile` | 3005 |
+| Frontend | `frontend/Dockerfile` | 3000 |
+
+Features:
+- Multi-stage builds (deps → builder → runner)
+- Non-root users for security
+- Health checks on all services
+- Next.js standalone output mode
+
+See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for complete docker-compose configuration.
 
 ## Documentation
 

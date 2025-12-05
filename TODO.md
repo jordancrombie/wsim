@@ -1,10 +1,10 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-04
+> **Last Updated**: 2025-12-05
 
-## Current Status: 🟢 Enrollment Flow Ready for Testing
+## Current Status: 🟢 Docker Containers Ready - Awaiting BSIM Integration
 
-BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM enrollment flow is now implemented and ready for end-to-end testing.
+BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM enrollment flow is implemented and production-ready Docker containers are available. **Waiting for BSIM team to integrate WSIM into their docker-compose stack.**
 
 ---
 
@@ -14,17 +14,25 @@ BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM en
 - [x] **Project Setup**
   - [x] Initialize backend (Express + TypeScript)
   - [x] Initialize auth-server (oidc-provider)
-  - [x] Initialize frontend (Next.js 14)
+  - [x] Initialize frontend (Next.js 16)
   - [x] Set up PostgreSQL + Prisma
   - [x] Create database schema and run migrations
   - [x] Configure Docker Compose
   - [x] Set up environment configuration
 
+- [x] **Production Docker Containers**
+  - [x] Multi-stage Dockerfile for backend
+  - [x] Multi-stage Dockerfile for auth-server
+  - [x] Multi-stage Dockerfile for frontend (standalone mode)
+  - [x] Non-root users for security
+  - [x] Health checks on all services
+  - [x] `.dockerignore` files for all services
+
 **Completed Components:**
 - Backend API server with routes for auth, wallet, enrollment, health
 - Auth server with OIDC provider, Prisma adapter, interaction views
 - Frontend with wallet dashboard, enrollment page, profile page
-- Docker Compose with all services
+- Production-ready Docker containers for all services
 - Full Prisma schema (WalletUser, BsimEnrollment, WalletCard, etc.)
 
 ### BSIM Team ✅ PHASE 1 COMPLETE
@@ -154,7 +162,8 @@ Access at: https://wsim-dev.banksim.ca
 |------------|--------|-------|-----------|--------|
 | Checkpoint 0 | Now | WSIM | Scaffolding complete | ✅ Done |
 | Checkpoint 1 | Week 1 | BSIM | wallet:enroll scope ready | ✅ Done |
-| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | 🟡 Ready for Testing |
+| Checkpoint 1.5 | Week 1 | WSIM | Docker containers ready | ✅ Done |
+| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | 🟡 Awaiting BSIM docker integration |
 | Checkpoint 3 | Week 3 | All | Token format validation | 🔴 Blocked |
 | Checkpoint 4 | Week 4 | All | First E2E wallet payment | 🔴 Blocked |
 | Final Demo | Week 5 | All | Complete flow, all scenarios | 🔴 Blocked |
@@ -177,8 +186,9 @@ Access at: https://wsim-dev.banksim.ca
 
 ## Notes
 
-- **BSIM work is critical path** - blocks WSIM enrollment development
+- **BSIM docker integration is critical path** - WSIM containers are ready, waiting for BSIM team to add to their stack
 - **BSIM team should review [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md)** for nginx/docker-compose changes
 - NSIM routing can proceed in parallel once basic registry structure is agreed
 - SSIM integration is last in sequence - needs working WSIM OIDC provider
 - WSIM uses Prisma 5.x (not 7.x) for compatibility
+- All Docker images use `node:20-alpine` base with multi-stage builds

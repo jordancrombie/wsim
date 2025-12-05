@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Production Docker Containers**
+  - Multi-stage Dockerfiles for all services (backend, auth-server, frontend)
+  - Non-root users for security (`wsim`, `oidc`, `nextjs` with uid 1001)
+  - Health checks on all services
+  - `.dockerignore` files to optimize builds
+  - Next.js standalone output mode for minimal container size
+
 - **Enrollment Flow Implementation**
   - BSIM OIDC client service using `openid-client` v6
   - PKCE support for secure authorization code flow
@@ -26,12 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Documentation**
   - FAQ section in BSIM_SUBPLAN.md answering team integration questions
-  - BSIM_DEPLOYMENT_INTEGRATION.md for docker-compose setup
-  - Updated README with quick start guide and API documentation
+  - Comprehensive BSIM_DEPLOYMENT_INTEGRATION.md with nginx config, docker-compose services, and troubleshooting
+  - Updated README with quick start guide, API documentation, and Docker section
 
 ### Changed
 - Updated `.env.example` with proper dev environment URLs
 - CORS configuration includes all dev subdomains
+- `next.config.ts` now uses `output: "standalone"` for Docker deployment
 
 ## [0.1.0] - 2025-12-04
 

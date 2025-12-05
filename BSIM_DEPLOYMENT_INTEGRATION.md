@@ -8,8 +8,34 @@ WSIM (Wallet Simulator) needs to be added to the BSIM local development stack al
 
 - Run as containerized services within the `bsim-network`
 - Be accessible via `wsim-dev.banksim.ca` (dev) and `wsim.banksim.ca` (prod)
-- Share the PostgreSQL database (separate schema/tables)
-- Integrate with existing auth-server for OIDC
+- Share the PostgreSQL database (separate tables with `Wallet` prefix)
+- Integrate with BSIM auth-server for enrollment OAuth flow
+
+## WSIM Container Architecture
+
+WSIM provides production-ready Dockerfiles following BSIM's patterns:
+
+| Service | Dockerfile | Internal Port | Description |
+|---------|------------|---------------|-------------|
+| wsim-backend | `wsim/backend/Dockerfile` | 3003 | Express API server |
+| wsim-auth-server | `wsim/auth-server/Dockerfile` | 3005 | OIDC provider for SSIMs |
+| wsim-frontend | `wsim/frontend/Dockerfile` | 3000 | Next.js web app |
+
+### Dockerfile Features
+
+All WSIM Dockerfiles follow BSIM's multi-stage build pattern:
+- **Stage 1 (deps)**: Production dependencies only
+- **Stage 2 (builder)**: TypeScript compilation / Next.js build
+- **Stage 3 (runner)**: Minimal production image with non-root user
+
+Key characteristics:
+- Base image: `node:20-alpine`
+- Non-root users: `wsim`, `oidc`, `nextjs` (uid 1001)
+- Health checks on all services
+- OpenSSL installed for Prisma
+- Next.js configured for standalone output
+
+---
 
 ## Required Changes
 
@@ -29,13 +55,33 @@ Add to `/etc/hosts` (and update `make dev-hosts` output):
 Add these server blocks:
 
 ```nginx
-# WSIM Frontend
+# ===========================================
+# WSIM - Wallet Simulator
+# ===========================================
+
+# WSIM Frontend + Backend API
 server {
     listen 443 ssl;
     server_name wsim.banksim.ca wsim-dev.banksim.ca;
 
     ssl_certificate /etc/nginx/certs/banksim.ca.crt;
     ssl_certificate_key /etc/nginx/certs/banksim.ca.key;
+
+    # Disable caching for HTML (same as BSIM frontend)
+    add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    add_header Expires "0" always;
+
+    # WSIM Backend API
+    location /api {
+        set $wsim_backend_upstream wsim-backend:3003;
+        proxy_pass http://$wsim_backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 
     # WSIM Frontend
     location / {
@@ -49,17 +95,6 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
-    }
-
-    # WSIM Backend API
-    location /api {
-        set $wsim_backend_upstream wsim-backend:3003;
-        proxy_pass http://$wsim_backend_upstream;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 
@@ -111,8 +146,8 @@ server {
       SESSION_SECRET: ${WSIM_SESSION_SECRET:-wsim-dev-session-secret}
       ENCRYPTION_KEY: ${WSIM_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef}
       CORS_ORIGINS: https://wsim.banksim.ca,https://wsim-auth.banksim.ca
-      # BSIM providers for enrollment
-      BSIM_PROVIDERS: '[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth.banksim.ca","clientId":"wsim-client","clientSecret":"${WSIM_BSIM_CLIENT_SECRET:-wsim-dev-secret}"}]'
+      # BSIM provider for enrollment (WSIM connects to BSIM as OAuth client)
+      BSIM_PROVIDERS: '[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth.banksim.ca","apiUrl":"https://banksim.ca","clientId":"wsim-wallet","clientSecret":"${WSIM_BSIM_CLIENT_SECRET:-wsim-dev-secret}"}]'
     depends_on:
       db:
         condition: service_healthy
@@ -165,41 +200,40 @@ server {
       APP_URL: https://wsim-dev.banksim.ca
       FRONTEND_URL: https://wsim-dev.banksim.ca
       AUTH_SERVER_URL: https://wsim-auth-dev.banksim.ca
-      CORS_ORIGINS: https://wsim-dev.banksim.ca,https://wsim-auth-dev.banksim.ca,https://ssim-dev.banksim.ca
-      BSIM_PROVIDERS: '[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth-dev.banksim.ca","clientId":"wsim-client","clientSecret":"wsim-dev-secret"}]'
-    volumes:
-      - ../wsim/backend/src:/app/src:ro
+      CORS_ORIGINS: https://wsim-dev.banksim.ca,https://wsim-auth-dev.banksim.ca,https://ssim-dev.banksim.ca,https://dev.banksim.ca
+      BSIM_PROVIDERS: '[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth-dev.banksim.ca","apiUrl":"https://dev.banksim.ca","clientId":"wsim-wallet","clientSecret":"wsim-dev-secret"}]'
 
   wsim-auth-server:
     environment:
       NODE_ENV: development
       ISSUER: https://wsim-auth-dev.banksim.ca
       CORS_ORIGINS: https://wsim-dev.banksim.ca,https://ssim-dev.banksim.ca
-    volumes:
-      - ../wsim/auth-server/src:/app/src:ro
 
   wsim-frontend:
     build:
       args:
         NEXT_PUBLIC_API_URL: https://wsim-dev.banksim.ca/api
         NEXT_PUBLIC_AUTH_URL: https://wsim-auth-dev.banksim.ca
-    volumes:
-      - ../wsim/frontend/src:/app/src:ro
 ```
 
 ### 4. Database Migration
 
-WSIM uses its own tables in the shared database. Run migrations:
+WSIM uses its own tables in the shared database. The tables are prefixed with `Wallet` to avoid conflicts:
+- `WalletUser`
+- `BsimEnrollment`
+- `WalletCard`
+- `WalletPaymentConsent`
+- `OidcPayload`
+- `OAuthClient`
 
+Migrations run automatically on container start via:
 ```bash
-# From wsim/backend directory
 npx prisma migrate deploy
 ```
 
-Or add to the BSIM startup script to auto-migrate:
-
+If you prefer to run migrations separately:
 ```bash
-# In bsim/scripts/db.sh or Makefile
+# From wsim/backend directory
 cd ../wsim/backend && npx prisma migrate deploy
 ```
 
@@ -212,12 +246,12 @@ Add to BSIM's seed data or create via admin:
 ```typescript
 // BSIM OAuth Client for WSIM
 {
-  clientId: 'wsim-client',
+  clientId: 'wsim-wallet',
   clientSecret: 'wsim-dev-secret', // Use env var in production
   clientName: 'Wallet Simulator',
   redirectUris: [
-    'https://wsim.banksim.ca/enrollment/callback/bsim',
-    'https://wsim-dev.banksim.ca/enrollment/callback/bsim'
+    'https://wsim.banksim.ca/api/enrollment/callback/bsim',
+    'https://wsim-dev.banksim.ca/api/enrollment/callback/bsim'
   ],
   postLogoutRedirectUris: [
     'https://wsim.banksim.ca',
@@ -230,56 +264,11 @@ Add to BSIM's seed data or create via admin:
 }
 ```
 
-### 6. SSIM Configuration Update
-
-SSIM needs to know about WSIM for "Pay with Wallet" functionality.
-
-Add to SSIM's environment:
-
-```yaml
-# In docker-compose for SSIM or ssim/.env
-WSIM_URL: https://wsim-dev.banksim.ca
-WSIM_AUTH_URL: https://wsim-auth-dev.banksim.ca
-WSIM_CLIENT_ID: ssim-merchant
-WSIM_CLIENT_SECRET: ssim-wsim-secret
-```
-
-And register SSIM as a client in WSIM's auth-server (via database seed):
-
-```typescript
-// WSIM OAuth Client for SSIM
-{
-  clientId: 'ssim-merchant',
-  clientSecret: 'ssim-wsim-secret',
-  clientName: 'Store Simulator',
-  redirectUris: [
-    'https://ssim.banksim.ca/payment/wallet-callback',
-    'https://ssim-dev.banksim.ca/payment/wallet-callback'
-  ],
-  postLogoutRedirectUris: [
-    'https://ssim.banksim.ca',
-    'https://ssim-dev.banksim.ca'
-  ],
-  grantTypes: ['authorization_code'],
-  scope: 'openid payment:authorize',
-  trusted: true
-}
-```
-
-### 7. NSIM Configuration Update
-
-NSIM needs to support multi-BSIM routing. See [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) for details.
-
-Key change: NSIM should accept `walletCardToken` for routing:
-
-```yaml
-# NSIM environment addition
-WSIM_ENABLED: "true"
-```
+**Important**: The redirect URIs use `/api/enrollment/callback/bsim` (not just `/enrollment/callback/bsim`).
 
 ---
 
-## Service Port Summary (Updated)
+## Service Port Summary
 
 | Service | Internal Port | External URL (Dev) |
 |---------|---------------|-------------------|
@@ -288,20 +277,20 @@ WSIM_ENABLED: "true"
 | BSIM Admin | 3002 | https://admin-dev.banksim.ca |
 | BSIM Auth | 3003 | https://auth-dev.banksim.ca |
 | Open Banking | 3004 | https://openbanking-dev.banksim.ca |
-| SSIM | 3005 (host) | https://ssim-dev.banksim.ca |
+| SSIM | varies | https://ssim-dev.banksim.ca |
 | NSIM | 3006 | https://payment-dev.banksim.ca |
 | **WSIM Backend** | 3003 | https://wsim-dev.banksim.ca/api |
 | **WSIM Auth** | 3005 | https://wsim-auth-dev.banksim.ca |
 | **WSIM Frontend** | 3000 | https://wsim-dev.banksim.ca |
 
-> **Note**: WSIM services use the same internal ports as their BSIM counterparts but are separate containers with different hostnames.
+> **Note**: WSIM services use the same internal ports as their BSIM counterparts but are separate containers with different hostnames. Docker's internal networking handles this.
 
 ---
 
 ## Dependency Order
 
 ```
-PostgreSQL
+PostgreSQL (db)
     ↓
 ├── BSIM Backend
 ├── BSIM Auth Server
@@ -310,7 +299,7 @@ PostgreSQL
     ↓
 ├── WSIM Frontend ←── NEW
 ├── BSIM Frontend
-├── NSIM (with WSIM routing support)
+├── NSIM
     ↓
 Nginx (routes all)
 ```
@@ -339,50 +328,87 @@ wsim-logs:
 wsim-rebuild:
 	docker compose build --no-cache wsim-backend wsim-auth-server wsim-frontend
 	docker compose up -d wsim-backend wsim-auth-server wsim-frontend
+
+wsim-shell-backend:
+	docker compose exec wsim-backend sh
+
+wsim-shell-auth:
+	docker compose exec wsim-auth-server sh
 ```
 
 ---
 
 ## Testing the Integration
 
-1. **Start the stack**:
-   ```bash
-   make dev-build
-   ```
+### 1. Build and Start
 
-2. **Verify WSIM is running**:
-   ```bash
-   curl -k https://wsim-dev.banksim.ca/api/health
-   curl -k https://wsim-auth-dev.banksim.ca/.well-known/openid-configuration
-   ```
+```bash
+# From bsim directory
+make dev-build
+# Or: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
 
-3. **Test enrollment flow**:
-   - Visit https://wsim-dev.banksim.ca
-   - Click "Add a Bank"
-   - Should redirect to https://auth-dev.banksim.ca for BSIM login
-   - After consent, should return to WSIM with cards imported
+### 2. Verify Services
 
-4. **Test payment flow** (requires SSIM update):
-   - Visit https://ssim-dev.banksim.ca
-   - Add items to cart, checkout
-   - Click "Pay with Wallet"
-   - Should redirect to https://wsim-auth-dev.banksim.ca
-   - Select card, authorize
-   - Payment should complete via NSIM
+```bash
+# Health check
+curl -k https://wsim-dev.banksim.ca/api/health
+
+# OIDC discovery
+curl -k https://wsim-auth-dev.banksim.ca/.well-known/openid-configuration
+
+# Check logs
+make wsim-logs
+```
+
+### 3. Test Enrollment Flow
+
+1. Visit https://wsim-dev.banksim.ca
+2. Click "Add a Bank"
+3. Select "Bank Simulator"
+4. Should redirect to https://auth-dev.banksim.ca for BSIM login
+5. Log in and consent to `wallet:enroll` scope
+6. Should return to WSIM with cards imported
+7. Cards should appear on wallet dashboard
+
+### 4. Troubleshooting
+
+**OIDC Discovery Fails**:
+```bash
+# Check BSIM auth is accessible from WSIM container
+docker compose exec wsim-backend wget -qO- https://auth-dev.banksim.ca/.well-known/openid-configuration
+```
+
+**Database Connection Fails**:
+```bash
+# Check database from WSIM container
+docker compose exec wsim-backend npx prisma db pull
+```
+
+**Redirect URI Mismatch**:
+- Ensure BSIM has `wsim-wallet` client registered
+- Verify redirect URI exactly matches: `https://wsim-dev.banksim.ca/api/enrollment/callback/bsim`
 
 ---
 
-## Questions for BSIM Team
+## Future: SSIM Integration
 
-1. Should WSIM share the same PostgreSQL database or use a separate one?
-   - **Current assumption**: Shared database, separate tables (prefixed schema)
+Once enrollment is working, SSIM will need configuration updates for "Pay with Wallet". See [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) for details.
 
-2. Should WSIM's auth-server be a separate service or extend BSIM's?
-   - **Current assumption**: Separate service (cleaner separation, different OIDC issuer)
+SSIM environment additions:
+```yaml
+WSIM_URL: https://wsim-dev.banksim.ca
+WSIM_AUTH_URL: https://wsim-auth-dev.banksim.ca
+WSIM_CLIENT_ID: ssim-merchant
+WSIM_CLIENT_SECRET: ssim-wsim-secret
+```
 
-3. Port allocation - are 3003/3005 available for WSIM containers?
-   - These are the same ports as BSIM backend/auth but different containers
-   - Docker internal networking handles this fine
+---
 
-4. Certificate - should WSIM subdomains be added to the wildcard cert?
-   - **Current assumption**: Existing `*.banksim.ca` wildcard covers `wsim.banksim.ca` and `wsim-auth.banksim.ca`
+## Questions / Decisions
+
+1. **Database**: WSIM uses the shared `bsim` database with separate tables. If you prefer a separate database, let us know.
+
+2. **Certificates**: The existing `*.banksim.ca` wildcard cert should cover `wsim.banksim.ca` and `wsim-auth.banksim.ca`. Please confirm.
+
+3. **Client ID**: We're using `wsim-wallet` as the OAuth client ID. Is this registered in BSIM's auth-server, or do we need to coordinate on the exact value?
