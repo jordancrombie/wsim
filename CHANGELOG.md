@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **E2E Integration Testing Progress (2025-12-05)**
+  - Successfully configured SSIM to show "Pay with Wallet" button
+  - WSIM OIDC provider now issues JWT access tokens via Resource Indicators feature
+  - JWT tokens include `wallet_card_token` and `card_token` claims
+  - SSIM extracts tokens from WSIM JWT and passes to NSIM for payment authorization
+
+- **SSIM OAuth Client Configuration**
+  - Registered `ssim-merchant` OAuth client in WSIM database
+  - Configured SSIM environment with WSIM integration settings
+  - Added `resource` parameter to authorization and token exchange for JWT format
+
 - **Production Docker Containers**
   - Multi-stage Dockerfiles for all services (backend, auth-server, frontend)
   - Non-root users for security (`wsim`, `oidc`, `nextjs` with uid 1001)
@@ -50,6 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `next.config.ts` now uses `output: "standalone"` for Docker deployment
 
 ### Fixed
+- **WSIM Auth Server Issues (2025-12-05)**
+  - Disabled `devInteractions` in oidc-provider to use custom interaction routes
+  - Fixed Grant creation in card selection handler - properly creates and saves Grant with scopes
+  - Added `resourceIndicators` feature with `defaultResource` and `getResourceServerInfo` for JWT access tokens
+  - Fixed issuer mismatch by using dev environment config (`docker-compose.dev.yml`)
+  - Added `grant.addResourceScope()` call to include resource in consent grant
+  - Fixed variable name mismatch (`grantIdFromProvider` → `grantId`) in interaction result
+
 - **BSIM Integration Issues (2025-12-05)**
   - Added Prisma binary targets for Alpine/ARM64 Docker containers (`linux-musl-arm64-openssl-3.0.x`, `linux-musl-openssl-3.0.x`)
   - Changed backend Dockerfile to use `prisma db push` instead of `migrate deploy` (no migrations yet)

@@ -2,9 +2,37 @@
 
 > **Last Updated**: 2025-12-05
 
-## Current Status: 🟢 Enrollment Flow Complete - Payment Flow Implementation In Progress
+## Current Status: 🟡 E2E Testing - NSIM Card Token Validation Issue
 
-BSIM integration complete! Card enrollment flow is fully working. Payment authorization flow (SSIM→WSIM→BSIM) implementation is ready for testing.
+BSIM integration complete! Card enrollment flow is fully working. Payment authorization flow (SSIM→WSIM→BSIM) implementation complete. **E2E testing in progress** - WSIM JWT token flow working, but NSIM is rejecting card tokens with "Invalid card token" error.
+
+### Current Blocker: NSIM Card Token Validation
+
+**What's Working:**
+- ✅ SSIM shows "Pay with Wallet" button
+- ✅ WSIM OIDC flow (login → card selection → consent)
+- ✅ JWT access tokens with `wallet_card_token` and `card_token` claims
+- ✅ SSIM extracts tokens from WSIM JWT
+
+**What's Failing:**
+- ❌ NSIM declines payment with "Invalid card token"
+
+**Logs showing the issue:**
+```
+[Payment] WSIM JWT payload: {
+  "wallet_card_token": "wsim_bsim_054643f39bd6",
+  "card_token": "eyJhbG..." (JWT from BSIM)
+}
+[Payment] Authorizing wallet payment via NSIM...
+{ status: 'declined', declineReason: 'Invalid card token' }
+```
+
+**Proposed Troubleshooting Steps:**
+1. Check if BSIM card token has expired (5-minute TTL)
+2. Verify NSIM has correct secret to validate BSIM card tokens
+3. Check if NSIM recognizes wallet payment token type (`type: "wallet_payment_token"`)
+4. Review BSIM `/api/wallet/request-token` endpoint implementation
+5. Ensure NSIM routes wallet payments to correct BSIM based on `walletCardToken` prefix
 
 ---
 
@@ -107,21 +135,21 @@ BSIM integration complete! Card enrollment flow is fully working. Payment author
 
 ## Phase 3: SSIM Integration (Week 4-5)
 
-### SSIM Team 🟡 CAN PREPARE
+### SSIM Team ✅ COMPLETE
 > See [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) for details
 
-- [ ] Add WSIM as OIDC provider
-- [ ] Update checkout UI with "Pay with Wallet" button
-- [ ] Implement wallet payment callback
-- [ ] Update NSIM client for walletCardToken
-- [ ] Update order details display
-- [ ] End-to-end testing
+- [x] Add WSIM as OIDC provider
+- [x] Update checkout UI with "Pay with Wallet" button
+- [x] Implement wallet payment callback
+- [x] Update NSIM client for walletCardToken
+- [x] Update order details display
+- [x] End-to-end testing (SSIM side)
 
 ---
 
 ## Phase 4: Integration Testing (Week 5)
 
-### All Teams
+### All Teams 🟡 IN PROGRESS
 - [ ] **E2E Scenario: First-time wallet user**
 - [ ] **E2E Scenario: Returning wallet user**
 - [ ] **E2E Scenario: Multi-bsim user**
@@ -167,10 +195,10 @@ Access at: https://wsim-dev.banksim.ca
 | Checkpoint 0 | Now | WSIM | Scaffolding complete | ✅ Done |
 | Checkpoint 1 | Week 1 | BSIM | wallet:enroll scope ready | ✅ Done |
 | Checkpoint 1.5 | Week 1 | WSIM | Docker containers ready | ✅ Done |
-| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | 🟡 Awaiting BSIM docker integration |
-| Checkpoint 3 | Week 3 | All | Token format validation | 🔴 Blocked |
-| Checkpoint 4 | Week 4 | All | First E2E wallet payment | 🔴 Blocked |
-| Final Demo | Week 5 | All | Complete flow, all scenarios | 🔴 Blocked |
+| Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | ✅ Done |
+| Checkpoint 3 | Week 3 | All | Token format validation | ✅ Done |
+| Checkpoint 4 | Week 4 | All | First E2E wallet payment | 🟡 Testing |
+| Final Demo | Week 5 | All | Complete flow, all scenarios | 🟡 In Progress |
 
 ---
 

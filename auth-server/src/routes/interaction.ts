@@ -320,12 +320,24 @@ export function createInteractionRoutes(provider: Provider): Router {
         paymentDetails.currency
       );
 
-      // Get the grant ID from the interaction
-      // The grant is created when we finish the interaction
-      // We need to store the context before finishing
-      const grantId = details.grantId || details.uid; // Use uid as fallback
+      // Create a grant for the requested scopes FIRST so we have the grantId
+      const grant = new provider.Grant({
+        accountId: details.session.accountId,
+        clientId: details.params.client_id as string,
+      });
 
-      // Store payment context for extraTokenClaims
+      // Add the requested scopes to the grant
+      const requestedScopes = (details.params.scope as string)?.split(' ') || [];
+      grant.addOIDCScope(requestedScopes.join(' '));
+
+      // Add resource indicator for JWT access tokens
+      grant.addResourceScope('urn:wsim:payment-api', requestedScopes.join(' '));
+
+      // Save the grant and get its ID
+      const grantId = await grant.save();
+      console.log(`[Interaction] Created grant: ${grantId.substring(0, 8)}...`);
+
+      // Store payment context for extraTokenClaims using the actual grant ID
       console.log(`[Interaction] Storing payment context for grant ${grantId.substring(0, 8)}...`);
       const contextStored = await storePaymentContext(
         grantId,
@@ -344,13 +356,15 @@ export function createInteractionRoutes(provider: Provider): Router {
 
       const result = {
         consent: {
-          // Grant all requested scopes
+          grantId,
         },
       };
 
+      console.log(`[Interaction] Finishing interaction for UID ${req.params.uid}...`);
       await provider.interactionFinished(req, res, result, {
         mergeWithLastSubmission: true,
       });
+      console.log(`[Interaction] Interaction finished successfully`);
     } catch (error) {
       console.error('[Interaction] Card selection error:', error);
       res.status(500).render('error', {

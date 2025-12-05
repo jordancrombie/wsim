@@ -59,10 +59,19 @@ export async function createOidcProvider(): Promise<Provider> {
 
     // Features
     features: {
-      devInteractions: { enabled: env.NODE_ENV === 'development' },
+      devInteractions: { enabled: false }, // Disabled - we use custom interaction routes
       clientCredentials: { enabled: false },
-      resourceIndicators: { enabled: false },
       revocation: { enabled: true },
+      // Enable resource indicators to issue JWT access tokens
+      resourceIndicators: {
+        enabled: true,
+        defaultResource: () => 'urn:wsim:payment-api',
+        getResourceServerInfo: () => ({
+          scope: 'openid profile email payment:authorize',
+          accessTokenFormat: 'jwt',
+          accessTokenTTL: 300, // 5 minutes
+        }),
+      },
     },
 
     // PKCE configuration
