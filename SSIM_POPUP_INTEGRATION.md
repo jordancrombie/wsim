@@ -334,6 +334,32 @@ Suggested UI pattern:
 
 The popup UI automatically detects which flow to use based on the user's passkey registration status. You don't need to handle this on the SSIM side - just listen for the `wsim:card-selected` message regardless of which flow the user went through.
 
+### Which token do I send to NSIM - `token` or `cardToken`?
+
+**Use `cardToken` only.** The popup response includes two tokens:
+
+| Field | Description | Use |
+|-------|-------------|-----|
+| `cardToken` | BSIM card token for payment processing | **Send this to NSIM** |
+| `token` | WSIM wallet payment token | Not needed for NSIM (legacy field) |
+
+NSIM's authorize endpoint only requires `cardToken`:
+
+```javascript
+// After receiving wsim:card-selected message
+const result = await fetch('https://payment-dev.banksim.ca/api/v1/payments/authorize', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    merchantId: 'ssim-merchant',
+    amount: 49.99,
+    currency: 'CAD',
+    cardToken: result.cardToken,  // Use this one
+    orderId: 'order-123'
+  })
+});
+```
+
 ### What if the popup is blocked?
 
 Browser popup blockers may prevent the wallet popup from opening. Recommendations:
