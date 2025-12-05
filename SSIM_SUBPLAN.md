@@ -239,12 +239,14 @@ router.get('/wallet-callback', async (req, res) => {
     );
 
     // Extract tokens from claims
+    // Note: claim names use underscores, not camelCase
     const accessTokenClaims = decodeJwt(tokenSet.access_token);
 
     // WSIM returns BOTH tokens:
-    // - walletCardToken: for NSIM routing (identifies bsim)
-    // - cardToken: for actual payment authorization at bsim
-    const { walletCardToken, cardToken } = accessTokenClaims;
+    // - wallet_card_token: for NSIM routing (identifies bsim)
+    // - card_token: for actual payment authorization at bsim
+    const walletCardToken = accessTokenClaims.wallet_card_token;
+    const cardToken = accessTokenClaims.card_token;
 
     if (!walletCardToken || !cardToken) {
       throw new Error('Missing payment tokens in response');
@@ -509,8 +511,60 @@ BSIM_CLIENT_ID=ssim-client
 
 ---
 
-## Questions for WSIM Team
+## Answers from WSIM Team
 
-1. What claims will be in the wsim access token?
-2. Should ssim display card info (last 4 digits) after authorization?
-3. Any specific error codes we should handle?
+### 1. What claims will be in the wsim access token?
+
+The access token JWT will include these claims when `payment:authorize` scope is granted:
+
+```json
+{
+  "wallet_card_token": "wsim_bsim_abc123def456",  // For NSIM routing
+  "card_token": "eyJhbGciOiJIUzI1NiIs...",       // BSIM payment token (JWT)
+  "payment_amount": 99.99,                        // If provided in claims request
+  "payment_currency": "CAD"                       // If provided in claims request
+}
+```
+
+**Note**: The claim names use underscores (`wallet_card_token`, `card_token`) not camelCase.
+
+### 2. Should ssim display card info (last 4 digits) after authorization?
+
+Yes, you can decode the `card_token` JWT to get card info, or WSIM can provide it in additional claims. For now, just showing "Paid via Digital Wallet" is sufficient.
+
+### 3. Any specific error codes we should handle?
+
+Standard OIDC errors plus:
+- `access_denied` - User cancelled card selection
+- `invalid_scope` - `payment:authorize` scope not granted
+- `server_error` - WSIM couldn't get card token from BSIM
+
+---
+
+## Dev Environment URLs
+
+For local development with BSIM docker-compose stack:
+
+```bash
+# WSIM Configuration
+WSIM_URL=https://wsim-auth-dev.banksim.ca
+WSIM_CLIENT_ID=ssim-merchant
+WSIM_CLIENT_SECRET=ssim-dev-secret
+
+# WSIM API (for any direct calls)
+WSIM_API_URL=https://wsim-dev.banksim.ca
+```
+
+**Important**: SSIM needs to be registered as an OAuth client in WSIM. This can be done via the database or a seed script. Required client config:
+
+```json
+{
+  "clientId": "ssim-merchant",
+  "clientSecret": "ssim-dev-secret",
+  "clientName": "Store Simulator",
+  "redirectUris": ["https://ssim-dev.banksim.ca/payment/wallet-callback"],
+  "postLogoutRedirectUris": ["https://ssim-dev.banksim.ca"],
+  "grantTypes": ["authorization_code", "refresh_token"],
+  "scope": "openid profile email payment:authorize"
+}
+```
