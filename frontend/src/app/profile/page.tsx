@@ -211,6 +211,16 @@ export default function ProfilePage() {
             </div>
             <span className="text-gray-400">&rarr;</span>
           </Link>
+          <Link
+            href="/settings/passkeys"
+            className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xl">🔐</span>
+              <span className="text-gray-800">Passkeys</span>
+            </div>
+            <span className="text-gray-400">&rarr;</span>
+          </Link>
           <button
             onClick={handleLogout}
             className="w-full flex items-center justify-between p-4 hover:bg-red-50 transition-colors text-left"

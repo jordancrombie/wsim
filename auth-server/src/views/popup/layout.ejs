@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 1rem;
+    }
+
+    .popup-container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 400px;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+
+    .popup-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .popup-header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    .popup-header .logo {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .popup-content {
+      padding: 1.5rem;
+    }
+
+    .payment-info {
+      background: #f8f9fc;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+
+    .payment-info .merchant {
+      color: #666;
+      font-size: 0.875rem;
+    }
+
+    .payment-info .amount {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: #333;
+      margin-top: 0.25rem;
+    }
+
+    .card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-option {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem;
+      border: 2px solid #e5e7eb;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .card-option:hover {
+      border-color: #667eea;
+      background: #f8f9fc;
+    }
+
+    .card-option.selected {
+      border-color: #667eea;
+      background: #f0f1ff;
+    }
+
+    .card-option input[type="radio"] {
+      display: none;
+    }
+
+    .card-option .card-icon {
+      font-size: 1.5rem;
+    }
+
+    .card-option .card-info {
+      flex: 1;
+    }
+
+    .card-option .card-type {
+      font-weight: 600;
+      color: #333;
+    }
+
+    .card-option .card-number {
+      color: #666;
+      font-size: 0.875rem;
+      font-family: monospace;
+    }
+
+    .card-option .card-bank {
+      color: #999;
+      font-size: 0.75rem;
+    }
+
+    .card-option .checkmark {
+      width: 24px;
+      height: 24px;
+      border: 2px solid #e5e7eb;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .card-option.selected .checkmark {
+      background: #667eea;
+      border-color: #667eea;
+      color: white;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 1rem 1.5rem;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #666;
+      margin-top: 0.75rem;
+    }
+
+    .btn-secondary:hover {
+      background: #e5e7eb;
+    }
+
+    .message {
+      padding: 1rem;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+    }
+
+    .message.error {
+      background: #fef2f2;
+      color: #dc2626;
+    }
+
+    .message.success {
+      background: #f0fdf4;
+      color: #16a34a;
+    }
+
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+    }
+
+    .loading .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 2rem;
+      color: #666;
+    }
+
+    .empty-state .icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .passkey-prompt {
+      text-align: center;
+      padding: 1rem;
+    }
+
+    .passkey-prompt .icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .passkey-prompt p {
+      color: #666;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="logo">&#128179;</div>
+      <h1><%= title %></h1>
+    </div>
+    <div class="popup-content">
+      <%- body %>
+    </div>
+  </div>
+
+  <script>
+    // PostMessage helper
+    const ALLOWED_ORIGIN = '<%= typeof allowedOrigin !== "undefined" ? allowedOrigin : "" %>';
+
+    function sendToOpener(message) {
+      if (window.opener && !window.opener.closed && ALLOWED_ORIGIN) {
+        window.opener.postMessage(message, ALLOWED_ORIGIN);
+      }
+    }
+
+    function closePopup() {
+      window.close();
+    }
+
+    function sendAndClose(message) {
+      sendToOpener(message);
+      setTimeout(closePopup, 100);
+    }
+
+    // Handle cancel
+    function handleCancel() {
+      sendAndClose({
+        type: 'wsim:cancelled',
+        reason: 'user'
+      });
+    }
+
+    // Handle error
+    function handleError(code, message) {
+      sendAndClose({
+        type: 'wsim:error',
+        code: code,
+        message: message
+      });
+    }
+  </script>
+</body>
+</html>

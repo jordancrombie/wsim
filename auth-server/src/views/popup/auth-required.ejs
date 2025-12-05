@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .popup-container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 400px;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+    .popup-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .popup-header h1 { font-size: 1.25rem; font-weight: 600; }
+    .popup-header .logo { font-size: 2rem; margin-bottom: 0.5rem; }
+    .popup-content { padding: 1.5rem; text-align: center; }
+    .icon { font-size: 4rem; margin-bottom: 1rem; }
+    .message { color: #666; margin-bottom: 1.5rem; line-height: 1.5; }
+    .payment-preview {
+      background: #f8f9fc;
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .payment-preview .merchant { color: #666; font-size: 0.875rem; }
+    .payment-preview .amount { font-size: 1.5rem; font-weight: 700; color: #333; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 1rem 1.5rem;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+    .btn-secondary { background: #f3f4f6; color: #666; margin-top: 0.75rem; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .divider {
+      display: flex;
+      align-items: center;
+      margin: 1.5rem 0;
+      color: #999;
+      font-size: 0.875rem;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e5e7eb;
+    }
+    .divider span { padding: 0 1rem; }
+  </style>
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="logo">&#128179;</div>
+      <h1><%= title %></h1>
+    </div>
+    <div class="popup-content">
+      <div class="icon">&#128274;</div>
+      <p class="message">
+        Sign in to your WSIM Wallet to complete this payment
+      </p>
+
+      <% if (amount) { %>
+        <div class="payment-preview">
+          <div class="merchant">Payment to <%= merchantName %></div>
+          <div class="amount">$<%= amount.toFixed(2) %> <%= currency %></div>
+        </div>
+      <% } %>
+
+      <button type="button" class="btn btn-primary" id="passkeyBtn" onclick="signInWithPasskey()">
+        &#128274; Sign in with Passkey
+      </button>
+
+      <div class="divider"><span>or</span></div>
+
+      <a href="/enroll?redirect=/popup/card-picker?<%= queryParams %>" class="btn btn-secondary">
+        Create Wallet Account
+      </a>
+
+      <button type="button" class="btn btn-secondary" onclick="handleCancel()">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+  <script>
+    const ALLOWED_ORIGIN = '<%= allowedOrigin %>';
+
+    function sendToOpener(message) {
+      if (window.opener && !window.opener.closed && ALLOWED_ORIGIN) {
+        window.opener.postMessage(message, ALLOWED_ORIGIN);
+      }
+    }
+
+    function sendAndClose(message) {
+      sendToOpener(message);
+      setTimeout(() => window.close(), 100);
+    }
+
+    function handleCancel() {
+      sendAndClose({ type: 'wsim:cancelled', reason: 'user' });
+    }
+
+    async function signInWithPasskey() {
+      try {
+        // Get authentication options (discoverable credentials)
+        const optionsRes = await fetch('/api/passkey/authenticate/options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+
+        if (!optionsRes.ok) {
+          throw new Error('Failed to get authentication options');
+        }
+
+        const options = await optionsRes.json();
+        const tempKey = options._tempKey;
+
+        // Start passkey authentication
+        const credential = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: options });
+
+        // Verify
+        const verifyRes = await fetch('/api/passkey/authenticate/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            response: credential,
+            _tempKey: tempKey
+          })
+        });
+
+        if (!verifyRes.ok) {
+          throw new Error('Authentication failed');
+        }
+
+        // Reload page - now authenticated
+        window.location.reload();
+
+      } catch (error) {
+        console.error('Passkey auth error:', error);
+        if (error.name === 'NotAllowedError') {
+          // User cancelled
+        } else {
+          sendToOpener({
+            type: 'wsim:auth-required',
+            message: 'Passkey authentication failed. Please try again.'
+          });
+        }
+      }
+    }
+  </script>
+</body>
+</html>

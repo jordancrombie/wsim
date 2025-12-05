@@ -26,4 +26,15 @@ export const env = {
     'http://localhost:3003',
     'http://localhost:3004',
   ],
+
+  // Popup/Embed allowed origins (for postMessage)
+  ALLOWED_POPUP_ORIGINS: process.env.ALLOWED_POPUP_ORIGINS?.split(',') || [
+    'http://localhost:3000',
+    'https://ssim-dev.banksim.ca',
+  ],
+
+  // WebAuthn / Passkeys
+  WEBAUTHN_RP_NAME: process.env.WEBAUTHN_RP_NAME || 'WSIM Wallet',
+  WEBAUTHN_RP_ID: process.env.WEBAUTHN_RP_ID || 'localhost',
+  WEBAUTHN_ORIGIN: process.env.WEBAUTHN_ORIGIN || 'http://localhost:3005',
 };

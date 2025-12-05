@@ -1,8 +1,10 @@
 import express from 'express';
+import session from 'express-session';
 import path from 'path';
 import { env } from './config/env';
 import { createOidcProvider } from './oidc-config';
 import { createInteractionRoutes } from './routes/interaction';
+import popupRoutes from './routes/popup';
 import { prisma } from './adapters/prisma';
 
 async function main() {
@@ -11,6 +13,25 @@ async function main() {
   // View engine setup
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
+
+  // Trust proxy in production
+  if (env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+  }
+
+  // Session middleware (for popup flow)
+  app.use(session({
+    secret: env.COOKIE_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    name: 'wsim.popup.sid',
+    cookie: {
+      secure: env.NODE_ENV === 'production',
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax',
+    },
+  }));
 
   // Body parsing
   app.use(express.urlencoded({ extended: true }));
@@ -21,6 +42,9 @@ async function main() {
 
   // Mount interaction routes (login, consent, card selection)
   app.use('/interaction', createInteractionRoutes(provider));
+
+  // Mount popup routes (embedded payment flow)
+  app.use('/popup', popupRoutes);
 
   // Health check
   app.get('/health', async (req, res) => {

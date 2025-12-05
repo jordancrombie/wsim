@@ -202,6 +202,7 @@ Access at: https://wsim-dev.banksim.ca
 | [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) | NSIM team task list |
 | [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) | SSIM team task list |
 | [WSIM_IMPLEMENTATION_PLAN.md](./WSIM_IMPLEMENTATION_PLAN.md) | WSIM implementation details |
+| [EMBEDDED_WALLET_PLAN.md](./EMBEDDED_WALLET_PLAN.md) | **NEW** - Embedded wallet (popup/iframe/API) checkout |
 | [FUTURE_CONSIDERATIONS.md](./FUTURE_CONSIDERATIONS.md) | Post-MVP features |
 
 ---

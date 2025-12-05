@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 1rem;
+    }
+    .popup-container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      max-width: 400px;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+    .popup-header {
+      background: #dc2626;
+      color: white;
+      padding: 1.5rem;
+      text-align: center;
+    }
+    .popup-header h1 { font-size: 1.25rem; font-weight: 600; }
+    .popup-header .logo { font-size: 2rem; margin-bottom: 0.5rem; }
+    .popup-content { padding: 1.5rem; text-align: center; }
+    .icon { font-size: 4rem; margin-bottom: 1rem; }
+    .message {
+      color: #666;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 1rem 1.5rem;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-secondary { background: #f3f4f6; color: #666; }
+    .btn-secondary:hover { background: #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="logo">&#9888;</div>
+      <h1><%= title %></h1>
+    </div>
+    <div class="popup-content">
+      <div class="icon">&#128533;</div>
+      <p class="message"><%= message %></p>
+      <button type="button" class="btn btn-secondary" onclick="handleClose()">
+        Close
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const ALLOWED_ORIGIN = '<%= typeof allowedOrigin !== "undefined" && allowedOrigin ? allowedOrigin : "" %>';
+
+    function handleClose() {
+      if (window.opener && !window.opener.closed && ALLOWED_ORIGIN) {
+        window.opener.postMessage({
+          type: 'wsim:error',
+          code: 'error',
+          message: '<%= message %>'
+        }, ALLOWED_ORIGIN);
+      }
+      window.close();
+    }
+  </script>
+</body>
+</html>

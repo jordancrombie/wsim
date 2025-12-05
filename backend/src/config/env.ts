@@ -33,6 +33,11 @@ export const env = {
     'http://localhost:3004',
     'http://localhost:3005',
   ],
+
+  // WebAuthn / Passkeys
+  WEBAUTHN_RP_NAME: process.env.WEBAUTHN_RP_NAME || 'WSIM Wallet',
+  WEBAUTHN_RP_ID: process.env.WEBAUTHN_RP_ID || 'localhost',
+  WEBAUTHN_ORIGIN: process.env.WEBAUTHN_ORIGIN || 'http://localhost:3004',
 };
 
 // Validate required env vars in production

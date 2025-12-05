@@ -24,9 +24,10 @@ model WalletUser {
   updatedAt DateTime @updatedAt
 
   // Relationships
-  enrollments     BsimEnrollment[]
-  walletCards     WalletCard[]
-  paymentConsents WalletPaymentConsent[]
+  enrollments        BsimEnrollment[]
+  walletCards        WalletCard[]
+  paymentConsents    WalletPaymentConsent[]
+  passkeyCredentials PasskeyCredential[]
 }
 
 // =============================================================================
@@ -194,4 +195,29 @@ model OAuthClient {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// PASSKEY CREDENTIALS (WebAuthn)
+// =============================================================================
+
+model PasskeyCredential {
+  id     String     @id @default(uuid())
+  userId String
+  user   WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // WebAuthn credential data
+  credentialId String @unique // Base64url encoded credential ID
+  publicKey    String // Base64url encoded COSE public key
+  counter      Int    @default(0) // Signature counter for replay protection
+  transports   String[] // e.g., ["internal", "hybrid", "usb"]
+
+  // Metadata
+  deviceName String? // User-friendly name, e.g., "iPhone", "MacBook Pro"
+  aaguid     String? // Authenticator attestation GUID
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
 }
