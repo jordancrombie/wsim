@@ -36,12 +36,12 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ## Project Status
 
-**Current Phase**: Docker Containers Ready - Awaiting BSIM Integration
+**Current Phase**: BSIM Integration Testing
 
 - BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs)
-- WSIM enrollment flow is implemented and ready for E2E testing
-- Production-ready Dockerfiles created for all services
-- Awaiting BSIM team to integrate WSIM into docker-compose stack
+- WSIM integrated into BSIM docker-compose stack
+- Enrollment flow tested: bank selection → BSIM auth → card consent working
+- Token exchange in progress (RFC 9207 compliance fixes applied)
 
 See [TODO.md](./TODO.md) for detailed progress and [CHANGELOG.md](./CHANGELOG.md) for history.
 

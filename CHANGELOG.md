@@ -41,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CORS configuration includes all dev subdomains
 - `next.config.ts` now uses `output: "standalone"` for Docker deployment
 
+### Fixed
+- **BSIM Integration Issues (2025-12-05)**
+  - Added Prisma binary targets for Alpine/ARM64 Docker containers (`linux-musl-arm64-openssl-3.0.x`, `linux-musl-openssl-3.0.x`)
+  - Changed backend Dockerfile to use `prisma db push` instead of `migrate deploy` (no migrations yet)
+  - Fixed `useSearchParams()` React 19 error by wrapping enrollment page content in Suspense boundary
+  - Removed non-existent `tailwind.config.ts` from frontend Dockerfile (Tailwind v4 doesn't require it)
+  - Fixed PKCE parameter order in `buildAuthorizationUrl()` call (nonce and codeChallenge were swapped)
+  - Added RFC 9207 compliance: include `iss` and `state` parameters in callback URL for `oauth4webapi` validation
+  - Separated WSIM database from BSIM database to avoid Prisma schema conflicts
+
 ## [0.1.0] - 2025-12-04
 
 ### Added

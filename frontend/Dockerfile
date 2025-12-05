@@ -43,7 +43,6 @@ COPY package*.json ./
 COPY tsconfig.json ./
 COPY next.config.ts ./
 COPY postcss.config.mjs ./
-COPY tailwind.config.ts ./
 COPY src ./src/
 COPY public ./public/
 

@@ -70,8 +70,8 @@ router.post('/start/:bsimId', optionalAuth, async (req, res) => {
       provider,
       redirectUri,
       state,
-      codeChallenge,
-      nonce
+      nonce,
+      codeChallenge
     );
 
     // Store enrollment state in session

@@ -111,9 +111,12 @@ export async function exchangeCode(
 ): Promise<BsimTokenResponse> {
   const config = await discoverConfig(provider);
 
-  // Build the callback URL with the code
+  // Build the callback URL with all required parameters
+  // oauth4webapi validates the callback URL contains: code, state, and iss (RFC 9207)
   const callbackUrl = new URL(redirectUri);
   callbackUrl.searchParams.set('code', code);
+  callbackUrl.searchParams.set('state', expectedState);
+  callbackUrl.searchParams.set('iss', provider.issuer);
 
   // Exchange code for tokens
   const tokens = await client.authorizationCodeGrant(config, callbackUrl, {

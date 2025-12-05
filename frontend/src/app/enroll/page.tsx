@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
@@ -10,7 +10,7 @@ interface Bank {
   logoUrl?: string;
 }
 
-export default function EnrollPage() {
+function EnrollContent() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
@@ -85,20 +85,7 @@ export default function EnrollPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
-        <div className="max-w-2xl mx-auto px-4 py-6">
-          <Link href="/wallet" className="text-indigo-100 hover:text-white text-sm mb-2 inline-block">
-            &larr; Back to Wallet
-          </Link>
-          <h1 className="text-2xl font-bold">Add a Bank</h1>
-          <p className="text-indigo-100 text-sm">
-            Connect your bank to import your cards
-          </p>
-        </div>
-      </header>
-
+    <>
       {/* Content */}
       <main className="max-w-2xl mx-auto px-4 py-8">
         {error && (
@@ -168,6 +155,37 @@ export default function EnrollPage() {
           </ol>
         </div>
       </main>
+    </>
+  );
+}
+
+export default function EnrollPage() {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
+        <div className="max-w-2xl mx-auto px-4 py-6">
+          <Link href="/wallet" className="text-indigo-100 hover:text-white text-sm mb-2 inline-block">
+            &larr; Back to Wallet
+          </Link>
+          <h1 className="text-2xl font-bold">Add a Bank</h1>
+          <p className="text-indigo-100 text-sm">
+            Connect your bank to import your cards
+          </p>
+        </div>
+      </header>
+
+      <Suspense fallback={
+        <main className="max-w-2xl mx-auto px-4 py-8">
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="text-center py-8 text-gray-500">
+              Loading...
+            </div>
+          </div>
+        </main>
+      }>
+        <EnrollContent />
+      </Suspense>
 
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200">
