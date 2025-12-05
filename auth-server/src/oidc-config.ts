@@ -90,6 +90,34 @@ export async function createOidcProvider(): Promise<Provider> {
       Grant: 86400 * 14, // 14 days
     },
 
+    // For payment:authorize scope, always require fresh consent (new card selection)
+    // This ensures each payment creates a new grant with fresh payment context
+    loadExistingGrant: async (ctx) => {
+      const requestedScopes = (ctx.oidc.params?.scope as string)?.split(' ') || [];
+
+      // First, check if there's a grant from the current interaction result (just created)
+      // This happens after card selection when we're about to issue tokens
+      const resultGrantId = ctx.oidc.result?.consent?.grantId;
+      if (resultGrantId) {
+        console.log(`[OIDC] Using grant from interaction result: ${resultGrantId.substring(0, 8)}...`);
+        return ctx.oidc.provider.Grant.find(resultGrantId);
+      }
+
+      // If payment:authorize is requested and there's no result grant, require fresh consent
+      if (requestedScopes.includes('payment:authorize')) {
+        console.log('[OIDC] Payment scope requested - requiring fresh consent');
+        return undefined; // Return undefined to force new consent
+      }
+
+      // For non-payment flows, allow reusing existing session grants
+      const sessionGrantId = ctx.oidc.session?.grantIdFor(ctx.oidc.client?.clientId as string);
+      if (sessionGrantId) {
+        return ctx.oidc.provider.Grant.find(sessionGrantId);
+      }
+
+      return undefined;
+    },
+
     // Interaction URLs
     interactions: {
       url(_ctx: KoaContextWithOIDC, interaction: { uid: string }) {
@@ -104,8 +132,11 @@ export async function createOidcProvider(): Promise<Provider> {
 
     // Extra token claims (add wallet/card tokens for payment scope)
     extraTokenClaims: async (_ctx: KoaContextWithOIDC, token: { kind: string; scope?: string; grantId?: string }) => {
+      console.log(`[OIDC] extraTokenClaims called: kind=${token.kind}, scope=${token.scope}, grantId=${token.grantId || 'none'}`);
+
       // Only add payment claims for payment:authorize scope
       if (token.kind !== 'AccessToken' || !token.scope?.includes('payment:authorize')) {
+        console.log('[OIDC] Skipping - not an access token with payment:authorize scope');
         return {};
       }
 
@@ -117,15 +148,21 @@ export async function createOidcProvider(): Promise<Provider> {
       }
 
       // Look up payment context from backend
+      const url = `${env.BACKEND_URL}/api/payment/context/${grantId}`;
+      console.log(`[OIDC] Fetching payment context from: ${url}`);
+
       try {
-        const response = await fetch(`${env.BACKEND_URL}/api/payment/context/${grantId}`, {
+        const response = await fetch(url, {
           headers: {
             'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
           },
         });
 
+        console.log(`[OIDC] Payment context response: ${response.status} ${response.statusText}`);
+
         if (!response.ok) {
-          console.log(`[OIDC] Payment context not found for grant ${grantId.substring(0, 8)}...`);
+          const errorText = await response.text();
+          console.log(`[OIDC] Payment context not found for grant ${grantId}: ${errorText}`);
           return {};
         }
 
@@ -136,14 +173,17 @@ export async function createOidcProvider(): Promise<Provider> {
           currency?: string;
         };
 
-        console.log(`[OIDC] Adding payment claims to token for grant ${grantId.substring(0, 8)}...`);
+        console.log(`[OIDC] Got payment context:`, JSON.stringify(context));
 
-        return {
+        const claims = {
           wallet_card_token: context.walletCardToken,
           card_token: context.bsimCardToken || undefined,
           payment_amount: context.amount ? parseFloat(context.amount) : undefined,
           payment_currency: context.currency,
         };
+
+        console.log(`[OIDC] Returning claims:`, JSON.stringify(claims));
+        return claims;
       } catch (error) {
         console.error('[OIDC] Error fetching payment context:', error);
         return {};

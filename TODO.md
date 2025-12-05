@@ -2,37 +2,27 @@
 
 > **Last Updated**: 2025-12-05
 
-## Current Status: 🟡 E2E Testing - NSIM Card Token Validation Issue
+## Current Status: 🟢 WSIM Flow Complete - Pending NSIM Merchant Fix
 
-BSIM integration complete! Card enrollment flow is fully working. Payment authorization flow (SSIM→WSIM→BSIM) implementation complete. **E2E testing in progress** - WSIM JWT token flow working, but NSIM is rejecting card tokens with "Invalid card token" error.
+**WSIM integration is fully working!** JWT tokens with payment claims are being issued correctly. The current blocker is a **"Merchant mismatch"** error from NSIM - this is a configuration issue on the SSIM/NSIM side.
 
-### Current Blocker: NSIM Card Token Validation
-
-**What's Working:**
+### What's Working (WSIM Side) ✅
 - ✅ SSIM shows "Pay with Wallet" button
-- ✅ WSIM OIDC flow (login → card selection → consent)
+- ✅ WSIM OIDC flow (login → card selection → fresh consent per payment)
+- ✅ WSIM requests card tokens from BSIM
 - ✅ JWT access tokens with `wallet_card_token` and `card_token` claims
 - ✅ SSIM extracts tokens from WSIM JWT
+- ✅ SSIM calls NSIM with tokens
 
-**What's Failing:**
-- ❌ NSIM declines payment with "Invalid card token"
+### Current Blocker: Merchant ID Mismatch (NSIM Side)
 
-**Logs showing the issue:**
-```
-[Payment] WSIM JWT payload: {
-  "wallet_card_token": "wsim_bsim_054643f39bd6",
-  "card_token": "eyJhbG..." (JWT from BSIM)
-}
-[Payment] Authorizing wallet payment via NSIM...
-{ status: 'declined', declineReason: 'Invalid card token' }
-```
+**Error:** `"Merchant mismatch"` from NSIM
 
-**Proposed Troubleshooting Steps:**
-1. Check if BSIM card token has expired (5-minute TTL)
-2. Verify NSIM has correct secret to validate BSIM card tokens
-3. Check if NSIM recognizes wallet payment token type (`type: "wallet_payment_token"`)
-4. Review BSIM `/api/wallet/request-token` endpoint implementation
-5. Ensure NSIM routes wallet payments to correct BSIM based on `walletCardToken` prefix
+**Root Cause:**
+- BSIM card token contains: `merchantId: "ssim-merchant"` (WSIM's OAuth client_id for SSIM)
+- SSIM sends in claims: `merchantId: "ssim-client"` (SSIM's BSIM client_id)
+
+**See:** [HANDOFF_BSIM_NSIM.md](./HANDOFF_BSIM_NSIM.md) for detailed analysis and fix options
 
 ---
 

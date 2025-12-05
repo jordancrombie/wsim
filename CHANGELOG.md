@@ -8,11 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **E2E Integration Testing Progress (2025-12-05)**
-  - Successfully configured SSIM to show "Pay with Wallet" button
-  - WSIM OIDC provider now issues JWT access tokens via Resource Indicators feature
+- **E2E Integration Complete (2025-12-05)**
+  - Full wallet payment flow working: SSIM → WSIM → BSIM → NSIM
+  - WSIM OIDC provider issues JWT access tokens via Resource Indicators feature
   - JWT tokens include `wallet_card_token` and `card_token` claims
+  - Fresh consent required for each payment via `loadExistingGrant` configuration
+  - Payment context stored per-grant with 10-minute TTL
   - SSIM extracts tokens from WSIM JWT and passes to NSIM for payment authorization
+  - Comprehensive handoff documentation for BSIM/NSIM teams
 
 - **SSIM OAuth Client Configuration**
   - Registered `ssim-merchant` OAuth client in WSIM database
