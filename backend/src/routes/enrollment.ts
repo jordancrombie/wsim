@@ -230,10 +230,14 @@ router.get('/callback/:bsimId', async (req, res) => {
       });
     }
 
-    // Fetch cards from BSIM
+    // Fetch cards from BSIM using the wallet credential (not the access token)
     console.log(`[Enrollment] Fetching cards from ${bsimId}...`);
+    if (!tokenResponse.walletCredential) {
+      console.error('[Enrollment] No wallet_credential in token response - BSIM may not have granted wallet:enroll scope');
+    }
     try {
-      const cards = await fetchCards(provider, tokenResponse.accessToken);
+      const credentialToUse = tokenResponse.walletCredential || tokenResponse.accessToken;
+      const cards = await fetchCards(provider, credentialToUse);
       console.log(`[Enrollment] Got ${cards.length} cards from ${bsimId}`);
 
       // Store cards

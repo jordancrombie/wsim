@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed PKCE parameter order in `buildAuthorizationUrl()` call (nonce and codeChallenge were swapped)
   - Added RFC 9207 compliance: include `iss` and `state` parameters in callback URL for `oauth4webapi` validation
   - Separated WSIM database from BSIM database to avoid Prisma schema conflicts
+  - Extract `wallet_credential` custom claim from BSIM access token JWT for card fetching
+  - Transform BSIM card response format (`id`→`cardRef`, `cardHolder`→`cardholderName`) to WSIM normalized format
 
 ## [0.1.0] - 2025-12-04
 

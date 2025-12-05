@@ -131,17 +131,31 @@ export async function exchangeCode(
     throw new Error('No claims in token response');
   }
 
-  // Extract wallet_credential from access token claims if present
-  // The BSIM should include this in the access token when wallet:enroll scope is granted
+  // Extract wallet_credential from access token claims
+  // BSIM includes this as a custom claim when wallet:enroll scope is granted
   let walletCredential: string | undefined;
+  let fiUserRef: string = claims.sub as string;
 
-  // Try to get wallet_credential from access token claims
-  // openid-client v6 doesn't expose access token claims directly,
-  // so we may need to decode it or get it from a userinfo call
   if (tokens.access_token) {
-    // For now, store the access token itself as the wallet credential
-    // BSIM may return wallet_credential as a separate claim or in the access token
-    walletCredential = tokens.access_token;
+    // Decode the access token JWT to extract custom claims
+    // Access tokens are JWTs with payload in the second segment
+    try {
+      const parts = tokens.access_token.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+        console.log('[BSIM OIDC] Access token claims:', Object.keys(payload));
+
+        if (payload.wallet_credential) {
+          walletCredential = payload.wallet_credential;
+          console.log('[BSIM OIDC] Found wallet_credential in access token');
+        }
+        if (payload.fi_user_ref) {
+          fiUserRef = payload.fi_user_ref;
+        }
+      }
+    } catch (err) {
+      console.warn('[BSIM OIDC] Failed to decode access token:', err);
+    }
   }
 
   return {
@@ -150,7 +164,7 @@ export async function exchangeCode(
     refreshToken: tokens.refresh_token,
     expiresIn: tokens.expires_in || 3600,
     walletCredential,
-    fiUserRef: claims.sub as string,
+    fiUserRef,
     email: claims.email as string,
     firstName: claims.given_name as string | undefined,
     lastName: claims.family_name as string | undefined,
@@ -158,7 +172,19 @@ export async function exchangeCode(
 }
 
 /**
- * Card information from BSIM
+ * Raw card response from BSIM API
+ */
+interface BsimCardResponse {
+  id: string;
+  cardType: string;
+  lastFour: string;
+  cardHolder: string;
+  expiryMonth: number;
+  expiryYear: number;
+}
+
+/**
+ * Normalized card information from BSIM
  */
 export interface BsimCard {
   cardRef: string;
@@ -201,21 +227,23 @@ function getBsimApiUrl(issuer: string): string {
 
 /**
  * Fetch user's cards from BSIM using wallet credential
+ * @param provider - BSIM provider configuration
+ * @param walletCredential - The wallet credential token (wcred_xxx) from BSIM, NOT the access token
  */
 export async function fetchCards(
   provider: BsimProviderConfig,
-  accessToken: string
+  walletCredential: string
 ): Promise<BsimCard[]> {
   // Use explicit apiUrl if provided, otherwise derive from issuer
   const baseUrl = provider.apiUrl || getBsimApiUrl(provider.issuer);
   const cardsUrl = `${baseUrl}/api/wallet/cards`;
 
-  console.log(`[BSIM OIDC] Fetching cards from ${cardsUrl}`);
+  console.log(`[BSIM OIDC] Fetching cards from ${cardsUrl} using wallet credential`);
 
   const response = await fetch(cardsUrl, {
     method: 'GET',
     headers: {
-      'Authorization': `Bearer ${accessToken}`,
+      'Authorization': `Bearer ${walletCredential}`,
       'Content-Type': 'application/json',
     },
   });
@@ -226,8 +254,19 @@ export async function fetchCards(
     throw new Error(`Failed to fetch cards from BSIM: ${response.status}`);
   }
 
-  const data = await response.json() as { cards?: BsimCard[] };
-  return data.cards || [];
+  const data = await response.json() as { cards?: BsimCardResponse[] };
+  const rawCards = data.cards || [];
+
+  // Transform BSIM response format to our normalized format
+  return rawCards.map(card => ({
+    cardRef: card.id,           // BSIM uses 'id', we use 'cardRef'
+    cardType: card.cardType,
+    lastFour: card.lastFour,
+    cardholderName: card.cardHolder, // BSIM uses 'cardHolder', we use 'cardholderName'
+    expiryMonth: card.expiryMonth,
+    expiryYear: card.expiryYear,
+    isActive: true,             // BSIM doesn't have isActive, assume true
+  }));
 }
 
 /**
