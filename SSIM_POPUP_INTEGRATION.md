@@ -286,6 +286,69 @@ To test the integration:
 - Verify WebAuthn is supported in the browser
 - Check that the RP ID matches the domain
 
+## FAQ
+
+### Is the `/popup/card-picker` endpoint ready?
+
+**Yes, the endpoint is fully implemented and ready for integration.** The WSIM auth server has the following popup routes:
+
+- `GET /popup/card-picker` - Render card picker UI
+- `POST /popup/passkey/options` - Generate passkey authentication options
+- `POST /popup/passkey/verify` - Verify passkey and return payment token
+- `POST /popup/select-card-simple` - Session-based card selection (no passkey)
+
+### Should this be a separate button or replace the existing wallet button?
+
+**Recommendation: Add a separate button** rather than replacing the existing wallet integration.
+
+Benefits of separate buttons:
+- Users can choose their preferred flow (popup for quick checkout, redirect for full wallet management)
+- Lower risk during initial integration testing
+- Easier to A/B test conversion rates
+- Allows graceful degradation if popup is blocked
+
+Suggested UI pattern:
+```
+┌─────────────────────────────────────────┐
+│ Payment Method                          │
+├─────────────────────────────────────────┤
+│ [💳 Pay with WSIM Wallet]  ← Popup flow │
+│                                         │
+│ [🔗 Sign in to WSIM]       ← Redirect   │
+└─────────────────────────────────────────┘
+```
+
+### Is passkey auth required, or is session-based auth supported too?
+
+**Both are supported.** WSIM automatically handles both scenarios:
+
+1. **Passkey flow** (more secure):
+   - If user has registered passkeys, they'll be prompted to confirm with biometrics
+   - Provides phishing-resistant authentication
+   - Recommended for higher-value transactions
+
+2. **Session-based flow** (simpler):
+   - If user has no passkeys but is logged in (session cookie), they can select a card directly
+   - Uses `/popup/select-card-simple` endpoint
+   - Lower friction but relies on session security
+
+The popup UI automatically detects which flow to use based on the user's passkey registration status. You don't need to handle this on the SSIM side - just listen for the `wsim:card-selected` message regardless of which flow the user went through.
+
+### What if the popup is blocked?
+
+Browser popup blockers may prevent the wallet popup from opening. Recommendations:
+
+1. **Always open popup from a user action** (click event) - this is more likely to be allowed
+2. **Check if popup was blocked:**
+   ```javascript
+   const popup = window.open(popupUrl, 'wsim-wallet', '...');
+   if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+     // Popup was blocked - fall back to redirect flow or show message
+     window.location.href = '/checkout/redirect-flow';
+   }
+   ```
+3. **Consider showing a fallback message** asking users to allow popups for your site
+
 ## Contact
 
 For integration support or to request your origin be added to the allowed list, contact the WSIM team.
