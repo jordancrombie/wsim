@@ -1,6 +1,99 @@
 import { Router, Request, Response } from 'express';
 import Provider from 'oidc-provider';
 import { prisma } from '../adapters/prisma';
+import { env } from '../config/env';
+
+/**
+ * Request card token from backend (which calls BSIM)
+ */
+async function requestCardToken(
+  walletCardId: string,
+  merchantId?: string,
+  merchantName?: string,
+  amount?: number,
+  currency?: string
+): Promise<{ cardToken: string; walletCardToken: string } | null> {
+  try {
+    const response = await fetch(`${env.BACKEND_URL}/api/payment/request-token`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        walletCardId,
+        merchantId,
+        merchantName,
+        amount,
+        currency,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[Interaction] Failed to get card token:', error);
+      return null;
+    }
+
+    const data = await response.json() as {
+      cardToken: string;
+      walletCardToken: string;
+    };
+
+    return {
+      cardToken: data.cardToken,
+      walletCardToken: data.walletCardToken,
+    };
+  } catch (error) {
+    console.error('[Interaction] Error requesting card token:', error);
+    return null;
+  }
+}
+
+/**
+ * Store payment context in backend
+ */
+async function storePaymentContext(
+  grantId: string,
+  walletCardId: string,
+  walletCardToken: string,
+  bsimCardToken: string | null,
+  merchantId?: string,
+  merchantName?: string,
+  amount?: number,
+  currency?: string
+): Promise<boolean> {
+  try {
+    const response = await fetch(`${env.BACKEND_URL}/api/payment/context`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        grantId,
+        walletCardId,
+        walletCardToken,
+        bsimCardToken,
+        merchantId,
+        merchantName,
+        amount,
+        currency,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('[Interaction] Failed to store payment context:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('[Interaction] Error storing payment context:', error);
+    return false;
+  }
+}
 
 /**
  * Create interaction routes for login, consent, and card selection
@@ -204,13 +297,50 @@ export function createInteractionRoutes(provider: Provider): Router {
         });
       }
 
-      // TODO: Request card token from BSIM
-      // This requires BSIM wallet:request-token endpoint
-      // For now, we'll store the card selection and complete consent
+      // Parse payment details from claims parameter
+      let paymentDetails: { merchantId?: string; merchantName?: string; amount?: number; currency?: string } = {};
+      if (details.params.claims) {
+        try {
+          const claims = typeof details.params.claims === 'string'
+            ? JSON.parse(details.params.claims)
+            : details.params.claims;
+          paymentDetails = claims.payment || {};
+        } catch {
+          // Ignore parse errors
+        }
+      }
+
+      // Request card token from BSIM via backend
+      console.log(`[Interaction] Requesting card token for card ${walletCardId.substring(0, 8)}...`);
+      const tokenResult = await requestCardToken(
+        walletCardId,
+        paymentDetails.merchantId || details.params.client_id as string,
+        paymentDetails.merchantName,
+        paymentDetails.amount,
+        paymentDetails.currency
+      );
+
+      // Get the grant ID from the interaction
+      // The grant is created when we finish the interaction
+      // We need to store the context before finishing
+      const grantId = details.grantId || details.uid; // Use uid as fallback
 
       // Store payment context for extraTokenClaims
-      // This will be retrieved when generating the access token
-      // TODO: Implement payment context storage
+      console.log(`[Interaction] Storing payment context for grant ${grantId.substring(0, 8)}...`);
+      const contextStored = await storePaymentContext(
+        grantId,
+        walletCardId,
+        card.walletCardToken,
+        tokenResult?.cardToken || null,
+        paymentDetails.merchantId || details.params.client_id as string,
+        paymentDetails.merchantName,
+        paymentDetails.amount,
+        paymentDetails.currency
+      );
+
+      if (!contextStored) {
+        console.warn('[Interaction] Failed to store payment context, continuing anyway');
+      }
 
       const result = {
         consent: {

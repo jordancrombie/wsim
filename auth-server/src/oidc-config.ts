@@ -101,15 +101,44 @@ export async function createOidcProvider(): Promise<Provider> {
       }
 
       // Get payment context from grant
-      // This will be populated during the card selection interaction
       const grantId = token.grantId;
-      if (!grantId) return {};
+      if (!grantId) {
+        console.log('[OIDC] No grantId in token, cannot get payment context');
+        return {};
+      }
 
-      // Look up payment context (stored during card selection)
-      // TODO: Implement payment context storage and retrieval
-      // For now, return empty - will be implemented with card selection UI
+      // Look up payment context from backend
+      try {
+        const response = await fetch(`${env.BACKEND_URL}/api/payment/context/${grantId}`, {
+          headers: {
+            'Authorization': `Bearer ${env.INTERNAL_API_SECRET}`,
+          },
+        });
 
-      return {};
+        if (!response.ok) {
+          console.log(`[OIDC] Payment context not found for grant ${grantId.substring(0, 8)}...`);
+          return {};
+        }
+
+        const context = await response.json() as {
+          walletCardToken: string;
+          bsimCardToken: string | null;
+          amount?: string;
+          currency?: string;
+        };
+
+        console.log(`[OIDC] Adding payment claims to token for grant ${grantId.substring(0, 8)}...`);
+
+        return {
+          wallet_card_token: context.walletCardToken,
+          card_token: context.bsimCardToken || undefined,
+          payment_amount: context.amount ? parseFloat(context.amount) : undefined,
+          payment_currency: context.currency,
+        };
+      } catch (error) {
+        console.error('[OIDC] Error fetching payment context:', error);
+        return {};
+      }
     },
 
     // Find account by ID

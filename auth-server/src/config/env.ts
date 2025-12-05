@@ -16,6 +16,7 @@ export const env = {
 
   // Backend API
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:3003',
+  INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET || 'dev-internal-secret-change-in-production',
 
   // Cookie/Session
   COOKIE_SECRET: process.env.COOKIE_SECRET || 'dev-cookie-secret-change-in-production',

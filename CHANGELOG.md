@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enrolled banks listing endpoint (`GET /api/enrollment/list`)
   - Enrollment removal with card cascade delete
 
+- **Payment Authorization Flow**
+  - `PaymentContext` Prisma model for storing card selection during OIDC flow
+  - Backend `/api/payment/request-token` endpoint to request card tokens from BSIM
+  - Backend `/api/payment/context` endpoints for storing/retrieving payment context
+  - Auth-server card selection handler calls backend for BSIM card tokens
+  - `extraTokenClaims` implementation adds `wallet_card_token` and `card_token` to access tokens
+  - Internal API authentication between auth-server and backend (`INTERNAL_API_SECRET`)
+
 - **URL Configuration**
   - Support for dev environment URLs (`*-dev.banksim.ca`)
   - `getBsimApiUrl()` helper for deriving API URL from OIDC issuer

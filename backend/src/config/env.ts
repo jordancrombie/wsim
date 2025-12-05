@@ -25,6 +25,9 @@ export const env = {
   // BSIM Providers (JSON array)
   BSIM_PROVIDERS: process.env.BSIM_PROVIDERS || '[]',
 
+  // Internal API (auth-server to backend communication)
+  INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET || 'dev-internal-secret-change-in-production',
+
   // CORS
   CORS_ORIGINS: process.env.CORS_ORIGINS?.split(',') || [
     'http://localhost:3004',

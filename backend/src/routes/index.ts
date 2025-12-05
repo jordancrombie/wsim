@@ -3,6 +3,7 @@ import healthRoutes from './health';
 import authRoutes from './auth';
 import walletRoutes from './wallet';
 import enrollmentRoutes from './enrollment';
+import paymentRoutes from './payment';
 
 const router = Router();
 
@@ -11,5 +12,6 @@ router.use('/health', healthRoutes);
 router.use('/api/auth', authRoutes);
 router.use('/api/wallet', walletRoutes);
 router.use('/api/enrollment', enrollmentRoutes);
+router.use('/api/payment', paymentRoutes);
 
 export default router;

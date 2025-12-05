@@ -2,9 +2,9 @@
 
 > **Last Updated**: 2025-12-05
 
-## Current Status: 🟢 Docker Containers Ready - Awaiting BSIM Integration
+## Current Status: 🟢 Enrollment Flow Complete - Payment Flow Implementation In Progress
 
-BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM enrollment flow is implemented and production-ready Docker containers are available. **Waiting for BSIM team to integrate WSIM into their docker-compose stack.**
+BSIM integration complete! Card enrollment flow is fully working. Payment authorization flow (SSIM→WSIM→BSIM) implementation is ready for testing.
 
 ---
 
@@ -65,7 +65,7 @@ BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM en
 
 ## Phase 2: Core WSIM Development (Week 2-4)
 
-### WSIM Team - Blocked by BSIM
+### WSIM Team ✅ Core Implementation Complete
 
 #### Completed (UI/Structure Ready)
 - [x] Configure oidc-provider (auth-server)
@@ -91,13 +91,17 @@ BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs). WSIM en
   - [x] Implement card removal
   - [x] List enrolled banks endpoint
 
-#### 🟡 In Progress - Payment Flow
-- [ ] **OIDC Provider Payment Flow** (needs E2E testing with cards)
+#### ✅ Payment Flow Implementation
+- [x] **OIDC Provider Payment Flow**
   - [x] Configure oidc-provider
   - [x] Create Prisma adapter
   - [x] Build card selection UI
-  - [ ] Implement payment interaction flow (ready for testing)
-  - [ ] Add extraTokenClaims for card tokens (needs testing with BSIM token API)
+  - [x] Implement payment interaction flow with card selection
+  - [x] Add PaymentContext model for storing card token during OIDC flow
+  - [x] Create backend `/api/payment/request-token` endpoint to get card tokens from BSIM
+  - [x] Create backend `/api/payment/context` endpoints for storing/retrieving payment context
+  - [x] Implement `extraTokenClaims` to add `wallet_card_token` and `card_token` to access tokens
+  - [ ] E2E testing with SSIM (pending SSIM integration)
 
 ---
 

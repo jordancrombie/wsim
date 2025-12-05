@@ -129,6 +129,35 @@ model WalletPaymentConsent {
 }
 
 // =============================================================================
+// PAYMENT CONTEXT (temporary storage during OIDC flow)
+// =============================================================================
+
+model PaymentContext {
+  id String @id @default(uuid())
+
+  // Link to OIDC grant
+  grantId String @unique
+
+  // Selected card info
+  walletCardId    String
+  walletCardToken String // WSIM token for NSIM routing
+
+  // Card token from BSIM (for payment processing)
+  bsimCardToken String?
+
+  // Payment details from SSIM
+  merchantId   String?
+  merchantName String?
+  amount       Decimal? @db.Decimal(15, 2)
+  currency     String?
+
+  createdAt DateTime @default(now())
+  expiresAt DateTime // Short-lived, 10 minutes
+
+  @@index([grantId])
+}
+
+// =============================================================================
 // OIDC PROVIDER STORAGE (for auth-server)
 // =============================================================================
 
