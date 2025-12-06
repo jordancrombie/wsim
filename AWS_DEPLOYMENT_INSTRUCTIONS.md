@@ -852,6 +852,202 @@ aws logs tail /ecs/bsim-auth-server --filter-pattern "wallet_credential" --regio
 
 ---
 
+## Troubleshooting: SSIM OAuth Errors (`invalid_client`)
+
+When SSIM tries to start the wallet payment flow and gets `invalid_client`:
+
+### 1. Verify OAuth Client Exists in WSIM Database
+
+```sql
+-- Run in WSIM database
+SELECT "clientId", "redirectUris", "scope", "grantTypes"
+FROM "OAuthClient"
+WHERE "clientId" = 'ssim-merchant';
+```
+
+If no rows returned, create the client using the SQL in Section 3 above.
+
+### 2. Restart WSIM Auth-Server After Adding Client
+
+**Important:** WSIM's auth-server loads OAuth clients at startup. If you added the client after the service started, you must restart:
+
+```bash
+aws ecs update-service \
+  --cluster bsim-cluster \
+  --service wsim-auth-server-service \
+  --force-new-deployment \
+  --region ca-central-1
+```
+
+### 3. Verify Redirect URI Matches Exactly
+
+The redirect URI in SSIM's config must **exactly** match what's in WSIM's database:
+- SSIM: `WSIM_REDIRECT_URI=https://ssim.banksim.ca/payment/wallet-callback`
+- WSIM DB: `redirectUris` array must include this exact URL
+
+---
+
+## Troubleshooting: Popup/Embed 404 Errors
+
+If SSIM's popup/embed wallet flows show 404 errors:
+
+### Check the URL Pattern
+
+**Broken URLs (wrong):**
+```
+https://wsim.banksim.ca/payment/popup/popup/card-picker  ❌ (double /popup)
+https://wsim.banksim.ca/popup/card-picker               ❌ (wrong host)
+```
+
+**Correct URLs:**
+```
+https://wsim-auth.banksim.ca/popup/card-picker          ✓
+https://wsim-auth.banksim.ca/embed/card-picker          ✓
+```
+
+### Fix: Set `WSIM_POPUP_URL` Correctly in SSIM
+
+The popup/embed endpoints are on the **auth-server**, not the frontend.
+
+```bash
+# Check current SSIM config
+aws ecs describe-task-definition --task-definition ssim \
+  --query 'taskDefinition.containerDefinitions[0].environment' \
+  --region ca-central-1 | grep -A1 WSIM_POPUP
+
+# Correct value:
+WSIM_POPUP_URL=https://wsim-auth.banksim.ca
+```
+
+### URL Reference
+
+| SSIM Env Variable | Correct Value | Purpose |
+|-------------------|---------------|---------|
+| `WSIM_POPUP_URL` | `https://wsim-auth.banksim.ca` | Popup/embed card picker |
+| `WSIM_AUTH_URL` | `https://wsim-auth.banksim.ca` | OIDC authorization |
+| `WSIM_ISSUER` | `https://wsim-auth.banksim.ca` | OIDC issuer (same as auth) |
+| `WSIM_API_URL` | `https://wsim.banksim.ca` | Backend API (if used) |
+
+---
+
+## Troubleshooting: "Failed to get Payment Token"
+
+This error appears in the popup/embed when passkey verification succeeds but token generation fails.
+
+### Error Flow
+```
+User selects card → Passkey verified ✓ → Auth-server calls Backend → Backend calls BSIM → FAILS
+```
+
+### 1. Check WSIM Backend Logs
+
+```bash
+aws logs tail /ecs/wsim-backend --filter-pattern "Payment" --region ca-central-1
+```
+
+Look for:
+- `[Payment] Requesting card token from https://...` - Shows the BSIM URL being called
+- `[Payment] BSIM token request failed: XXX` - Shows the actual error
+
+### 2. Check WSIM Auth-Server Logs
+
+```bash
+aws logs tail /ecs/wsim-auth-server --filter-pattern "Embed\|Popup" --region ca-central-1
+```
+
+Look for:
+- `[Embed] Failed to get card token:` - Shows response from backend
+
+### 3. Verify `INTERNAL_API_SECRET` Matches
+
+The secret must be **identical** in both WSIM services:
+
+```bash
+# Get backend secret
+aws ecs describe-task-definition --task-definition wsim-backend \
+  --query 'taskDefinition.containerDefinitions[0].environment[?name==`INTERNAL_API_SECRET`].value' \
+  --output text --region ca-central-1
+
+# Get auth-server secret
+aws ecs describe-task-definition --task-definition wsim-auth-server \
+  --query 'taskDefinition.containerDefinitions[0].environment[?name==`INTERNAL_API_SECRET`].value' \
+  --output text --region ca-central-1
+```
+
+If they don't match, update one and redeploy.
+
+### 4. Verify BSIM `/api/wallet/tokens` Endpoint Exists
+
+WSIM's backend calls BSIM at `/api/wallet/tokens` to get payment card tokens. Test it:
+
+```bash
+curl -X POST https://banksim.ca/api/wallet/tokens \
+  -H "Content-Type: application/json" \
+  -d '{"cardId":"test"}'
+```
+
+- If 404: BSIM endpoint doesn't exist (BSIM issue)
+- If 401: Wallet credential expired or invalid
+- If 200: Endpoint works, issue is elsewhere
+
+### 5. Check `BSIM_PROVIDERS` Configuration
+
+```bash
+aws ecs describe-task-definition --task-definition wsim-backend \
+  --query 'taskDefinition.containerDefinitions[0].environment[?name==`BSIM_PROVIDERS`].value' \
+  --output text --region ca-central-1
+```
+
+Verify:
+- `apiUrl` is correct (e.g., `https://banksim.ca`)
+- `bsimId` matches what's stored in enrollments
+
+### Root Cause Summary
+
+| Error in Logs | Cause | Fix |
+|---------------|-------|-----|
+| `unauthorized` from backend | `INTERNAL_API_SECRET` mismatch | Sync secret between auth-server and backend |
+| `not_found` for card | Card doesn't exist in WSIM DB | Re-enroll with BSIM |
+| `provider_not_found` | `BSIM_PROVIDERS` misconfigured | Fix env var in backend task definition |
+| `bsim_error` with 404 | BSIM `/api/wallet/tokens` missing | BSIM needs to implement endpoint |
+| `bsim_error` with 401 | Wallet credential expired | User needs to re-enroll |
+
+---
+
+## Troubleshooting: Quick Checklist
+
+Use this checklist when debugging WSIM/SSIM integration issues:
+
+### BSIM Database (bsim)
+- [ ] `wsim-wallet` client exists in `oauth_clients`
+- [ ] `scope` is `'openid profile email wallet:enroll'` (string, not array)
+- [ ] `grantTypes` is `ARRAY['authorization_code']` (no `refresh_token`)
+
+### WSIM Database (wsim)
+- [ ] `ssim-merchant` client exists in `"OAuthClient"`
+- [ ] `scope` is `'openid payment:authorize'`
+- [ ] `redirectUris` includes SSIM's callback URL
+
+### WSIM Backend Task Definition
+- [ ] `BSIM_PROVIDERS` JSON is valid and has correct values
+- [ ] `INTERNAL_API_SECRET` matches auth-server
+
+### WSIM Auth-Server Task Definition
+- [ ] `INTERNAL_API_SECRET` matches backend
+- [ ] `ALLOWED_POPUP_ORIGINS` includes `https://ssim.banksim.ca`
+- [ ] `ALLOWED_EMBED_ORIGINS` includes `https://ssim.banksim.ca`
+
+### SSIM Task Definition
+- [ ] `WSIM_POPUP_URL` is `https://wsim-auth.banksim.ca` (not frontend!)
+- [ ] `WSIM_CLIENT_ID` is `ssim-merchant`
+- [ ] `WSIM_CLIENT_SECRET` matches WSIM database
+- [ ] `WSIM_REDIRECT_URI` matches WSIM database exactly
+
+### After Database Changes
+- [ ] Restarted `wsim-auth-server-service` (loads clients at startup)
+
+---
+
 ## Support
 
 - **WSIM Repository:** https://github.com/jordancrombie/wsim
@@ -861,3 +1057,4 @@ aws logs tail /ecs/bsim-auth-server --filter-pattern "wallet_credential" --regio
 ---
 
 *Document created: 2025-12-06*
+*Last updated: 2025-12-06 - Added comprehensive troubleshooting guide*
