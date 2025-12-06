@@ -501,12 +501,15 @@ INSERT INTO "OAuthClient" (
   'GENERATE_A_SECURE_CLIENT_SECRET',
   'WSIM Wallet',
   ARRAY['https://wsim.banksim.ca/api/enrollment/callback'],
-  ARRAY['authorization_code', 'refresh_token'],
+  ARRAY['authorization_code'],
   ARRAY['code'],
   ARRAY['openid', 'profile', 'email', 'wallet:cards'],
   NOW(),
   NOW()
 );
+
+-- NOTE: grant_types must only contain 'authorization_code' or 'implicit'.
+-- Do NOT include 'refresh_token' - it's not a grant type.
 ```
 
 ---
