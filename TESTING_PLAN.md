@@ -1,15 +1,19 @@
 # WSIM Unit Testing Plan
 
 > **Date**: 2025-12-06
-> **Status**: No tests currently exist
+> **Status**: Phase 1 & P0 tests complete
 
 ## Current State
 
-WSIM has **zero unit test coverage**. There are:
-- No test scripts in package.json
-- No test framework installed (Jest, Vitest, etc.)
-- No test files (*.test.ts, *.spec.ts)
-- No test configuration files
+**58 tests passing** across backend and auth-server:
+- ✅ Backend: 43 tests (crypto.ts + auth.ts middleware)
+- ✅ Auth-server: 15 tests (adminAuth.ts middleware)
+
+Run tests with:
+```bash
+cd backend && npm test       # 43 tests
+cd auth-server && npm test   # 15 tests
+```
 
 ---
 
@@ -40,14 +44,14 @@ Vitest is recommended over Jest for this project because:
 
 These components handle sensitive data and must be tested thoroughly.
 
-| Component | Location | Complexity | Risk |
-|-----------|----------|------------|------|
-| `crypto.ts` | backend/src/utils/ | Low | High |
-| `bsim-oidc.ts` | backend/src/services/ | High | High |
-| `auth.ts` (middleware) | backend/src/middleware/ | Medium | High |
-| `passkey.ts` | backend/src/routes/ | High | High |
-| `payment.ts` | backend/src/routes/ | Medium | High |
-| `adminAuth.ts` (middleware) | auth-server/src/middleware/ | Medium | High |
+| Component | Location | Complexity | Risk | Status |
+|-----------|----------|------------|------|--------|
+| `crypto.ts` | backend/src/utils/ | Low | High | ✅ 23 tests |
+| `auth.ts` (middleware) | backend/src/middleware/ | Medium | High | ✅ 20 tests |
+| `adminAuth.ts` (middleware) | auth-server/src/middleware/ | Medium | High | ✅ 15 tests |
+| `bsim-oidc.ts` | backend/src/services/ | High | High | ⏳ Pending |
+| `passkey.ts` | backend/src/routes/ | High | High | ⏳ Pending |
+| `payment.ts` | backend/src/routes/ | Medium | High | ⏳ Pending |
 
 ### P1: High (Business Logic)
 
@@ -86,46 +90,48 @@ Basic infrastructure that rarely changes.
 
 ## Implementation Plan
 
-### Phase 1: Setup Test Infrastructure
+### Phase 1: Setup Test Infrastructure ✅ COMPLETE
 
 **Backend** (`backend/`)
-```bash
-npm install -D vitest @vitest/coverage-v8 supertest @types/supertest
-```
+- ✅ `vitest`, `@vitest/coverage-v8`, `vitest-mock-extended` installed
+- ✅ `vitest.config.ts` created
+- ✅ `src/test/setup.ts` created with environment config
+- ✅ Test scripts added to package.json
 
 **Auth Server** (`auth-server/`)
-```bash
-npm install -D vitest @vitest/coverage-v8 supertest @types/supertest
-```
-
-**Configuration files needed:**
-- `backend/vitest.config.ts`
-- `auth-server/vitest.config.ts`
-- Mock setup files for Prisma
-- Test utilities and factories
+- ✅ `vitest`, `@vitest/coverage-v8`, `vitest-mock-extended` installed
+- ✅ `vitest.config.ts` created
+- ✅ `src/test/setup.ts` created with environment config
+- ✅ Test scripts added to package.json
 
 ### Phase 2: P0 Critical Tests (Week 1-2)
 
-#### 2.1 crypto.ts - Encryption Utilities
+#### 2.1 crypto.ts - Encryption Utilities ✅ COMPLETE (23 tests)
 ```typescript
-// Tests needed:
-describe('encrypt/decrypt', () => {
-  it('should encrypt and decrypt a string');
-  it('should produce different ciphertext for same input (random IV)');
-  it('should fail decryption with wrong key');
-  it('should fail on tampered ciphertext');
-});
-
-describe('generateToken', () => {
-  it('should generate random tokens of specified length');
-  it('should produce unique tokens');
-});
-
-describe('walletCardToken', () => {
-  it('should generate token in format wsim_{bsimId}_{id}');
-  it('should parse valid token');
-  it('should return null for invalid token');
-});
+// Tests implemented in backend/src/utils/crypto.test.ts:
+✅ encrypt/decrypt roundtrip
+✅ encrypt/decrypt empty string
+✅ encrypt/decrypt special characters
+✅ encrypt/decrypt long text
+✅ different ciphertext for same input (random IV)
+✅ ciphertext format validation (iv:authTag:encrypted)
+✅ throw on invalid format
+✅ throw on tampered ciphertext
+✅ throw on tampered auth tag
+✅ generateToken default length
+✅ generateToken specified length
+✅ generateToken uniqueness
+✅ generateToken edge case (0 length)
+✅ generateWalletCardToken format
+✅ generateWalletCardToken includes bsimId
+✅ generateWalletCardToken uniqueness
+✅ generateWalletCardToken special characters
+✅ parseWalletCardToken valid token
+✅ parseWalletCardToken hyphenated bsimId
+✅ parseWalletCardToken invalid prefix
+✅ parseWalletCardToken wrong number of parts
+✅ parseWalletCardToken empty string
+✅ parseWalletCardToken roundtrip
 ```
 
 #### 2.2 bsim-oidc.ts - OIDC Client
@@ -155,21 +161,63 @@ describe('fetchCards', () => {
 });
 ```
 
-#### 2.3 auth.ts (middleware)
+#### 2.3 auth.ts (middleware) ✅ COMPLETE (20 tests)
 ```typescript
-describe('requireAuth', () => {
-  it('should pass if session has valid userId');
-  it('should return 401 if no session');
-  it('should return 401 if user not found');
-  it('should destroy session if user deleted');
-});
+// Tests implemented in backend/src/middleware/auth.test.ts:
+// generateJwt (5 tests)
+✅ should generate a valid JWT token
+✅ should generate tokens that can be verified
+✅ should generate different tokens for different users
+✅ should accept custom expiration time
+✅ should accept numeric expiration time
 
-describe('generateJwt/verifyJwt', () => {
-  it('should create valid JWT');
-  it('should verify valid JWT');
-  it('should reject expired JWT');
-  it('should reject tampered JWT');
-});
+// verifyJwt (5 tests)
+✅ should return payload for valid token
+✅ should return null for invalid token
+✅ should return null for empty token
+✅ should return null for malformed JWT
+✅ should return null for tampered token
+
+// requireAuth middleware (5 tests)
+✅ should return 401 if no session userId
+✅ should return 401 if session is undefined
+✅ should return 401 if user not found in database
+✅ should call next and attach user to request if valid
+✅ should return 500 on database error
+
+// optionalAuth middleware (5 tests)
+✅ should call next without user if no session
+✅ should call next without user if session userId is undefined
+✅ should call next without user if user not found
+✅ should attach user to request if found
+✅ should call next on database error without throwing
+```
+
+#### 2.3b adminAuth.ts (auth-server middleware) ✅ COMPLETE (15 tests)
+```typescript
+// Tests implemented in auth-server/src/middleware/adminAuth.test.ts:
+// createAdminToken (3 tests)
+✅ should create a valid JWT token
+✅ should create tokens that can be verified
+✅ should create different tokens for different sessions
+
+// verifyAdminToken (5 tests)
+✅ should return session data for valid token
+✅ should return null for invalid token
+✅ should return null for empty token
+✅ should return null for malformed JWT
+✅ should return null for tampered token
+
+// requireAdminAuth middleware (5 tests)
+✅ should redirect to login if no token cookie
+✅ should redirect to login if token is invalid
+✅ should redirect to login if admin not found in database
+✅ should call next and attach admin to request if valid
+✅ should verify SUPER_ADMIN role correctly
+
+// Cookie functions (2 tests)
+✅ setAdminCookie should set cookie with correct options
+✅ clearAdminCookie should clear cookie with correct options
 ```
 
 #### 2.4 passkey.ts - WebAuthn
