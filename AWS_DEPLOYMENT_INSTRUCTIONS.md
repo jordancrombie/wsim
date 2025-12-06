@@ -503,13 +503,14 @@ INSERT INTO "OAuthClient" (
   ARRAY['https://wsim.banksim.ca/api/enrollment/callback'],
   ARRAY['authorization_code'],
   ARRAY['code'],
-  ARRAY['openid', 'profile', 'email', 'wallet:cards'],
+  ARRAY['openid', 'profile', 'email', 'wallet:enroll'],
   NOW(),
   NOW()
 );
 
--- NOTE: grant_types must only contain 'authorization_code' or 'implicit'.
--- Do NOT include 'refresh_token' - it's not a grant type.
+-- NOTES:
+-- 1. grant_types: Only 'authorization_code' or 'implicit' are valid (NOT 'refresh_token')
+-- 2. scopes: Must match BSIM's supported scopes. Valid wallet scope is 'wallet:enroll' (NOT 'wallet:cards')
 ```
 
 ---
