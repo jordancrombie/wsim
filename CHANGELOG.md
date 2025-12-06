@@ -16,13 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Test setup files with environment configuration
   - Comprehensive TESTING_PLAN.md with prioritized test strategy (P0-P3)
   - Mock Prisma factory (`mockPrisma.ts`) with in-memory storage for all WSIM models
-  - **114 tests implemented (99 backend + 15 auth-server):**
-    - `backend/src/utils/crypto.test.ts` (23 tests) - encrypt/decrypt, token generation, tamper detection
-    - `backend/src/middleware/auth.test.ts` (20 tests) - requireAuth, optionalAuth, JWT functions
-    - `backend/src/routes/passkey.test.ts` (18 tests) - WebAuthn registration and authentication
-    - `backend/src/routes/payment.test.ts` (17 tests) - payment token request, context storage
-    - `backend/src/services/bsim-oidc.test.ts` (21 tests) - OIDC flows, PKCE, token exchange, card fetching
-    - `auth-server/src/middleware/adminAuth.test.ts` (15 tests) - admin JWT tokens, middleware, cookies
+  - **163 tests implemented (148 backend + 15 auth-server):**
+    - P0 Critical (Security & State Management):
+      - `backend/src/utils/crypto.test.ts` (23 tests) - encrypt/decrypt, token generation, tamper detection
+      - `backend/src/middleware/auth.test.ts` (20 tests) - requireAuth, optionalAuth, JWT functions
+      - `backend/src/routes/passkey.test.ts` (18 tests) - WebAuthn registration and authentication
+      - `backend/src/routes/payment.test.ts` (17 tests) - payment token request, context storage
+      - `backend/src/services/bsim-oidc.test.ts` (21 tests) - OIDC flows, PKCE, token exchange, card fetching
+      - `auth-server/src/middleware/adminAuth.test.ts` (15 tests) - admin JWT tokens, middleware, cookies
+    - P1 Business Logic:
+      - `backend/src/routes/enrollment.test.ts` (21 tests) - bank enrollment OIDC flow, callbacks, card fetching
+      - `backend/src/routes/wallet.test.ts` (23 tests) - card management, enrollments, user profile
+      - `backend/src/routes/wallet-api.test.ts` (20 tests) - merchant API, authentication, payment initiation
 
 - **Admin Interface for Auth Server (2025-12-06)**
   - New `/administration` routes for OAuth client management

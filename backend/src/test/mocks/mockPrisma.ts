@@ -83,6 +83,22 @@ export interface MockPaymentContextData {
   expiresAt: Date;
 }
 
+export interface MockOAuthClientData {
+  id: string;
+  clientId: string;
+  clientSecret: string;
+  clientName: string;
+  redirectUris: string[];
+  postLogoutRedirectUris: string[];
+  grantTypes: string[];
+  scope: string;
+  logoUri: string | null;
+  trusted: boolean;
+  apiKey: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // =============================================================================
 // Mock Factory
 // =============================================================================
@@ -94,6 +110,7 @@ export function createMockPrismaClient() {
   const bsimEnrollments: MockBsimEnrollmentData[] = [];
   const walletCards: MockWalletCardData[] = [];
   const paymentContexts: MockPaymentContextData[] = [];
+  const oAuthClients: MockOAuthClientData[] = [];
 
   const mockPrisma = {
     // =========================================================================
@@ -485,6 +502,7 @@ export function createMockPrismaClient() {
       findFirst: vi.fn().mockImplementation(async (args: any) => {
         const { where, include } = args;
         let card = walletCards.find((c) => {
+          if (where?.id && c.id !== where.id) return false;
           if (where?.userId && c.userId !== where.userId) return false;
           if (where?.walletCardToken && c.walletCardToken !== where.walletCardToken) return false;
           if (where?.isActive !== undefined && c.isActive !== where.isActive) return false;
@@ -706,6 +724,52 @@ export function createMockPrismaClient() {
     },
 
     // =========================================================================
+    // OAuthClient
+    // =========================================================================
+    oAuthClient: {
+      findFirst: vi.fn().mockImplementation(async (args: any) => {
+        const { where } = args;
+        return oAuthClients.find((c) => {
+          if (where?.id && c.id !== where.id) return false;
+          if (where?.clientId && c.clientId !== where.clientId) return false;
+          if (where?.apiKey && c.apiKey !== where.apiKey) return false;
+          return true;
+        }) || null;
+      }),
+
+      findUnique: vi.fn().mockImplementation(async (args: any) => {
+        const { where } = args;
+        return oAuthClients.find((c) => {
+          if (where?.id && c.id !== where.id) return false;
+          if (where?.clientId && c.clientId !== where.clientId) return false;
+          if (where?.apiKey && c.apiKey !== where.apiKey) return false;
+          return true;
+        }) || null;
+      }),
+
+      create: vi.fn().mockImplementation(async (args: any) => {
+        const { data } = args;
+        const newClient: MockOAuthClientData = {
+          id: data.id || `client-${Date.now()}`,
+          clientId: data.clientId,
+          clientSecret: data.clientSecret,
+          clientName: data.clientName,
+          redirectUris: data.redirectUris || [],
+          postLogoutRedirectUris: data.postLogoutRedirectUris || [],
+          grantTypes: data.grantTypes || [],
+          scope: data.scope || '',
+          logoUri: data.logoUri || null,
+          trusted: data.trusted ?? false,
+          apiKey: data.apiKey || null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        oAuthClients.push(newClient);
+        return newClient;
+      }),
+    },
+
+    // =========================================================================
     // Helper methods for test setup
     // =========================================================================
     _addWalletUser: (user: MockWalletUserData) => {
@@ -723,18 +787,23 @@ export function createMockPrismaClient() {
     _addPaymentContext: (context: MockPaymentContextData) => {
       paymentContexts.push(context);
     },
+    _addOAuthClient: (client: MockOAuthClientData) => {
+      oAuthClients.push(client);
+    },
     _clear: () => {
       walletUsers.length = 0;
       passkeyCredentials.length = 0;
       bsimEnrollments.length = 0;
       walletCards.length = 0;
       paymentContexts.length = 0;
+      oAuthClients.length = 0;
     },
     _getWalletUsers: () => walletUsers,
     _getPasskeyCredentials: () => passkeyCredentials,
     _getBsimEnrollments: () => bsimEnrollments,
     _getWalletCards: () => walletCards,
     _getPaymentContexts: () => paymentContexts,
+    _getOAuthClients: () => oAuthClients,
   };
 
   return mockPrisma;

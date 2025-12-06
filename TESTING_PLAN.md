@@ -1,17 +1,17 @@
 # WSIM Unit Testing Plan
 
 > **Date**: 2025-12-06
-> **Status**: Phase 2 P0 tests complete
+> **Status**: Phase 3 P1 tests in progress
 
 ## Current State
 
-**114 tests passing** across backend and auth-server:
-- ✅ Backend: 99 tests (crypto, auth, passkey, payment, bsim-oidc)
+**163 tests passing** across backend and auth-server:
+- ✅ Backend: 148 tests (crypto, auth, passkey, payment, bsim-oidc, enrollment, wallet, wallet-api)
 - ✅ Auth-server: 15 tests (adminAuth.ts middleware)
 
 Run tests with:
 ```bash
-cd backend && npm test       # 99 tests
+cd backend && npm test       # 148 tests
 cd auth-server && npm test   # 15 tests
 ```
 
@@ -57,13 +57,13 @@ These components handle sensitive data and must be tested thoroughly.
 
 Core business flows that users depend on.
 
-| Component | Location | Complexity | Risk |
-|-----------|----------|------------|------|
-| `enrollment.ts` | backend/src/routes/ | High | Medium |
-| `wallet.ts` | backend/src/routes/ | Medium | Medium |
-| `wallet-api.ts` | backend/src/routes/ | High | Medium |
-| `interaction.ts` | auth-server/src/routes/ | High | Medium |
-| `adminAuth.ts` (routes) | auth-server/src/routes/ | Medium | Medium |
+| Component | Location | Complexity | Risk | Status |
+|-----------|----------|------------|------|--------|
+| `enrollment.ts` | backend/src/routes/ | High | Medium | ✅ 21 tests |
+| `wallet.ts` | backend/src/routes/ | Medium | Medium | ✅ 23 tests |
+| `wallet-api.ts` | backend/src/routes/ | High | Medium | ✅ 20 tests |
+| `interaction.ts` | auth-server/src/routes/ | High | Medium | |
+| `adminAuth.ts` (routes) | auth-server/src/routes/ | Medium | Medium | |
 
 ### P2: Medium (Integration)
 
