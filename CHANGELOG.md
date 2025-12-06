@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Suspense boundary added to login page for Next.js 16 compatibility
 
 ### Fixed
+- **Popup Passkey Authentication Cross-Domain Session (2025-12-05)**
+  - Fixed session domain mismatch when authenticating via WSIM popup from SSIM
+  - Added `/popup/login/options` and `/popup/login/verify` endpoints to auth-server
+  - Auth-required popup now calls auth-server directly instead of backend API
+  - Session is now set on auth-server domain (same as popup) for correct authentication
+  - Added `WEBAUTHN_ORIGINS` support for multi-origin passkey verification
+  - Updated `docker-compose.dev.yml` with both frontend and auth-server origins
+
 - **Passkey Credential ID Encoding (2025-12-05)**
   - Fixed double-encoding bug in passkey registration
   - `credential.id` from `@simplewebauthn/server` v13+ is already base64url encoded

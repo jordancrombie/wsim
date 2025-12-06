@@ -37,5 +37,7 @@ export const env = {
   // WebAuthn / Passkeys
   WEBAUTHN_RP_NAME: process.env.WEBAUTHN_RP_NAME || 'WSIM Wallet',
   WEBAUTHN_RP_ID: process.env.WEBAUTHN_RP_ID || 'localhost',
-  WEBAUTHN_ORIGIN: process.env.WEBAUTHN_ORIGIN || 'http://localhost:3005',
+  // Support multiple origins for passkey verification
+  WEBAUTHN_ORIGINS: process.env.WEBAUTHN_ORIGINS?.split(',') ||
+    (process.env.WEBAUTHN_ORIGIN ? [process.env.WEBAUTHN_ORIGIN] : ['http://localhost:3005']),
 };

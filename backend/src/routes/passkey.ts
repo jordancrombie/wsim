@@ -142,7 +142,7 @@ router.post('/register/verify', requireAuth, async (req: Request, res: Response)
       verification = await verifyRegistrationResponse({
         response,
         expectedChallenge,
-        expectedOrigin: env.WEBAUTHN_ORIGIN,
+        expectedOrigin: env.WEBAUTHN_ORIGINS,
         expectedRPID: env.WEBAUTHN_RP_ID,
       });
     } catch (verifyError) {
@@ -311,7 +311,7 @@ router.post('/authenticate/verify', async (req: Request, res: Response) => {
       verification = await verifyAuthenticationResponse({
         response,
         expectedChallenge,
-        expectedOrigin: env.WEBAUTHN_ORIGIN,
+        expectedOrigin: env.WEBAUTHN_ORIGINS,
         expectedRPID: env.WEBAUTHN_RP_ID,
         credential: {
           id: credential.credentialId, // Already base64url encoded string

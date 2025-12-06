@@ -180,6 +180,116 @@ router.get('/card-picker', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /popup/login/options
+ * Generate passkey authentication options for initial login (discoverable credentials)
+ */
+router.post('/login/options', async (req: Request, res: Response) => {
+  try {
+    const options = await generateAuthenticationOptions({
+      rpID: env.WEBAUTHN_RP_ID,
+      userVerification: 'preferred',
+      // No allowCredentials = discoverable credential flow
+    });
+
+    // Store challenge with a temporary key
+    const tempKey = `login_${options.challenge.substring(0, 16)}`;
+    storeChallenge(tempKey, options.challenge);
+
+    res.json({
+      ...options,
+      _tempKey: tempKey,
+    });
+  } catch (error) {
+    console.error('[Popup] Login options error:', error);
+    res.status(500).json({ error: 'Failed to generate login options' });
+  }
+});
+
+/**
+ * POST /popup/login/verify
+ * Verify passkey for initial login and set session
+ */
+router.post('/login/verify', async (req: Request, res: Response) => {
+  try {
+    const { response, _tempKey } = req.body as {
+      response: AuthenticationResponseJSON;
+      _tempKey?: string;
+    };
+
+    if (!response || !_tempKey) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Get the challenge
+    const expectedChallenge = getChallenge(_tempKey);
+    if (!expectedChallenge) {
+      return res.status(400).json({ error: 'Challenge expired or not found' });
+    }
+
+    // Find the credential
+    const credential = await prisma.passkeyCredential.findUnique({
+      where: { credentialId: response.id },
+      include: { user: true },
+    });
+
+    if (!credential) {
+      console.log(`[Popup] Login credential not found for ID: ${response.id.substring(0, 10)}...`);
+      return res.status(400).json({ error: 'Credential not found' });
+    }
+
+    // Verify passkey
+    let verification: VerifiedAuthenticationResponse;
+    try {
+      const publicKeyBuffer = Buffer.from(credential.publicKey, 'base64url');
+      verification = await verifyAuthenticationResponse({
+        response,
+        expectedChallenge,
+        expectedOrigin: env.WEBAUTHN_ORIGINS,
+        expectedRPID: env.WEBAUTHN_RP_ID,
+        credential: {
+          id: credential.credentialId,
+          publicKey: new Uint8Array(publicKeyBuffer),
+          counter: credential.counter,
+          transports: credential.transports as AuthenticatorTransportFuture[],
+        },
+      });
+    } catch (verifyError) {
+      console.error('[Popup] Login verification failed:', verifyError);
+      return res.status(400).json({ error: 'Passkey verification failed' });
+    }
+
+    if (!verification.verified) {
+      return res.status(400).json({ error: 'Verification failed' });
+    }
+
+    // Update counter
+    await prisma.passkeyCredential.update({
+      where: { id: credential.id },
+      data: {
+        counter: verification.authenticationInfo.newCounter,
+        lastUsedAt: new Date(),
+      },
+    });
+
+    // Set session on auth-server
+    (req.session as { userId?: string }).userId = credential.userId;
+
+    console.log(`[Popup] Login successful for user ${credential.userId.substring(0, 8)}...`);
+
+    res.json({
+      success: true,
+      user: {
+        id: credential.user.id,
+        email: credential.user.email,
+      },
+    });
+  } catch (error) {
+    console.error('[Popup] Login verify error:', error);
+    res.status(500).json({ error: 'Failed to verify login' });
+  }
+});
+
+/**
  * POST /popup/passkey/options
  * Generate passkey authentication options for payment confirmation
  */
@@ -295,7 +405,7 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
       verification = await verifyAuthenticationResponse({
         response,
         expectedChallenge,
-        expectedOrigin: env.WEBAUTHN_ORIGIN,
+        expectedOrigin: env.WEBAUTHN_ORIGINS,
         expectedRPID: env.WEBAUTHN_RP_ID,
         credential: {
           id: credential.credentialId, // Already base64url encoded string
