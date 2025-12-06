@@ -204,7 +204,11 @@ router.post('/passkey/options', async (req: Request, res: Response) => {
       rpID: env.WEBAUTHN_RP_ID,
       allowCredentials: passkeys.map((p: { credentialId: string; transports: string[] }) => ({
         id: p.credentialId, // Already base64url encoded string
-        transports: p.transports as AuthenticatorTransportFuture[],
+        // Prefer internal (platform) authenticator over hybrid (QR code)
+        // This helps avoid the QR code prompt when the passkey is available locally
+        transports: p.transports.includes('internal')
+          ? ['internal'] as AuthenticatorTransportFuture[]
+          : p.transports as AuthenticatorTransportFuture[],
       })),
       userVerification: 'required',
     });

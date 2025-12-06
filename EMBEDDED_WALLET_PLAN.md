@@ -539,6 +539,8 @@ WEBAUTHN_ORIGIN=https://wsim-auth-dev.banksim.ca
 | 2024-12-05 | WebAuthn RP ID configuration fixed for `banksim.ca` domain | Claude |
 | 2024-12-05 | Passkey registration/authentication tested and verified | Claude |
 | 2024-12-05 | SSIM integration doc created, ready for SSIM team implementation | Claude |
+| 2024-12-05 | Fixed popup API calls to use correct backend URL (FRONTEND_URL env var) | Claude |
+| 2024-12-05 | Passkey transport filter: prefer internal over hybrid to avoid QR code prompts | Claude |
 
 ---
 
