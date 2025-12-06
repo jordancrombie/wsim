@@ -8,6 +8,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Merchant Wallet API (2025-12-06)**
+  - New `/api/merchant` endpoints for custom wallet integration
+  - `GET /api/merchant/user` - Check user authentication status
+  - `GET /api/merchant/cards` - List user's enrolled wallet cards
+  - `POST /api/merchant/payment/initiate` - Start payment, get passkey challenge
+  - `POST /api/merchant/payment/confirm` - Verify passkey, get payment token
+  - API key authentication via `x-api-key` header + user session
+  - Added `apiKey` field to `OAuthClient` schema for merchant API access
+  - API documentation added to EMBEDDED_WALLET_PLAN.md
+
+- **Cross-Origin API Support for "API Direct" Integration (2025-12-06)**
+  - CORS configured for browser-to-WSIM direct API calls from merchant sites
+  - Session cookies updated to `SameSite=None; Secure` for cross-origin credential support
+  - Explicit CORS headers: `Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials: true`
+  - Allowed headers include `X-API-Key` and `Content-Type`
+  - Trust proxy enabled for all environments (needed behind nginx SSL termination)
+  - Supports SSIM's "API Direct" integration option (browser calls WSIM directly)
+
+- **Embedded Wallet iframe Integration (2025-12-06)**
+  - New `/embed/card-picker` route for inline iframe checkout
+  - `/embed/login/options` and `/embed/login/verify` endpoints for passkey auth in iframe
+  - `/embed/passkey/options` and `/embed/passkey/verify` for payment confirmation
+  - `/embed/select-card-simple` for users without passkeys (session-based)
+  - Security middleware (`embed-headers.ts`) with CSP `frame-ancestors` and `Permissions-Policy`
+  - Embed views: `card-picker.ejs`, `auth-required.ejs`, `error.ejs`
+  - postMessage protocol: `wsim:ready`, `wsim:resize`, `wsim:card-selected`, `wsim:cancelled`, `wsim:error`, `wsim:auth-required`
+  - `ALLOWED_EMBED_ORIGINS` environment variable for iframe origin whitelist
+  - SSIM checkout page updated with "Inline" button for iframe wallet integration
+
 - **Authentication Improvements (2025-12-05)**
   - New login page (`/login`) with password and passkey authentication options
   - Password authentication endpoint (`POST /api/auth/login`) with bcrypt verification
@@ -25,6 +54,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Session is now set on auth-server domain (same as popup) for correct authentication
   - Added `WEBAUTHN_ORIGINS` support for multi-origin passkey verification
   - Updated `docker-compose.dev.yml` with both frontend and auth-server origins
+
+- **iframe Passkey Origin Mismatch (2025-12-06)**
+  - Fixed `WEBAUTHN_ORIGINS` not being set in container when using `docker-compose.yml` alone
+  - Container was started with production config but nginx used dev config (`nginx.dev.conf`)
+  - Passkey verification failed: `origin "https://wsim-auth-dev.banksim.ca" expected: https://wsim.banksim.ca`
+  - Solution: Use `docker compose -f docker-compose.yml -f docker-compose.dev.yml up` for dev environment
+  - Added `ALLOWED_EMBED_ORIGINS` to both `docker-compose.yml` and `docker-compose.dev.yml`
 
 - **Passkey Credential ID Encoding (2025-12-05)**
   - Fixed double-encoding bug in passkey registration

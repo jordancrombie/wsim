@@ -5,6 +5,7 @@ import { env } from './config/env';
 import { createOidcProvider } from './oidc-config';
 import { createInteractionRoutes } from './routes/interaction';
 import popupRoutes from './routes/popup';
+import embedRoutes from './routes/embed';
 import { prisma } from './adapters/prisma';
 
 async function main() {
@@ -14,22 +15,21 @@ async function main() {
   app.set('view engine', 'ejs');
   app.set('views', path.join(__dirname, 'views'));
 
-  // Trust proxy in production
-  if (env.NODE_ENV === 'production') {
-    app.set('trust proxy', 1);
-  }
+  // Trust proxy (for secure cookies behind reverse proxy - needed in both dev and prod)
+  app.set('trust proxy', 1);
 
-  // Session middleware (for popup flow)
+  // Session middleware (for popup/embed flow)
+  // Note: sameSite: 'none' required for cross-domain iframe/popup authentication
   app.use(session({
     secret: env.COOKIE_SECRET,
     resave: false,
     saveUninitialized: false,
     name: 'wsim.popup.sid',
     cookie: {
-      secure: env.NODE_ENV === 'production',
+      secure: true, // Required for sameSite: 'none'
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      sameSite: 'lax',
+      sameSite: 'none', // Allow cross-origin requests with credentials
     },
   }));
 
@@ -45,6 +45,9 @@ async function main() {
 
   // Mount popup routes (embedded payment flow)
   app.use('/popup', popupRoutes);
+
+  // Mount embed routes (iframe integration)
+  app.use('/embed', embedRoutes);
 
   // Health check
   app.get('/health', async (req, res) => {

@@ -85,4 +85,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3003/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start command (db push for dev, migrate deploy for prod with migrations)
-CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/index.js"]
+# --accept-data-loss is needed for adding unique constraints on nullable fields
+CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/index.js"]

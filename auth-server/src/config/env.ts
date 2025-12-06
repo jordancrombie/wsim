@@ -34,6 +34,12 @@ export const env = {
     'https://ssim-dev.banksim.ca',
   ],
 
+  // iframe embed allowed origins (for frame-ancestors CSP)
+  ALLOWED_EMBED_ORIGINS: process.env.ALLOWED_EMBED_ORIGINS?.split(',') || [
+    'http://localhost:3000',
+    'https://ssim-dev.banksim.ca',
+  ],
+
   // WebAuthn / Passkeys
   WEBAUTHN_RP_NAME: process.env.WEBAUTHN_RP_NAME || 'WSIM Wallet',
   WEBAUTHN_RP_ID: process.env.WEBAUTHN_RP_ID || 'localhost',

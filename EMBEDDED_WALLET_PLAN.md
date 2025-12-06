@@ -238,22 +238,25 @@ function sendToOpener(message: WsimMessage, allowedOrigin: string): void {
 - [x] Add postMessage origin validation
 - [x] Integrate passkey verification for payment confirmation
 - [x] Generate wallet_payment_token after passkey success
-- [ ] Test popup flow end-to-end with SSIM (pending SSIM integration)
+- [x] Test popup flow end-to-end with SSIM ✅ (verified 2024-12-05)
 
 #### 1.3 Configuration
 - [x] Add `ALLOWED_POPUP_ORIGINS` to auth-server env
 - [x] Configure session cookies to work in popup context
 - [x] Add `WEBAUTHN_*` env vars for passkey RP configuration ✅ (configured in docker-compose)
-- [ ] Add CSP headers allowing popup behavior
+- [x] Add `WEBAUTHN_ORIGINS` for multi-origin passkey verification ✅ (fixed cross-domain popup issue)
+- [x] Add CSP headers allowing popup behavior
 
 ### Phase 1 Completion Criteria
 
 - [x] User can register passkey in WSIM settings ✅
 - [x] User can authenticate with passkey in WSIM ✅
-- [x] SSIM can open WSIM popup for card selection ✅ (endpoint ready)
-- [ ] User can select card and confirm with passkey (pending SSIM integration testing)
-- [ ] Token flows back to SSIM via postMessage (pending SSIM integration testing)
+- [x] SSIM can open WSIM popup for card selection ✅
+- [x] User can select card and confirm with passkey ✅ (verified 2024-12-05)
+- [x] Token flows back to SSIM via postMessage ✅ (verified 2024-12-05)
 - [x] Existing OIDC redirect flow still works unchanged ✅
+
+**Phase 1 Complete!** ✅
 
 ---
 
@@ -318,24 +321,29 @@ interface ReadyMessage {
 
 ### Phase 2 Task Checklist
 
-- [ ] Create `auth-server/src/routes/embed.ts`
-- [ ] Create `auth-server/src/middleware/embed-headers.ts`
-- [ ] Add embed routes to auth-server
-- [ ] Create `auth-server/src/views/embed/layout.ejs`
-- [ ] Create `auth-server/src/views/embed/card-picker.ejs`
-- [ ] Implement height resize postMessage
-- [ ] Add `ALLOWED_EMBED_ORIGINS` to env
-- [ ] Test passkey in iframe context (requires `allow` attribute)
-- [ ] Test with SSIM iframe integration
+- [x] Create `auth-server/src/routes/embed.ts`
+- [x] Create `auth-server/src/middleware/embed-headers.ts`
+- [x] Add embed routes to auth-server
+- [x] Create `auth-server/src/views/embed/layout.ejs`
+- [x] Create `auth-server/src/views/embed/card-picker.ejs`
+- [x] Create `auth-server/src/views/embed/auth-required.ejs`
+- [x] Create `auth-server/src/views/embed/error.ejs`
+- [x] Implement height resize postMessage
+- [x] Add `ALLOWED_EMBED_ORIGINS` to env
+- [x] Add SSIM checkout page iframe integration
+- [x] Test passkey in iframe context (requires `allow` attribute) ✅ (verified 2024-12-06)
+- [x] Test with SSIM iframe integration E2E ✅ (verified 2024-12-06)
 
 ### Phase 2 Completion Criteria
 
-- [ ] SSIM can embed WSIM card picker in iframe
-- [ ] Passkey authentication works within iframe
-- [ ] Token flows via postMessage to parent
-- [ ] iframe resizes appropriately
-- [ ] Works alongside popup option (merchant choice)
-- [ ] Existing OIDC redirect flow still works
+- [x] SSIM can embed WSIM card picker in iframe ✅
+- [x] Passkey authentication works within iframe ✅
+- [x] Token flows via postMessage to parent ✅
+- [x] iframe resizes appropriately ✅
+- [x] Works alongside popup option (merchant choice) ✅
+- [x] Existing OIDC redirect flow still works ✅
+
+**Phase 2 Complete!** ✅
 
 ---
 
@@ -343,49 +351,184 @@ interface ReadyMessage {
 
 ### 3.1 Wallet API Endpoints
 
-For merchants who want to build fully custom UIs.
+For merchants who want to build fully custom UIs. All endpoints require both:
+1. **Merchant API Key** (`x-api-key` header)
+2. **User Session** (cookies from WSIM authentication)
 
-#### New Routes
+#### API Base URL
 
-| Task | File | Route | Description |
-|------|------|-------|-------------|
-| List cards | `backend/src/routes/wallet-api.ts` | `GET /api/wallet/cards` | User's card list |
-| Request token | `backend/src/routes/wallet-api.ts` | `POST /api/wallet/payment-token` | Get payment token |
-| Passkey challenge | `backend/src/routes/wallet-api.ts` | `POST /api/wallet/passkey-challenge` | Get challenge for payment |
-| Verify and token | `backend/src/routes/wallet-api.ts` | `POST /api/wallet/verify-payment` | Verify passkey, return token |
+```
+Production: https://wsim.banksim.ca/api/merchant
+Development: https://wsim-dev.banksim.ca/api/merchant
+```
+
+#### Implemented Routes
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/merchant/user` | Check user authentication status |
+| `GET` | `/api/merchant/cards` | Get user's enrolled cards |
+| `POST` | `/api/merchant/payment/initiate` | Start payment, get passkey challenge |
+| `POST` | `/api/merchant/payment/confirm` | Verify passkey, get payment token |
 
 #### API Authentication
 
-Merchants need a way to authenticate API calls on behalf of users.
+**Implemented: Merchant API Key + User Session**
 
-**Option A: User Bearer Token**
-- User authenticates with WSIM (passkey or OAuth)
-- WSIM issues a short-lived API token
-- Merchant passes token in API calls
+1. Merchant receives an API key (`apiKey` field on `OAuthClient`)
+2. User authenticates with WSIM (sets session cookie)
+3. Merchant includes both in API calls:
+   - `x-api-key: wsim_api_xxx` header
+   - User's session cookie (via `credentials: 'include'`)
 
-**Option B: Merchant API Key + User Token**
-- Merchant has API key
-- User has WSIM session token
-- Both required for API calls
+#### Endpoint Details
+
+**GET /api/merchant/user**
+
+Check if user is authenticated with WSIM.
+
+```bash
+curl -X GET "https://wsim-dev.banksim.ca/api/merchant/user" \
+  -H "x-api-key: wsim_api_xxx"
+```
+
+Response (authenticated):
+```json
+{
+  "authenticated": true,
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "walletId": "uuid"
+  }
+}
+```
+
+Response (not authenticated):
+```json
+{ "authenticated": false }
+```
+
+**GET /api/merchant/cards**
+
+Get user's enrolled wallet cards.
+
+```bash
+curl -X GET "https://wsim-dev.banksim.ca/api/merchant/cards" \
+  -H "x-api-key: wsim_api_xxx"
+```
+
+Response:
+```json
+{
+  "cards": [
+    {
+      "id": "uuid",
+      "cardType": "VISA",
+      "lastFour": "4242",
+      "cardholderName": "JOHN DOE",
+      "expiryMonth": 12,
+      "expiryYear": 2027,
+      "isDefault": true,
+      "bankName": "Bank Simulator"
+    }
+  ]
+}
+```
+
+**POST /api/merchant/payment/initiate**
+
+Start a payment and get passkey challenge options.
+
+```bash
+curl -X POST "https://wsim-dev.banksim.ca/api/merchant/payment/initiate" \
+  -H "x-api-key: wsim_api_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cardId": "uuid",
+    "amount": "99.99",
+    "currency": "CAD",
+    "merchantName": "SSIM Store"
+  }'
+```
+
+Response:
+```json
+{
+  "paymentId": "uuid",
+  "passkeyOptions": {
+    "challenge": "base64url...",
+    "timeout": 60000,
+    "rpId": "wsim-dev.banksim.ca",
+    "userVerification": "required",
+    "allowCredentials": [...]
+  }
+}
+```
+
+**POST /api/merchant/payment/confirm**
+
+Verify passkey and get payment token.
+
+```bash
+curl -X POST "https://wsim-dev.banksim.ca/api/merchant/payment/confirm" \
+  -H "x-api-key: wsim_api_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "paymentId": "uuid",
+    "passkeyResponse": { /* WebAuthn assertion response */ }
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "walletCardToken": "wsim_bsim_xxx",
+  "bsimCardToken": "jwt...",
+  "expiresAt": "2024-12-06T12:05:00Z"
+}
+```
+
+#### Error Responses
+
+| HTTP Status | Error Code | Description |
+|-------------|------------|-------------|
+| 401 | `missing_api_key` | No `x-api-key` header |
+| 401 | `invalid_api_key` | API key not found |
+| 401 | `not_authenticated` | User session not found |
+| 400 | `no_cards` | User has no enrolled cards |
+| 400 | `card_not_found` | Selected card doesn't exist |
+| 400 | `no_passkey` | User has no registered passkeys |
+| 400 | `passkey_verification_failed` | Passkey assertion failed |
+| 404 | `payment_not_found` | Payment session expired/invalid |
 
 ### Phase 3 Task Checklist
 
-- [ ] Design API authentication flow
-- [ ] Create `backend/src/routes/wallet-api.ts`
-- [ ] Implement card list endpoint
-- [ ] Implement passkey challenge endpoint
-- [ ] Implement verify + token endpoint
+- [x] Design API authentication flow ✅
+- [x] Create `backend/src/routes/wallet-api.ts` ✅
+- [x] Implement card list endpoint ✅
+- [x] Implement passkey challenge endpoint ✅
+- [x] Implement verify + token endpoint ✅
+- [x] Add `apiKey` field to `OAuthClient` schema ✅
+- [x] Add API documentation ✅
 - [ ] Add rate limiting
-- [ ] Add API documentation
 - [ ] Test with SSIM API integration
 
 ### Phase 3 Completion Criteria
 
-- [ ] Merchant can fetch user's card list via API
-- [ ] Merchant can request payment token for selected card
-- [ ] Passkey authentication integrated into API flow
-- [ ] Works alongside popup and iframe options
-- [ ] Existing OIDC redirect flow still works
+- [x] Merchant can check user authentication via API ✅
+- [x] Merchant can fetch user's card list via API ✅
+- [x] Merchant can initiate payment and get passkey challenge ✅
+- [x] Merchant can verify passkey and get payment token ✅
+- [ ] Rate limiting implemented
+- [ ] SSIM API integration tested
+- [x] Works alongside popup and iframe options ✅
+- [x] Existing OIDC redirect flow still works ✅
+
+**Phase 3 In Progress** 🔄
 
 ---
 
@@ -541,6 +684,16 @@ WEBAUTHN_ORIGIN=https://wsim-auth-dev.banksim.ca
 | 2024-12-05 | SSIM integration doc created, ready for SSIM team implementation | Claude |
 | 2024-12-05 | Fixed popup API calls to use correct backend URL (FRONTEND_URL env var) | Claude |
 | 2024-12-05 | Passkey transport filter: prefer internal over hybrid to avoid QR code prompts | Claude |
+| 2024-12-05 | Fixed cross-domain passkey auth: added WEBAUTHN_ORIGINS array, popup calls auth-server endpoints | Claude |
+| 2024-12-05 | **Phase 1 Complete**: E2E popup flow verified (SSIM → WSIM popup → passkey → token → SSIM) | Claude |
+| 2024-12-05 | Phase 2: Created embed routes, middleware, and views for iframe integration | Claude |
+| 2024-12-05 | Phase 2: Added SSIM checkout page inline/iframe wallet option | Claude |
+| 2024-12-06 | Phase 2: Fixed iframe passkey origin mismatch (WEBAUTHN_ORIGINS in dev compose) | Claude |
+| 2024-12-06 | Phase 2: Added ALLOWED_EMBED_ORIGINS to docker-compose.yml and docker-compose.dev.yml | Claude |
+| 2024-12-06 | **Phase 2 Complete**: E2E iframe flow verified (SSIM inline → WSIM iframe → passkey → token → SSIM) | Claude |
+| 2024-12-06 | Phase 3: Created `backend/src/routes/wallet-api.ts` with merchant API endpoints | Claude |
+| 2024-12-06 | Phase 3: Added `apiKey` field to `OAuthClient` schema for merchant API auth | Claude |
+| 2024-12-06 | Phase 3: API endpoints tested (user, cards, payment/initiate, payment/confirm) | Claude |
 
 ---
 

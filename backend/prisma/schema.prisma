@@ -194,6 +194,9 @@ model OAuthClient {
   logoUri                String?
   trusted                Boolean  @default(false) // Skip consent for trusted clients
 
+  // Merchant API key for direct API access (Phase 3)
+  apiKey String? @unique // Format: wsim_api_{random}, nullable for OAuth-only clients
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

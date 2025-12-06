@@ -5,6 +5,7 @@ import walletRoutes from './wallet';
 import enrollmentRoutes from './enrollment';
 import paymentRoutes from './payment';
 import passkeyRoutes from './passkey';
+import walletApiRoutes from './wallet-api';
 
 const router = Router();
 
@@ -15,5 +16,6 @@ router.use('/api/wallet', walletRoutes);
 router.use('/api/enrollment', enrollmentRoutes);
 router.use('/api/payment', paymentRoutes);
 router.use('/api/passkey', passkeyRoutes);
+router.use('/api/merchant', walletApiRoutes);
 
 export default router;

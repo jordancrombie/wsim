@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      min-height: auto;
+      overflow: hidden;
+    }
+    body {
+      padding: 0;
+    }
+    .embed-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    .embed-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .embed-header .logo { font-size: 1.25rem; }
+    .embed-header h1 { font-size: 0.9rem; font-weight: 600; }
+    .embed-content { padding: 1rem; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-secondary { background: #f3f4f6; color: #666; margin-top: 0.5rem; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.95);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="embed-container" id="embedContainer">
+    <div class="embed-header">
+      <div class="logo">&#128179;</div>
+      <h1><%= title %></h1>
+    </div>
+    <div class="embed-content" id="embedContent">
+      <%- body %>
+    </div>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <p style="margin-top: 0.75rem; color: #666; font-size: 0.875rem;">Processing...</p>
+  </div>
+
+  <script>
+    const ALLOWED_ORIGIN = '<%= typeof allowedOrigin !== "undefined" ? allowedOrigin : "" %>';
+
+    // Send message to parent frame
+    function sendToParent(message) {
+      if (window.parent && window.parent !== window && ALLOWED_ORIGIN) {
+        window.parent.postMessage(message, ALLOWED_ORIGIN);
+      }
+    }
+
+    // Report height changes to parent for dynamic iframe sizing
+    function reportHeight() {
+      const container = document.getElementById('embedContainer');
+      if (container) {
+        const height = container.offsetHeight;
+        sendToParent({ type: 'wsim:resize', height: height });
+      }
+    }
+
+    // Send ready message when iframe loads
+    function sendReady() {
+      sendToParent({ type: 'wsim:ready' });
+      reportHeight();
+    }
+
+    // Observe DOM changes to report height updates
+    const resizeObserver = new ResizeObserver(() => {
+      reportHeight();
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const container = document.getElementById('embedContainer');
+      if (container) {
+        resizeObserver.observe(container);
+      }
+      sendReady();
+    });
+
+    // Also report on window load (for images, etc.)
+    window.addEventListener('load', reportHeight);
+  </script>
+</body>
+</html>

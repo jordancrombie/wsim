@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      overflow: hidden;
+    }
+    .embed-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    .embed-header {
+      background: #dc2626;
+      color: white;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .embed-header .logo { font-size: 1.25rem; }
+    .embed-header h1 { font-size: 0.9rem; font-weight: 600; }
+    .embed-content {
+      padding: 1rem;
+      text-align: center;
+    }
+    .error-icon {
+      font-size: 2rem;
+      margin-bottom: 0.5rem;
+    }
+    .error-message {
+      color: #666;
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-secondary { background: #f3f4f6; color: #666; }
+    .btn-secondary:hover { background: #e5e7eb; }
+  </style>
+</head>
+<body>
+  <div class="embed-container" id="embedContainer">
+    <div class="embed-header">
+      <div class="logo">&#9888;</div>
+      <h1><%= title %></h1>
+    </div>
+    <div class="embed-content">
+      <div class="error-icon">&#128533;</div>
+      <p class="error-message"><%= message %></p>
+      <button type="button" class="btn btn-secondary" onclick="handleClose()">
+        Close
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const ALLOWED_ORIGIN = '<%= typeof allowedOrigin !== "undefined" && allowedOrigin ? allowedOrigin : "" %>';
+
+    function sendToParent(message) {
+      if (window.parent && window.parent !== window && ALLOWED_ORIGIN) {
+        window.parent.postMessage(message, ALLOWED_ORIGIN);
+      }
+    }
+
+    function reportHeight() {
+      const container = document.getElementById('embedContainer');
+      if (container) {
+        sendToParent({ type: 'wsim:resize', height: container.offsetHeight });
+      }
+    }
+
+    function handleClose() {
+      sendToParent({ type: 'wsim:error', code: 'error', message: '<%= message %>' });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      sendToParent({ type: 'wsim:ready' });
+      sendToParent({ type: 'wsim:error', code: 'load_error', message: '<%= message %>' });
+      reportHeight();
+    });
+  </script>
+</body>
+</html>

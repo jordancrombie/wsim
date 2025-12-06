@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      overflow: hidden;
+    }
+    .embed-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    .embed-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .embed-header .logo { font-size: 1.25rem; }
+    .embed-header h1 { font-size: 0.9rem; font-weight: 600; }
+    .embed-content { padding: 1rem; }
+    .payment-info {
+      background: #f8f9fc;
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      text-align: center;
+    }
+    .payment-info .merchant { color: #666; font-size: 0.75rem; }
+    .payment-info .amount { font-size: 1.25rem; font-weight: 700; color: #333; margin-top: 0.125rem; }
+    .card-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+    .card-option {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .card-option:hover { border-color: #667eea; background: #f8f9fc; }
+    .card-option.selected { border-color: #667eea; background: #f0f1ff; }
+    .card-option .card-icon { font-size: 1.25rem; }
+    .card-option .card-info { flex: 1; min-width: 0; }
+    .card-option .card-type { font-weight: 600; color: #333; font-size: 0.875rem; }
+    .card-option .card-number { color: #666; font-size: 0.75rem; font-family: monospace; }
+    .card-option .card-bank { color: #999; font-size: 0.625rem; }
+    .card-option .checkmark {
+      width: 20px; height: 20px;
+      border: 2px solid #e5e7eb;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      font-size: 0.75rem;
+    }
+    .card-option.selected .checkmark { background: #667eea; border-color: #667eea; color: white; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-secondary { background: #f3f4f6; color: #666; margin-top: 0.5rem; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .empty-state { text-align: center; padding: 1.5rem; color: #666; }
+    .empty-state .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.95);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="embed-container" id="embedContainer">
+    <div class="embed-header">
+      <div class="logo">&#128179;</div>
+      <h1><%= title %></h1>
+    </div>
+    <div class="embed-content">
+      <% if (payment && (payment.amount || payment.merchantName)) { %>
+        <div class="payment-info">
+          <div class="merchant">Payment to <%= payment.merchantName %></div>
+          <% if (payment.amount) { %>
+            <div class="amount">$<%= payment.amount.toFixed(2) %> <%= payment.currency || 'CAD' %></div>
+          <% } %>
+        </div>
+      <% } %>
+
+      <% if (cards && cards.length > 0) { %>
+        <div class="card-list" id="cardList">
+          <% cards.forEach(function(card, index) { %>
+            <div class="card-option <%= index === 0 ? 'selected' : '' %>"
+                 data-card-id="<%= card.id %>"
+                 data-last4="<%= card.lastFour %>"
+                 data-brand="<%= card.cardType.toLowerCase() %>"
+                 onclick="selectCard(this)">
+              <div class="card-icon">&#128179;</div>
+              <div class="card-info">
+                <div class="card-type"><%= card.cardType %></div>
+                <div class="card-number">**** <%= card.lastFour %></div>
+                <div class="card-bank">via <%= card.enrollment.bsimId %></div>
+              </div>
+              <div class="checkmark">&#10003;</div>
+            </div>
+          <% }); %>
+        </div>
+
+        <% if (hasPasskeys) { %>
+          <button type="button" class="btn btn-primary" id="payBtn" onclick="initiatePayment()">
+            &#128274; Confirm with Passkey
+          </button>
+        <% } else { %>
+          <button type="button" class="btn btn-primary" id="payBtn" onclick="initiateSimplePayment()">
+            Confirm Payment
+          </button>
+        <% } %>
+
+        <button type="button" class="btn btn-secondary" onclick="handleCancel()">
+          Cancel
+        </button>
+      <% } else { %>
+        <div class="empty-state">
+          <div class="icon">&#128179;</div>
+          <p>No cards available</p>
+          <p style="font-size: 0.75rem; margin-top: 0.25rem;">
+            Please add a card to your wallet first.
+          </p>
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="handleCancel()">
+          Close
+        </button>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <p style="margin-top: 0.75rem; color: #666; font-size: 0.875rem;">Processing...</p>
+  </div>
+
+  <script src="https://unpkg.com/@simplewebauthn/browser/dist/bundle/index.umd.min.js"></script>
+  <script>
+    const ALLOWED_ORIGIN = '<%= allowedOrigin %>';
+    const paymentData = {
+      merchantId: '<%= payment?.merchantId || "" %>',
+      merchantName: '<%= payment?.merchantName || "" %>',
+      amount: <%= payment?.amount || 'null' %>,
+      currency: '<%= payment?.currency || "CAD" %>',
+      orderId: '<%= payment?.orderId || "" %>'
+    };
+    const userId = '<%= userId %>';
+    const hasPasskeys = <%= hasPasskeys ? 'true' : 'false' %>;
+
+    let selectedCard = document.querySelector('.card-option.selected');
+
+    function sendToParent(message) {
+      if (window.parent && window.parent !== window && ALLOWED_ORIGIN) {
+        window.parent.postMessage(message, ALLOWED_ORIGIN);
+      }
+    }
+
+    function reportHeight() {
+      const container = document.getElementById('embedContainer');
+      if (container) {
+        sendToParent({ type: 'wsim:resize', height: container.offsetHeight });
+      }
+    }
+
+    function handleCancel() {
+      sendToParent({ type: 'wsim:cancelled', reason: 'user' });
+    }
+
+    function handleError(code, message) {
+      sendToParent({ type: 'wsim:error', code: code, message: message });
+    }
+
+    function selectCard(element) {
+      document.querySelectorAll('.card-option').forEach(c => c.classList.remove('selected'));
+      element.classList.add('selected');
+      selectedCard = element;
+    }
+
+    function showLoading(show) {
+      document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
+      document.getElementById('payBtn').disabled = show;
+    }
+
+    async function initiatePayment() {
+      if (!selectedCard) {
+        alert('Please select a card');
+        return;
+      }
+
+      showLoading(true);
+
+      try {
+        const walletCardId = selectedCard.dataset.cardId;
+
+        // Get passkey options
+        const optionsRes = await fetch('/embed/passkey/options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: userId,
+            walletCardId: walletCardId,
+            merchantName: paymentData.merchantName,
+            amount: paymentData.amount,
+            currency: paymentData.currency
+          })
+        });
+
+        if (!optionsRes.ok) {
+          const error = await optionsRes.json();
+          throw new Error(error.error || 'Failed to get passkey options');
+        }
+
+        const options = await optionsRes.json();
+        const challengeKey = options._challengeKey;
+
+        // Start passkey authentication
+        const credential = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: options });
+
+        // Verify passkey and get token
+        const verifyRes = await fetch('/embed/passkey/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            response: credential,
+            _challengeKey: challengeKey,
+            walletCardId: walletCardId,
+            merchantId: paymentData.merchantId,
+            merchantName: paymentData.merchantName,
+            amount: paymentData.amount,
+            currency: paymentData.currency,
+            origin: ALLOWED_ORIGIN
+          })
+        });
+
+        if (!verifyRes.ok) {
+          const error = await verifyRes.json();
+          throw new Error(error.error || 'Payment verification failed');
+        }
+
+        const result = await verifyRes.json();
+
+        sendToParent({
+          type: 'wsim:card-selected',
+          token: result.token,
+          cardToken: result.cardToken,
+          cardLast4: result.cardLast4,
+          cardBrand: result.cardBrand,
+          expiresAt: result.expiresAt
+        });
+
+      } catch (error) {
+        console.error('Payment error:', error);
+        showLoading(false);
+
+        if (error.name === 'NotAllowedError') {
+          handleError('passkey_cancelled', 'Passkey authentication was cancelled');
+        } else {
+          handleError('payment_failed', error.message || 'Payment failed');
+        }
+      }
+    }
+
+    async function initiateSimplePayment() {
+      if (!selectedCard) {
+        alert('Please select a card');
+        return;
+      }
+
+      showLoading(true);
+
+      try {
+        const walletCardId = selectedCard.dataset.cardId;
+
+        const res = await fetch('/embed/select-card-simple', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            walletCardId: walletCardId,
+            merchantId: paymentData.merchantId,
+            merchantName: paymentData.merchantName,
+            amount: paymentData.amount,
+            currency: paymentData.currency,
+            origin: ALLOWED_ORIGIN
+          })
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || 'Payment failed');
+        }
+
+        const result = await res.json();
+
+        sendToParent({
+          type: 'wsim:card-selected',
+          token: result.token,
+          cardToken: result.cardToken,
+          cardLast4: result.cardLast4,
+          cardBrand: result.cardBrand,
+          expiresAt: result.expiresAt
+        });
+
+      } catch (error) {
+        console.error('Payment error:', error);
+        showLoading(false);
+        handleError('payment_failed', error.message || 'Payment failed');
+      }
+    }
+
+    // Report ready and initial height
+    document.addEventListener('DOMContentLoaded', () => {
+      sendToParent({ type: 'wsim:ready' });
+      reportHeight();
+
+      // Observe size changes
+      const resizeObserver = new ResizeObserver(() => reportHeight());
+      resizeObserver.observe(document.getElementById('embedContainer'));
+    });
+  </script>
+</body>
+</html>
