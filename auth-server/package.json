@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "wsim",
@@ -36,8 +39,11 @@
     "@types/express-session": "^1.18.2",
     "@types/node": "^24.10.1",
     "@types/oidc-provider": "^9.5.0",
+    "@vitest/coverage-v8": "^4.0.15",
     "prisma": "^5.22.0",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15",
+    "vitest-mock-extended": "^3.1.0"
   }
 }
