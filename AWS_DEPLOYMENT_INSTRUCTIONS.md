@@ -24,6 +24,102 @@ All services share the existing BSIM infrastructure:
 
 ---
 
+## ⚠️ CRITICAL: Required Database Setup
+
+> **IMPORTANT:** Complete these database steps BEFORE testing the enrollment flow.
+> Without this setup, users will see OAuth errors when trying to enroll banks.
+
+### 1. Register WSIM as OAuth Client in BSIM Database
+
+WSIM needs to authenticate with BSIM to enroll bank accounts. This OAuth client must be registered in the **BSIM database** (not WSIM).
+
+```sql
+-- =====================================================
+-- RUN THIS IN THE BSIM DATABASE (bsim, not wsim!)
+-- =====================================================
+
+-- First, generate a client secret (run this in bash):
+-- openssl rand -base64 32
+-- Example output: K7xPq2mN8vR3sT6wY9zA1bC4dE5fG8hJ0kL2mN3oP4qR
+
+INSERT INTO "OAuthClient" (
+  "id",
+  "clientId",
+  "clientSecret",
+  "clientName",
+  "redirectUris",
+  "grantTypes",
+  "responseTypes",
+  "scopes",
+  "createdAt",
+  "updatedAt"
+) VALUES (
+  gen_random_uuid(),
+  'wsim-wallet',
+  'YOUR_GENERATED_SECRET_HERE',  -- ← Replace with generated secret
+  'WSIM Wallet',
+  ARRAY['https://wsim.banksim.ca/api/enrollment/callback'],
+  ARRAY['authorization_code'],   -- ⚠️ ONLY authorization_code (NOT refresh_token!)
+  ARRAY['code'],
+  ARRAY['openid', 'profile', 'email', 'wallet:enroll'],  -- ⚠️ wallet:enroll (NOT wallet:cards!)
+  NOW(),
+  NOW()
+);
+
+-- Verify it was created:
+SELECT "clientId", "grantTypes", "scopes" FROM "OAuthClient" WHERE "clientId" = 'wsim-wallet';
+```
+
+**Common Mistakes (will cause OAuth errors):**
+| Mistake | Error Message | Fix |
+|---------|--------------|-----|
+| `grantTypes` includes `refresh_token` | "grant_types can only contain 'implicit' or 'authorization_code'" | Use only `ARRAY['authorization_code']` |
+| `scopes` includes `wallet:cards` | "scope must only contain supported scope values" | Use `wallet:enroll` instead |
+| Wrong database | Client not found | Run in BSIM database, not WSIM |
+
+### 2. Configure WSIM Backend with BSIM Client Secret
+
+The same client secret from step 1 must be configured in the WSIM backend's `BSIM_PROVIDERS` environment variable:
+
+```json
+{
+  "name": "BSIM_PROVIDERS",
+  "value": "[{\"bsimId\":\"bsim\",\"name\":\"Bank Simulator\",\"issuer\":\"https://auth.banksim.ca\",\"apiUrl\":\"https://banksim.ca\",\"clientId\":\"wsim-wallet\",\"clientSecret\":\"YOUR_GENERATED_SECRET_HERE\"}]"
+}
+```
+
+**The `clientSecret` in BSIM_PROVIDERS must match the `clientSecret` in the OAuthClient table.**
+
+### 3. Register SSIM as OAuth Client in WSIM Database (Optional)
+
+Only needed if SSIM will use "Pay with Wallet" feature:
+
+```sql
+-- =====================================================
+-- RUN THIS IN THE WSIM DATABASE (wsim, not bsim!)
+-- =====================================================
+
+INSERT INTO "OAuthClient" (
+  "id", "clientId", "clientSecret", "clientName",
+  "redirectUris", "grantTypes", "responseTypes", "scopes",
+  "apiKey", "createdAt", "updatedAt"
+) VALUES (
+  gen_random_uuid(),
+  'ssim-merchant',
+  'GENERATE_A_SECURE_CLIENT_SECRET',
+  'Store Simulator',
+  ARRAY['https://ssim.banksim.ca/payment/wallet-callback'],
+  ARRAY['authorization_code'],
+  ARRAY['code'],
+  ARRAY['openid', 'payment:authorize'],
+  'wsim_api_GENERATE_UNIQUE_KEY',
+  NOW(),
+  NOW()
+);
+```
+
+---
+
 ## Prerequisites
 
 Before deploying WSIM, ensure:
@@ -485,60 +581,23 @@ aws elbv2 describe-load-balancers --names bsim-alb --query 'LoadBalancers[0].[Ca
 
 ---
 
-## Step 12: Register WSIM OAuth Client in BSIM
+## Step 12: Verify Database Setup
 
-WSIM needs to be registered as an OAuth client in BSIM's auth server to enable bank enrollment:
-
-```sql
--- Run this in the BSIM database (not WSIM)
-INSERT INTO "OAuthClient" (
-  "id", "clientId", "clientSecret", "clientName",
-  "redirectUris", "grantTypes", "responseTypes", "scopes",
-  "createdAt", "updatedAt"
-) VALUES (
-  gen_random_uuid(),
-  'wsim-wallet',
-  'GENERATE_A_SECURE_CLIENT_SECRET',
-  'WSIM Wallet',
-  ARRAY['https://wsim.banksim.ca/api/enrollment/callback'],
-  ARRAY['authorization_code'],
-  ARRAY['code'],
-  ARRAY['openid', 'profile', 'email', 'wallet:enroll'],
-  NOW(),
-  NOW()
-);
-
--- NOTES:
--- 1. grant_types: Only 'authorization_code' or 'implicit' are valid (NOT 'refresh_token')
--- 2. scopes: Must match BSIM's supported scopes. Valid wallet scope is 'wallet:enroll' (NOT 'wallet:cards')
-```
-
----
-
-## Step 13: Register SSIM OAuth Client in WSIM
-
-SSIM needs to be registered in WSIM to enable "Pay with Wallet":
+Confirm the OAuth client registration from the "CRITICAL: Required Database Setup" section at the top of this document is complete:
 
 ```sql
--- Run this in the WSIM database
-INSERT INTO "OAuthClient" (
-  "id", "clientId", "clientSecret", "clientName",
-  "redirectUris", "grantTypes", "responseTypes", "scopes",
-  "apiKey", "createdAt", "updatedAt"
-) VALUES (
-  gen_random_uuid(),
-  'ssim-merchant',
-  'GENERATE_A_SECURE_CLIENT_SECRET',
-  'Store Simulator',
-  ARRAY['https://ssim.banksim.ca/payment/wallet-callback'],
-  ARRAY['authorization_code'],
-  ARRAY['code'],
-  ARRAY['openid', 'payment:authorize'],
-  'wsim_api_GENERATE_UNIQUE_KEY',
-  NOW(),
-  NOW()
-);
+-- In BSIM database: Verify WSIM client exists with correct values
+SELECT "clientId", "grantTypes", "scopes"
+FROM "OAuthClient"
+WHERE "clientId" = 'wsim-wallet';
+
+-- Expected output:
+--  clientId   |      grantTypes       |                    scopes
+-- ------------+-----------------------+----------------------------------------------
+--  wsim-wallet| {authorization_code}  | {openid,profile,email,wallet:enroll}
 ```
+
+If the client doesn't exist or has wrong values, go back to the "CRITICAL: Required Database Setup" section.
 
 ---
 
