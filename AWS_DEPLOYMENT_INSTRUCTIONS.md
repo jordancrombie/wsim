@@ -724,6 +724,93 @@ If issues occur:
 
 ---
 
+## Troubleshooting: Cards Not Appearing After Enrollment
+
+If users complete enrollment successfully (bank shows as connected) but cards don't appear:
+
+### 1. Check WSIM Backend Logs for Card Fetch Errors
+
+```bash
+# AWS Production
+aws logs tail /ecs/wsim-backend --filter-pattern "Enrollment" --region ca-central-1
+
+# Look for these log messages:
+# ✓ Good: "[Enrollment] Got 3 cards from bsim"
+# ✗ Bad:  "[Enrollment] No wallet_credential in token response"
+# ✗ Bad:  "[Enrollment] Failed to fetch cards:"
+```
+
+### 2. Verify `wallet_credential` is in Token Response
+
+The most common cause is BSIM not including `wallet_credential` in the access token. This happens if:
+- The `wallet:enroll` scope wasn't granted during consent
+- BSIM's grant doesn't have `walletCredentialToken` stored
+
+**Check WSIM logs for:**
+```
+[Enrollment] No wallet_credential in token response - BSIM may not have granted wallet:enroll scope
+```
+
+### 3. Verify Cards Exist in WSIM Database
+
+```sql
+-- Connect to WSIM database
+-- Check if enrollment exists
+SELECT id, "bsimId", "fiUserRef", "createdAt"
+FROM "BsimEnrollment"
+WHERE "bsimId" = 'bsim';
+
+-- Check if cards were stored
+SELECT wc.id, wc."cardType", wc."lastFour", wc."createdAt"
+FROM "WalletCard" wc
+JOIN "BsimEnrollment" be ON wc."enrollmentId" = be.id
+WHERE be."bsimId" = 'bsim';
+```
+
+If enrollment exists but no cards, the issue is card fetching.
+If cards exist, the issue is on the frontend display.
+
+### 4. Verify BSIM OAuth Client Has `wallet:enroll` Scope
+
+```sql
+-- In BSIM database
+SELECT "clientId", scope FROM oauth_clients WHERE "clientId" = 'wsim-wallet';
+
+-- scope MUST include 'wallet:enroll'
+-- Expected: 'openid profile email wallet:enroll'
+```
+
+### 5. Test Card Fetch Endpoint Directly (Local Development)
+
+If you have access to a wallet credential, test the BSIM API directly:
+
+```bash
+# Replace with actual wallet credential from logs
+curl -H "Authorization: Bearer wcred_xxxx" \
+  https://banksim.ca/api/wallet/cards
+```
+
+### 6. Check BSIM Wallet Credential Generation
+
+BSIM generates wallet credentials during the consent/interaction flow. The credential is stored in the Grant and then added to the access token via `extraTokenClaims`. Check BSIM auth-server logs:
+
+```bash
+# Look for wallet credential generation
+aws logs tail /ecs/bsim-auth-server --filter-pattern "wallet_credential" --region ca-central-1
+```
+
+### Root Cause Summary
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Log shows "No wallet_credential in token response" | BSIM not granting `wallet:enroll` scope | Verify OAuth client has `wallet:enroll` in scope |
+| Log shows "Failed to fetch cards" with 401 | Using access token instead of wallet credential | BSIM issue - wallet credential not in token |
+| Log shows "Failed to fetch cards" with 404 | Wrong API URL | Check `apiUrl` in BSIM_PROVIDERS matches BSIM API |
+| No card fetch log at all | Code error or enrollment failed earlier | Check for earlier errors in enrollment flow |
+| Cards in DB but not in UI | Frontend issue | Check `/api/cards` endpoint and frontend |
+
+---
+
 ## Support
 
 - **WSIM Repository:** https://github.com/jordancrombie/wsim
