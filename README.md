@@ -184,6 +184,29 @@ See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for compl
 | `/token` | Token endpoint |
 | `/interaction/:uid` | User interaction (card selection) |
 
+### Admin Interface (`/administration`)
+
+| Endpoint | Description |
+|----------|-------------|
+| `/administration` | Admin dashboard (protected) |
+| `/administration/login` | Admin login with passkey |
+| `/administration/setup` | Initial admin setup (first admin only) |
+| `/administration/clients` | OAuth client management |
+
+#### First-Time Admin Setup
+
+1. Navigate to `https://wsim-auth-dev.banksim.ca/administration/setup`
+2. Enter admin email, first name, and last name
+3. Register a passkey for secure authentication
+4. You'll be automatically logged in after registration
+
+#### Admin Features
+
+- **Passkey-only authentication** - No passwords, WebAuthn/FIDO2 security
+- **OAuth Client Management** - Create, edit, and delete OAuth clients for SSIMs
+- **Role-based access** - ADMIN and SUPER_ADMIN roles
+- **Invite system** - SUPER_ADMINs can invite new administrators
+
 ## Related Projects
 
 - [bsim](../bsim) - Banking Simulator

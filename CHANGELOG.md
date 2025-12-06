@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Admin Interface for Auth Server (2025-12-06)**
+  - New `/administration` routes for OAuth client management
+  - Passkey-only authentication (WebAuthn/FIDO2) for admin login
+  - First-time setup wizard at `/administration/setup` for initial admin creation
+  - `AdminUser` and `AdminPasskey` Prisma models with role-based access (ADMIN, SUPER_ADMIN)
+  - `AdminInvite` model for inviting new administrators
+  - JWT-based admin session management with secure cookies
+  - Admin dashboard with OAuth client CRUD operations
+  - EJS views: `setup.ejs`, `login.ejs`, `dashboard.ejs`, `clients.ejs`
+  - Environment variable `AUTH_ADMIN_JWT_SECRET` for admin token signing
+
 - **Merchant Wallet API (2025-12-06)**
   - New `/api/merchant` endpoints for custom wallet integration
   - `GET /api/merchant/user` - Check user authentication status

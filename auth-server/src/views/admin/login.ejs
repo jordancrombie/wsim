@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login - WSIM Authorization Server</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      width: 100%;
+      max-width: 420px;
+      padding: 40px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 28px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    input[type="email"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .info-box {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      color: #0369a1;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    button:hover {
+      background: #5a67d8;
+    }
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #ffffff;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .divider {
+      text-align: center;
+      margin: 24px 0;
+      color: #9ca3af;
+      font-size: 12px;
+    }
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">W</div>
+      <h1>Admin Login</h1>
+      <p class="subtitle">WSIM Authorization Server Administration</p>
+    </div>
+
+    <% if (error) { %>
+      <div class="error"><%= error %></div>
+    <% } %>
+
+    <div class="info-box" id="info-box">
+      Enter your email to sign in with your passkey.
+    </div>
+
+    <form id="login-form">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autocomplete="email" placeholder="admin@example.com">
+      </div>
+
+      <button type="submit" id="login-btn">
+        <span id="btn-text">Sign in with Passkey</span>
+        <div class="spinner" id="spinner"></div>
+      </button>
+    </form>
+
+    <div class="divider">Secure admin access</div>
+
+    <p class="footer">
+      Only authorized administrators can access this area.
+    </p>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const emailInput = document.getElementById('email');
+    const loginBtn = document.getElementById('login-btn');
+    const btnText = document.getElementById('btn-text');
+    const spinner = document.getElementById('spinner');
+    const infoBox = document.getElementById('info-box');
+
+    function setLoading(loading) {
+      loginBtn.disabled = loading;
+      spinner.style.display = loading ? 'block' : 'none';
+      btnText.textContent = loading ? 'Authenticating...' : 'Sign in with Passkey';
+    }
+
+    function showError(message) {
+      infoBox.className = 'error';
+      infoBox.textContent = message;
+    }
+
+    function bufferToBase64URL(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let str = '';
+      for (const byte of bytes) {
+        str += String.fromCharCode(byte);
+      }
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    function base64URLToBuffer(base64URL) {
+      const base64 = base64URL.replace(/-/g, '+').replace(/_/g, '/');
+      const padLen = (4 - (base64.length % 4)) % 4;
+      const padded = base64 + '='.repeat(padLen);
+      const binary = atob(padded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = emailInput.value.trim();
+
+      if (!email) {
+        showError('Please enter your email address');
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        // Get authentication options
+        const optionsRes = await fetch('/administration/login-options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+
+        if (!optionsRes.ok) {
+          throw new Error('Failed to get authentication options');
+        }
+
+        const { options } = await optionsRes.json();
+
+        // Convert challenge from base64url to ArrayBuffer
+        options.challenge = base64URLToBuffer(options.challenge);
+
+        // Convert allowCredentials if present
+        if (options.allowCredentials) {
+          options.allowCredentials = options.allowCredentials.map(cred => ({
+            ...cred,
+            id: base64URLToBuffer(cred.id),
+          }));
+        }
+
+        // Request credential from authenticator
+        const credential = await navigator.credentials.get({
+          publicKey: options,
+        });
+
+        if (!credential) {
+          throw new Error('Authentication cancelled');
+        }
+
+        // Prepare credential for server
+        const credentialData = {
+          id: credential.id,
+          rawId: bufferToBase64URL(credential.rawId),
+          type: credential.type,
+          response: {
+            clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
+            authenticatorData: bufferToBase64URL(credential.response.authenticatorData),
+            signature: bufferToBase64URL(credential.response.signature),
+            userHandle: credential.response.userHandle
+              ? bufferToBase64URL(credential.response.userHandle)
+              : null,
+          },
+        };
+
+        // Verify with server
+        const verifyRes = await fetch('/administration/login-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: credentialData, email }),
+        });
+
+        if (!verifyRes.ok) {
+          const error = await verifyRes.json();
+          throw new Error(error.error || 'Authentication failed');
+        }
+
+        const result = await verifyRes.json();
+        if (result.success) {
+          window.location.href = '/administration';
+        } else {
+          throw new Error('Authentication failed');
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        showError(error.message || 'Authentication failed. Please try again.');
+        setLoading(false);
+      }
+    });
+  </script>
+</body>
+</html>

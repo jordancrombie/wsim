@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= isNew ? 'New Client' : 'Edit Client' %> - WSIM Auth Admin</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f3f4f6;
+      min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+    .header-subtitle {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+    .btn {
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+    }
+    .btn-primary {
+      background: #4f46e5;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #4338ca;
+    }
+    .btn-secondary {
+      background: white;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+    .btn-secondary:hover {
+      background: #f9fafb;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 40px 20px;
+    }
+    .alert {
+      padding: 16px 20px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      font-size: 14px;
+    }
+    .alert-error {
+      background: #fee2e2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .card-header h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #111827;
+    }
+    .card-body {
+      padding: 24px;
+    }
+    .form-group {
+      margin-bottom: 24px;
+    }
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 8px;
+    }
+    .label-hint {
+      font-weight: 400;
+      color: #6b7280;
+      font-size: 12px;
+      display: block;
+      margin-top: 4px;
+    }
+    input[type="text"],
+    input[type="url"],
+    textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input[type="text"]:focus,
+    input[type="url"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    textarea {
+      resize: vertical;
+      min-height: 100px;
+      font-family: monospace;
+    }
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .checkbox-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+    }
+    .checkbox-group label {
+      margin-bottom: 0;
+    }
+    .form-section {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 24px;
+      margin-top: 24px;
+    }
+    .form-section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 16px;
+    }
+    .form-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #e5e7eb;
+    }
+    .readonly-field {
+      background: #f9fafb;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 14px;
+      color: #374151;
+      border: 1px solid #e5e7eb;
+    }
+    .warning-box {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: white;
+      text-decoration: none;
+      font-size: 14px;
+      opacity: 0.8;
+    }
+    .back-link:hover {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <a href="/administration" class="back-link">&larr; Back to Clients</a>
+      <h1><%= isNew ? 'New OAuth Client' : 'Edit OAuth Client' %></h1>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <% if (admin) { %>
+        <span style="font-size: 14px; opacity: 0.9;"><%= admin.email %></span>
+      <% } %>
+      <a href="/administration/logout" class="btn btn-secondary" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <% if (error) { %>
+      <div class="alert alert-error">
+        <%= error %>
+      </div>
+    <% } %>
+
+    <div class="card">
+      <div class="card-header">
+        <h2><%= isNew ? 'Create New Client' : client.clientName %></h2>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/administration/clients<%= isNew ? '' : '/' + client.id %>">
+          <% if (isNew) { %>
+            <div class="form-group">
+              <label for="clientId">
+                Client ID
+                <span class="label-hint">Unique identifier for this client (e.g., ssim-merchant)</span>
+              </label>
+              <input type="text" id="clientId" name="clientId" required
+                     value="<%= client?.clientId || '' %>"
+                     pattern="[a-zA-Z0-9_-]+"
+                     placeholder="ssim-merchant">
+            </div>
+          <% } else { %>
+            <div class="form-group">
+              <label>Client ID</label>
+              <div class="readonly-field"><%= client.clientId %></div>
+            </div>
+          <% } %>
+
+          <div class="form-group">
+            <label for="clientName">
+              Client Name
+              <span class="label-hint">Display name shown to users during authorization</span>
+            </label>
+            <input type="text" id="clientName" name="clientName" required
+                   value="<%= client?.clientName || '' %>"
+                   placeholder="SSIM Merchant">
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">OAuth Configuration</div>
+
+            <div class="form-group">
+              <label for="redirectUris">
+                Redirect URIs
+                <span class="label-hint">One URI per line. These are the allowed callback URLs.</span>
+              </label>
+              <textarea id="redirectUris" name="redirectUris" required
+                        placeholder="https://ssim.banksim.ca/auth/callback&#10;http://localhost:3000/auth/callback"><%= Array.isArray(client?.redirectUris) ? client.redirectUris.join('\n') : (client?.redirectUris || '') %></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="postLogoutRedirectUris">
+                Post-Logout Redirect URIs
+                <span class="label-hint">One URI per line. Where to redirect after logout.</span>
+              </label>
+              <textarea id="postLogoutRedirectUris" name="postLogoutRedirectUris"
+                        placeholder="https://ssim.banksim.ca&#10;http://localhost:3000"><%= Array.isArray(client?.postLogoutRedirectUris) ? client.postLogoutRedirectUris.join('\n') : (client?.postLogoutRedirectUris || '') %></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="scope">
+                Allowed Scopes
+                <span class="label-hint">Space-separated list of scopes this client can request</span>
+              </label>
+              <input type="text" id="scope" name="scope" required
+                     value="<%= client?.scope || 'openid profile email wallet:cards wallet:pay' %>"
+                     placeholder="openid profile email wallet:cards wallet:pay">
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Branding</div>
+
+            <div class="form-group">
+              <label for="logoUri">
+                Logo URL
+                <span class="label-hint">URL to the client's logo image</span>
+              </label>
+              <input type="url" id="logoUri" name="logoUri"
+                     value="<%= client?.logoUri || '' %>"
+                     placeholder="https://ssim.banksim.ca/logo.png">
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="form-section-title">Trust Settings</div>
+
+            <div class="form-group">
+              <div class="checkbox-group">
+                <input type="checkbox" id="trusted" name="trusted" <%= client?.trusted ? 'checked' : '' %>>
+                <label for="trusted">Trusted Client (skip consent screen)</label>
+              </div>
+              <span class="label-hint" style="margin-left: 26px;">Only enable for first-party clients that you fully trust.</span>
+            </div>
+          </div>
+
+          <% if (!isNew) { %>
+            <div class="form-section">
+              <div class="form-section-title">Security</div>
+
+              <div class="form-group">
+                <div class="checkbox-group">
+                  <input type="checkbox" id="regenerateSecret" name="regenerateSecret">
+                  <label for="regenerateSecret">Regenerate Client Secret</label>
+                </div>
+                <div class="warning-box">
+                  Warning: Regenerating the client secret will invalidate the existing secret. The application will need to be updated with the new secret.
+                </div>
+              </div>
+            </div>
+          <% } %>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">
+              <%= isNew ? 'Create Client' : 'Save Changes' %>
+            </button>
+            <a href="/administration" class="btn btn-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

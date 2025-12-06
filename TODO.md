@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-05
+> **Last Updated**: 2025-12-06
 
 ## Current Status: 🟢 WSIM Flow Complete - Pending NSIM Merchant Fix
 
@@ -13,6 +13,7 @@
 - ✅ JWT access tokens with `wallet_card_token` and `card_token` claims
 - ✅ SSIM extracts tokens from WSIM JWT
 - ✅ SSIM calls NSIM with tokens
+- ✅ **Admin Interface** - OAuth client management with passkey authentication
 
 ### Current Blocker: Merchant ID Mismatch (NSIM Side)
 

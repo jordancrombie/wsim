@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Setup - WSIM Authorization Server</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      width: 100%;
+      max-width: 480px;
+      padding: 40px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+      font-size: 28px;
+      color: white;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #6b7280;
+      font-size: 14px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 6px;
+    }
+    input[type="text"],
+    input[type="email"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    .name-row {
+      display: flex;
+      gap: 16px;
+    }
+    .name-row .form-group {
+      flex: 1;
+    }
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #16a34a;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .info-box {
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      color: #0369a1;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .warning-box {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    button:hover {
+      background: #5a67d8;
+    }
+    button:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2px solid #ffffff;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .step {
+      display: none;
+    }
+    .step.active {
+      display: block;
+    }
+    .step-indicator {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .step-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #e5e7eb;
+    }
+    .step-dot.active {
+      background: #667eea;
+    }
+    .step-dot.completed {
+      background: #10b981;
+    }
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">W</div>
+      <h1>Admin Setup</h1>
+      <p class="subtitle">WSIM Authorization Server - First Time Setup</p>
+    </div>
+
+    <div class="step-indicator">
+      <div class="step-dot active" id="dot-1"></div>
+      <div class="step-dot" id="dot-2"></div>
+    </div>
+
+    <% if (error) { %>
+      <div class="error"><%= error %></div>
+    <% } %>
+
+    <div id="message-box" class="info-box">
+      Create the first administrator account to get started.
+    </div>
+
+    <!-- Step 1: Create Admin User -->
+    <div class="step active" id="step-1">
+      <form id="create-admin-form">
+        <div class="name-row">
+          <div class="form-group">
+            <label for="firstName">First Name</label>
+            <input type="text" id="firstName" name="firstName" required placeholder="John">
+          </div>
+          <div class="form-group">
+            <label for="lastName">Last Name</label>
+            <input type="text" id="lastName" name="lastName" required placeholder="Admin">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <input type="email" id="email" name="email" required autocomplete="email" placeholder="admin@example.com">
+        </div>
+
+        <button type="submit" id="create-btn">
+          <span id="create-btn-text">Create Admin Account</span>
+          <div class="spinner" id="create-spinner"></div>
+        </button>
+      </form>
+    </div>
+
+    <!-- Step 2: Register Passkey -->
+    <div class="step" id="step-2">
+      <form id="register-passkey-form">
+        <div class="info-box">
+          Now register a passkey to secure your admin account. This will use your device's built-in security (fingerprint, face recognition, or security key).
+        </div>
+
+        <button type="submit" id="register-btn">
+          <span id="register-btn-text">Register Passkey</span>
+          <div class="spinner" id="register-spinner"></div>
+        </button>
+      </form>
+    </div>
+
+    <p class="footer">
+      This setup page is only available when no administrators exist.
+    </p>
+  </div>
+
+  <script>
+    let adminEmail = '';
+
+    const createForm = document.getElementById('create-admin-form');
+    const registerForm = document.getElementById('register-passkey-form');
+    const messageBox = document.getElementById('message-box');
+    const step1 = document.getElementById('step-1');
+    const step2 = document.getElementById('step-2');
+    const dot1 = document.getElementById('dot-1');
+    const dot2 = document.getElementById('dot-2');
+
+    function setLoading(btn, spinner, loading, text) {
+      btn.disabled = loading;
+      spinner.style.display = loading ? 'block' : 'none';
+      btn.querySelector('span').textContent = text;
+    }
+
+    function showMessage(type, message) {
+      messageBox.className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info-box';
+      messageBox.textContent = message;
+    }
+
+    function goToStep(step) {
+      step1.classList.remove('active');
+      step2.classList.remove('active');
+      dot1.classList.remove('active', 'completed');
+      dot2.classList.remove('active', 'completed');
+
+      if (step === 1) {
+        step1.classList.add('active');
+        dot1.classList.add('active');
+      } else if (step === 2) {
+        step2.classList.add('active');
+        dot1.classList.add('completed');
+        dot2.classList.add('active');
+      }
+    }
+
+    function bufferToBase64URL(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let str = '';
+      for (const byte of bytes) {
+        str += String.fromCharCode(byte);
+      }
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    function base64URLToBuffer(base64URL) {
+      const base64 = base64URL.replace(/-/g, '+').replace(/_/g, '/');
+      const padLen = (4 - (base64.length % 4)) % 4;
+      const padded = base64 + '='.repeat(padLen);
+      const binary = atob(padded);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    // Step 1: Create Admin
+    createForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const firstName = document.getElementById('firstName').value.trim();
+      const lastName = document.getElementById('lastName').value.trim();
+      const email = document.getElementById('email').value.trim();
+
+      if (!firstName || !lastName || !email) {
+        showMessage('error', 'All fields are required');
+        return;
+      }
+
+      const createBtn = document.getElementById('create-btn');
+      const createSpinner = document.getElementById('create-spinner');
+      setLoading(createBtn, createSpinner, true, 'Creating...');
+
+      try {
+        const res = await fetch('/administration/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, firstName, lastName }),
+        });
+
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || 'Failed to create admin');
+        }
+
+        const result = await res.json();
+        if (result.success) {
+          adminEmail = email;
+          showMessage('success', `Admin account created for ${result.admin.firstName} ${result.admin.lastName}!`);
+          goToStep(2);
+        } else {
+          throw new Error('Failed to create admin');
+        }
+      } catch (error) {
+        console.error('Create admin error:', error);
+        showMessage('error', error.message || 'Failed to create admin');
+        setLoading(createBtn, createSpinner, false, 'Create Admin Account');
+      }
+    });
+
+    // Step 2: Register Passkey
+    registerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const registerBtn = document.getElementById('register-btn');
+      const registerSpinner = document.getElementById('register-spinner');
+      setLoading(registerBtn, registerSpinner, true, 'Registering...');
+
+      try {
+        // Get registration options
+        const optionsRes = await fetch('/administration/register-options', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: adminEmail }),
+        });
+
+        if (!optionsRes.ok) {
+          const error = await optionsRes.json();
+          throw new Error(error.error || 'Failed to get registration options');
+        }
+
+        const { options } = await optionsRes.json();
+
+        // Convert challenge and user.id from base64url to ArrayBuffer
+        options.challenge = base64URLToBuffer(options.challenge);
+        options.user.id = base64URLToBuffer(options.user.id);
+
+        // Convert excludeCredentials if present
+        if (options.excludeCredentials) {
+          options.excludeCredentials = options.excludeCredentials.map(cred => ({
+            ...cred,
+            id: base64URLToBuffer(cred.id),
+          }));
+        }
+
+        // Create credential
+        const credential = await navigator.credentials.create({
+          publicKey: options,
+        });
+
+        if (!credential) {
+          throw new Error('Passkey registration cancelled');
+        }
+
+        // Prepare credential for server
+        const credentialData = {
+          id: credential.id,
+          rawId: bufferToBase64URL(credential.rawId),
+          type: credential.type,
+          response: {
+            clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
+            attestationObject: bufferToBase64URL(credential.response.attestationObject),
+            transports: credential.response.getTransports ? credential.response.getTransports() : [],
+          },
+        };
+
+        // Verify with server
+        const verifyRes = await fetch('/administration/register-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credential: credentialData, email: adminEmail }),
+        });
+
+        if (!verifyRes.ok) {
+          const error = await verifyRes.json();
+          throw new Error(error.error || 'Passkey registration failed');
+        }
+
+        const result = await verifyRes.json();
+        if (result.success) {
+          showMessage('success', 'Setup complete! Redirecting to admin panel...');
+          setTimeout(() => {
+            window.location.href = '/administration';
+          }, 1500);
+        } else {
+          throw new Error('Passkey registration failed');
+        }
+      } catch (error) {
+        console.error('Passkey registration error:', error);
+        showMessage('error', error.message || 'Passkey registration failed');
+        setLoading(registerBtn, registerSpinner, false, 'Register Passkey');
+      }
+    });
+  </script>
+</body>
+</html>

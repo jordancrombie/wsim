@@ -1,11 +1,15 @@
 import express from 'express';
 import session from 'express-session';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import { env } from './config/env';
 import { createOidcProvider } from './oidc-config';
 import { createInteractionRoutes } from './routes/interaction';
 import popupRoutes from './routes/popup';
 import embedRoutes from './routes/embed';
+import adminAuthRoutes from './routes/adminAuth';
+import adminRoutes from './routes/admin';
+import { requireAdminAuth } from './middleware/adminAuth';
 import { prisma } from './adapters/prisma';
 
 async function main() {
@@ -33,9 +37,10 @@ async function main() {
     },
   }));
 
-  // Body parsing
+  // Body parsing and cookie parser
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
+  app.use(cookieParser());
 
   // Create OIDC provider
   const provider = await createOidcProvider();
@@ -48,6 +53,12 @@ async function main() {
 
   // Mount embed routes (iframe integration)
   app.use('/embed', embedRoutes);
+
+  // Mount admin authentication routes (login/logout - public)
+  app.use('/administration', adminAuthRoutes);
+
+  // Mount admin routes (OAuth client management - protected)
+  app.use('/administration', requireAdminAuth, adminRoutes);
 
   // Health check
   app.get('/health', async (req, res) => {
@@ -85,6 +96,7 @@ async function main() {
         <ul>
           <li><a href="/.well-known/openid-configuration">OpenID Configuration</a></li>
           <li><a href="/health">Health Check</a></li>
+          <li><a href="/administration">Administration</a></li>
         </ul>
       </body>
       </html>

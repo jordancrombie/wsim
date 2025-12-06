@@ -46,4 +46,7 @@ export const env = {
   // Support multiple origins for passkey verification
   WEBAUTHN_ORIGINS: process.env.WEBAUTHN_ORIGINS?.split(',') ||
     (process.env.WEBAUTHN_ORIGIN ? [process.env.WEBAUTHN_ORIGIN] : ['http://localhost:3005']),
+
+  // Admin authentication
+  AUTH_ADMIN_JWT_SECRET: process.env.AUTH_ADMIN_JWT_SECRET || 'wsim-admin-secret-change-in-production',
 };
