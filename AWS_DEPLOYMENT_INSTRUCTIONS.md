@@ -103,33 +103,74 @@ The same client secret from step 1 must be configured in the WSIM backend's `BSI
 
 **The `clientSecret` in BSIM_PROVIDERS must match the `clientSecret` in the OAuthClient table.**
 
-### 3. Register SSIM as OAuth Client in WSIM Database (Optional)
+### 3. Register SSIM as OAuth Client in WSIM Database (Required for SSIM)
 
-Only needed if SSIM will use "Pay with Wallet" feature:
+**Required** if SSIM will use "Pay with Wallet" feature.
+
+```bash
+# First, generate the secrets you'll need:
+# Client Secret:
+openssl rand -base64 32
+# Example output: K7xPq2mN8vR3sT6wY9zA1bC4dE5fG8hJ0kL2mN3oP4qR
+
+# API Key:
+echo "wsim_api_$(openssl rand -hex 16)"
+# Example output: wsim_api_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+```
 
 ```sql
 -- =====================================================
 -- RUN THIS IN THE WSIM DATABASE (wsim, not bsim!)
+-- Table name is: "OAuthClient" (PascalCase with quotes)
 -- =====================================================
 
 INSERT INTO "OAuthClient" (
-  "id", "clientId", "clientSecret", "clientName",
-  "redirectUris", "grantTypes", "responseTypes", "scopes",
-  "apiKey", "createdAt", "updatedAt"
+  "id",
+  "clientId",
+  "clientSecret",
+  "clientName",
+  "redirectUris",
+  "postLogoutRedirectUris",
+  "grantTypes",
+  "scope",                    -- ⚠️ SINGULAR, space-separated string
+  "logoUri",
+  "trusted",
+  "apiKey",
+  "createdAt",
+  "updatedAt"
 ) VALUES (
   gen_random_uuid(),
   'ssim-merchant',
-  'GENERATE_A_SECURE_CLIENT_SECRET',
+  'YOUR_GENERATED_CLIENT_SECRET',   -- ← Replace with generated secret
   'Store Simulator',
   ARRAY['https://ssim.banksim.ca/payment/wallet-callback'],
+  ARRAY[]::text[],
   ARRAY['authorization_code'],
-  ARRAY['code'],
-  ARRAY['openid', 'payment:authorize'],
-  'wsim_api_GENERATE_UNIQUE_KEY',
+  'openid payment:authorize',        -- ⚠️ Space-separated string (not array!)
+  NULL,
+  false,
+  'wsim_api_YOUR_GENERATED_HEX',    -- ← Replace with generated API key
   NOW(),
   NOW()
 );
+
+-- Verify it was created and get the values for SSIM config:
+SELECT "clientId", "clientSecret", "apiKey", "redirectUris", "scope"
+FROM "OAuthClient"
+WHERE "clientId" = 'ssim-merchant';
 ```
+
+**After running the SQL, configure SSIM with these environment variables:**
+
+| SSIM Env Variable | Value | Source |
+|-------------------|-------|--------|
+| `WSIM_CLIENT_ID` | `ssim-merchant` | Fixed value |
+| `WSIM_CLIENT_SECRET` | (from SQL output) | The `clientSecret` you generated |
+| `WSIM_API_KEY` | (from SQL output) | The `apiKey` you generated |
+| `WSIM_ISSUER` | `https://wsim-auth.banksim.ca` | WSIM's OIDC issuer |
+| `WSIM_REDIRECT_URI` | `https://ssim.banksim.ca/payment/wallet-callback` | Must match `redirectUris` |
+
+**Important:** The `clientSecret` and `apiKey` in SSIM's config must exactly match what you inserted into WSIM's database.
 
 ---
 
