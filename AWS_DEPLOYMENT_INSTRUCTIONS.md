@@ -33,16 +33,19 @@ All services share the existing BSIM infrastructure:
 
 WSIM needs to authenticate with BSIM to enroll bank accounts. This OAuth client must be registered in the **BSIM database** (not WSIM).
 
+> ⚠️ **IMPORTANT:** The BSIM `oauth_clients` table uses `scope` (singular, space-separated string), NOT `scopes` (array).
+
 ```sql
 -- =====================================================
 -- RUN THIS IN THE BSIM DATABASE (bsim, not wsim!)
+-- Table name is: oauth_clients (lowercase with underscore)
 -- =====================================================
 
 -- First, generate a client secret (run this in bash):
 -- openssl rand -base64 32
 -- Example output: K7xPq2mN8vR3sT6wY9zA1bC4dE5fG8hJ0kL2mN3oP4qR
 
-INSERT INTO "OAuthClient" (
+INSERT INTO oauth_clients (
   "id",
   "clientId",
   "clientSecret",
@@ -50,7 +53,8 @@ INSERT INTO "OAuthClient" (
   "redirectUris",
   "grantTypes",
   "responseTypes",
-  "scopes",
+  "scope",              -- ⚠️ SINGULAR (not "scopes")
+  "contacts",
   "createdAt",
   "updatedAt"
 ) VALUES (
@@ -61,21 +65,30 @@ INSERT INTO "OAuthClient" (
   ARRAY['https://wsim.banksim.ca/api/enrollment/callback'],
   ARRAY['authorization_code'],   -- ⚠️ ONLY authorization_code (NOT refresh_token!)
   ARRAY['code'],
-  ARRAY['openid', 'profile', 'email', 'wallet:enroll'],  -- ⚠️ wallet:enroll (NOT wallet:cards!)
+  'openid profile email wallet:enroll',  -- ⚠️ SPACE-SEPARATED STRING (not array!)
+  ARRAY[]::text[],               -- Empty contacts array
   NOW(),
   NOW()
 );
 
 -- Verify it was created:
-SELECT "clientId", "grantTypes", "scopes" FROM "OAuthClient" WHERE "clientId" = 'wsim-wallet';
+SELECT "clientId", "grantTypes", "scope" FROM oauth_clients WHERE "clientId" = 'wsim-wallet';
+
+-- Expected output:
+--  clientId    |      grantTypes       |                scope
+-- -------------+-----------------------+--------------------------------------
+--  wsim-wallet | {authorization_code}  | openid profile email wallet:enroll
 ```
 
 **Common Mistakes (will cause OAuth errors):**
 | Mistake | Error Message | Fix |
 |---------|--------------|-----|
+| Using `"scopes"` (array) instead of `"scope"` (string) | Column doesn't exist or scope validation fails | Use `"scope"` with space-separated string |
+| Using array syntax for scope | "scope must only contain supported scope values" | Use `'openid profile email wallet:enroll'` (space-separated) |
 | `grantTypes` includes `refresh_token` | "grant_types can only contain 'implicit' or 'authorization_code'" | Use only `ARRAY['authorization_code']` |
-| `scopes` includes `wallet:cards` | "scope must only contain supported scope values" | Use `wallet:enroll` instead |
+| `scope` includes `wallet:cards` | "scope must only contain supported scope values" | Use `wallet:enroll` instead |
 | Wrong database | Client not found | Run in BSIM database, not WSIM |
+| Wrong table name | Table doesn't exist | Use `oauth_clients` (lowercase with underscore) |
 
 ### 2. Configure WSIM Backend with BSIM Client Secret
 
@@ -587,14 +600,21 @@ Confirm the OAuth client registration from the "CRITICAL: Required Database Setu
 
 ```sql
 -- In BSIM database: Verify WSIM client exists with correct values
-SELECT "clientId", "grantTypes", "scopes"
-FROM "OAuthClient"
-WHERE "clientId" = 'wsim-wallet';
+SELECT "clientId", "grantTypes", "scope" FROM oauth_clients WHERE "clientId" = 'wsim-wallet';
 
 -- Expected output:
---  clientId   |      grantTypes       |                    scopes
--- ------------+-----------------------+----------------------------------------------
---  wsim-wallet| {authorization_code}  | {openid,profile,email,wallet:enroll}
+--  clientId    |      grantTypes       |                scope
+-- -------------+-----------------------+--------------------------------------
+--  wsim-wallet | {authorization_code}  | openid profile email wallet:enroll
+```
+
+**Check for common issues:**
+```sql
+-- If scope shows as an array like {openid,profile,...}, it's WRONG
+-- Fix with:
+UPDATE oauth_clients
+SET "scope" = 'openid profile email wallet:enroll'
+WHERE "clientId" = 'wsim-wallet';
 ```
 
 If the client doesn't exist or has wrong values, go back to the "CRITICAL: Required Database Setup" section.
