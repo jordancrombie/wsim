@@ -157,10 +157,12 @@ router.post('/register/verify', requireAuth, async (req: Request, res: Response)
     const { credential, credentialDeviceType, aaguid } = verification.registrationInfo;
 
     // Store the credential
+    // Note: credential.id is already a Base64URLString in @simplewebauthn/server v13+
+    // credential.publicKey is a Uint8Array that needs to be encoded
     const passkey = await prisma.passkeyCredential.create({
       data: {
         userId,
-        credentialId: Buffer.from(credential.id).toString('base64url'),
+        credentialId: credential.id, // Already base64url encoded string
         publicKey: Buffer.from(credential.publicKey).toString('base64url'),
         counter: credential.counter,
         transports: response.response.transports || [],
@@ -289,6 +291,7 @@ router.post('/authenticate/verify', async (req: Request, res: Response) => {
     });
 
     if (!credential) {
+      console.log(`[Passkey] Credential not found for ID: ${response.id.substring(0, 10)}...`);
       return res.status(400).json({ error: 'Credential not found' });
     }
 

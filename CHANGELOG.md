@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Suspense boundary added to login page for Next.js 16 compatibility
 
 ### Fixed
+- **Passkey Credential ID Encoding (2025-12-05)**
+  - Fixed double-encoding bug in passkey registration
+  - `credential.id` from `@simplewebauthn/server` v13+ is already base64url encoded
+  - Was incorrectly re-encoding with `Buffer.from().toString('base64url')`
+  - Passkey login now correctly matches stored credentials
+
 - **Enrollment Session Issue (2025-12-05)**
   - Added `prompt: 'login'` to OIDC authorization URL to force BSIM login screen
   - Prevents auto-login with existing BSIM session during new enrollment
