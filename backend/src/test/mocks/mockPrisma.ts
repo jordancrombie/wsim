@@ -655,6 +655,32 @@ export function createMockPrismaClient() {
         return paymentContexts[index];
       }),
 
+      upsert: vi.fn().mockImplementation(async (args: any) => {
+        const { where, update, create } = args;
+        const existingIndex = paymentContexts.findIndex((p) => p.grantId === where.grantId);
+
+        if (existingIndex >= 0) {
+          paymentContexts[existingIndex] = { ...paymentContexts[existingIndex], ...update };
+          return paymentContexts[existingIndex];
+        } else {
+          const newContext: MockPaymentContextData = {
+            id: create.id || `context-${Date.now()}`,
+            grantId: create.grantId,
+            walletCardId: create.walletCardId,
+            walletCardToken: create.walletCardToken,
+            bsimCardToken: create.bsimCardToken || null,
+            merchantId: create.merchantId || null,
+            merchantName: create.merchantName || null,
+            amount: create.amount || null,
+            currency: create.currency || null,
+            createdAt: new Date(),
+            expiresAt: create.expiresAt,
+          };
+          paymentContexts.push(newContext);
+          return newContext;
+        }
+      }),
+
       delete: vi.fn().mockImplementation(async (args: any) => {
         const { where } = args;
         const index = paymentContexts.findIndex((p) => p.grantId === where.grantId);

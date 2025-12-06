@@ -12,11 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vitest test framework with v8 coverage provider for backend and auth-server
   - Test scripts: `npm test`, `npm run test:watch`, `npm run test:coverage`
   - `vitest-mock-extended` for type-safe Prisma mocking
+  - `supertest` for HTTP route testing
   - Test setup files with environment configuration
   - Comprehensive TESTING_PLAN.md with prioritized test strategy (P0-P3)
-  - **58 P0 tests implemented:**
+  - Mock Prisma factory (`mockPrisma.ts`) with in-memory storage for all WSIM models
+  - **114 tests implemented (99 backend + 15 auth-server):**
     - `backend/src/utils/crypto.test.ts` (23 tests) - encrypt/decrypt, token generation, tamper detection
     - `backend/src/middleware/auth.test.ts` (20 tests) - requireAuth, optionalAuth, JWT functions
+    - `backend/src/routes/passkey.test.ts` (18 tests) - WebAuthn registration and authentication
+    - `backend/src/routes/payment.test.ts` (17 tests) - payment token request, context storage
+    - `backend/src/services/bsim-oidc.test.ts` (21 tests) - OIDC flows, PKCE, token exchange, card fetching
     - `auth-server/src/middleware/adminAuth.test.ts` (15 tests) - admin JWT tokens, middleware, cookies
 
 - **Admin Interface for Auth Server (2025-12-06)**

@@ -1,17 +1,17 @@
 # WSIM Unit Testing Plan
 
 > **Date**: 2025-12-06
-> **Status**: Phase 1 & P0 tests complete
+> **Status**: Phase 2 P0 tests complete
 
 ## Current State
 
-**58 tests passing** across backend and auth-server:
-- ✅ Backend: 43 tests (crypto.ts + auth.ts middleware)
+**114 tests passing** across backend and auth-server:
+- ✅ Backend: 99 tests (crypto, auth, passkey, payment, bsim-oidc)
 - ✅ Auth-server: 15 tests (adminAuth.ts middleware)
 
 Run tests with:
 ```bash
-cd backend && npm test       # 43 tests
+cd backend && npm test       # 99 tests
 cd auth-server && npm test   # 15 tests
 ```
 
@@ -49,9 +49,9 @@ These components handle sensitive data and must be tested thoroughly.
 | `crypto.ts` | backend/src/utils/ | Low | High | ✅ 23 tests |
 | `auth.ts` (middleware) | backend/src/middleware/ | Medium | High | ✅ 20 tests |
 | `adminAuth.ts` (middleware) | auth-server/src/middleware/ | Medium | High | ✅ 15 tests |
-| `bsim-oidc.ts` | backend/src/services/ | High | High | ⏳ Pending |
-| `passkey.ts` | backend/src/routes/ | High | High | ⏳ Pending |
-| `payment.ts` | backend/src/routes/ | Medium | High | ⏳ Pending |
+| `bsim-oidc.ts` | backend/src/services/ | High | High | ✅ 21 tests |
+| `passkey.ts` | backend/src/routes/ | High | High | ✅ 18 tests |
+| `payment.ts` | backend/src/routes/ | Medium | High | ✅ 17 tests |
 
 ### P1: High (Business Logic)
 
