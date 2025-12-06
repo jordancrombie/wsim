@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcrypt';
 import { optionalAuth, requireAuth } from '../middleware/auth';
 import { env } from '../config/env';
 import { prisma } from '../config/database';
@@ -44,9 +45,11 @@ router.get('/banks', optionalAuth, (req, res) => {
 /**
  * POST /api/enrollment/start/:bsimId
  * Initiate enrollment with a bank
+ * Body: { password?: string } - Optional password to set during enrollment
  */
 router.post('/start/:bsimId', optionalAuth, async (req, res) => {
   const { bsimId } = req.params;
+  const { password } = req.body || {};
 
   const providers = getBsimProviders();
   const provider = providers.find(p => p.bsimId === bsimId);
@@ -57,6 +60,14 @@ router.post('/start/:bsimId', optionalAuth, async (req, res) => {
   }
 
   try {
+    // Hash password if provided
+    let passwordHash: string | undefined;
+    if (password && typeof password === 'string' && password.length >= 8) {
+      const saltRounds = 12;
+      passwordHash = await bcrypt.hash(password, saltRounds);
+      console.log(`[Enrollment] Password will be set during enrollment`);
+    }
+
     // Generate PKCE, state, and nonce
     const { codeVerifier, codeChallenge } = await generatePkce();
     const state = generateState();
@@ -74,12 +85,13 @@ router.post('/start/:bsimId', optionalAuth, async (req, res) => {
       codeChallenge
     );
 
-    // Store enrollment state in session
+    // Store enrollment state in session (including password hash if provided)
     req.session.enrollmentState = {
       bsimId,
       state,
       nonce,
       codeVerifier,
+      passwordHash,
     };
 
     console.log(`[Enrollment] Starting enrollment for ${bsimId}, redirecting to auth`);
@@ -169,6 +181,7 @@ router.get('/callback/:bsimId', async (req, res) => {
     // Find or create user
     let user = await prisma.walletUser.findUnique({
       where: { email: tokenResponse.email },
+      select: { id: true, email: true, walletId: true, firstName: true, lastName: true, passwordHash: true },
     });
 
     if (!user) {
@@ -178,17 +191,27 @@ router.get('/callback/:bsimId', async (req, res) => {
           email: tokenResponse.email,
           firstName: tokenResponse.firstName,
           lastName: tokenResponse.lastName,
+          passwordHash: enrollmentState.passwordHash, // Set password if provided during enrollment
         },
       });
+      if (enrollmentState.passwordHash) {
+        console.log(`[Enrollment] Password set for new user: ${tokenResponse.email}`);
+      }
     } else {
       // Update user info if we have new data
-      if (tokenResponse.firstName || tokenResponse.lastName) {
+      const updateData: { firstName?: string; lastName?: string; passwordHash?: string } = {};
+      if (tokenResponse.firstName) updateData.firstName = tokenResponse.firstName;
+      if (tokenResponse.lastName) updateData.lastName = tokenResponse.lastName;
+      // Only set password if user doesn't already have one and one was provided
+      if (!user.passwordHash && enrollmentState.passwordHash) {
+        updateData.passwordHash = enrollmentState.passwordHash;
+        console.log(`[Enrollment] Password set for existing user: ${tokenResponse.email}`);
+      }
+
+      if (Object.keys(updateData).length > 0) {
         user = await prisma.walletUser.update({
           where: { id: user.id },
-          data: {
-            firstName: tokenResponse.firstName || user.firstName,
-            lastName: tokenResponse.lastName || user.lastName,
-          },
+          data: updateData,
         });
       }
     }

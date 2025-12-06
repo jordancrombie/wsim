@@ -26,6 +26,7 @@ declare module 'express-session' {
       state: string;
       nonce: string;
       codeVerifier: string;
+      passwordHash?: string; // Optional - hashed password to store on user creation
     };
     paymentState?: {
       merchantId: string;

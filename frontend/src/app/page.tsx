@@ -17,17 +17,17 @@ export default function Home() {
 
         <div className="space-y-4">
           <Link
-            href="/wallet"
+            href="/login"
             className="block w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-center font-semibold rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
           >
-            Open Wallet
+            Sign in to Wallet
           </Link>
 
           <Link
             href="/enroll"
             className="block w-full py-3 px-4 bg-gray-100 text-gray-700 text-center font-semibold rounded-lg hover:bg-gray-200 transition-all"
           >
-            Add a Bank
+            Enroll in Wallet
           </Link>
         </div>
 

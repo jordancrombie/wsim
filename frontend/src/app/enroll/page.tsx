@@ -14,6 +14,10 @@ function EnrollContent() {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [step, setStep] = useState<"password" | "bank">("password");
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
@@ -40,6 +44,35 @@ function EnrollContent() {
     }
   }
 
+  function validatePassword(): boolean {
+    setPasswordError(null);
+
+    if (password.length < 8) {
+      setPasswordError("Password must be at least 8 characters");
+      return false;
+    }
+
+    if (password !== confirmPassword) {
+      setPasswordError("Passwords do not match");
+      return false;
+    }
+
+    return true;
+  }
+
+  function handlePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (validatePassword()) {
+      setStep("bank");
+    }
+  }
+
+  function handleSkipPassword() {
+    setPassword("");
+    setConfirmPassword("");
+    setStep("bank");
+  }
+
   async function enrollWithBank(bsimId: string) {
     setEnrolling(bsimId);
 
@@ -48,7 +81,9 @@ function EnrollContent() {
         `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/api/enrollment/start/${bsimId}`,
         {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           credentials: "include",
+          body: JSON.stringify({ password: password || undefined }),
         }
       );
 
@@ -94,64 +129,142 @@ function EnrollContent() {
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <p className="text-gray-600 mb-6">
-            Select a bank to connect. You&apos;ll be redirected to your bank to
-            authorize access to your card information.
-          </p>
+        {step === "password" ? (
+          /* Step 1: Password Setup */
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="text-center mb-6">
+              <div className="text-4xl mb-2">&#128274;</div>
+              <h2 className="text-xl font-semibold text-gray-800">
+                Create Your Wallet Password
+              </h2>
+              <p className="text-gray-600 text-sm mt-2">
+                Set a password to sign in to your wallet. You can also use a passkey later.
+              </p>
+            </div>
 
-          {loading ? (
-            <div className="text-center py-8 text-gray-500">
-              Loading available banks...
+            {passwordError && (
+              <div className="bg-red-50 text-red-700 p-3 rounded-lg mb-4 text-sm">
+                {passwordError}
+              </div>
+            )}
+
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  id="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 bg-white"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirm Password
+                </label>
+                <input
+                  type="password"
+                  id="confirmPassword"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 bg-white"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all"
+              >
+                Continue to Bank Selection
+              </button>
+            </form>
+
+            <div className="mt-4 text-center">
+              <button
+                type="button"
+                onClick={handleSkipPassword}
+                className="text-gray-500 hover:text-gray-700 text-sm"
+              >
+                Skip for now (use passkey later)
+              </button>
             </div>
-          ) : banks.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500 mb-4">
-                No banks are currently configured.
-              </p>
-              <p className="text-sm text-gray-400">
-                Bank integration requires BSIM configuration. Check the backend
-                BSIM_PROVIDERS environment variable.
-              </p>
+          </div>
+        ) : (
+          /* Step 2: Bank Selection */
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">Select Your Bank</h2>
+              <button
+                onClick={() => setStep("password")}
+                className="text-indigo-600 hover:text-indigo-800 text-sm"
+              >
+                &larr; Back
+              </button>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {banks.map((bank) => (
-                <button
-                  key={bank.bsimId}
-                  onClick={() => enrollWithBank(bank.bsimId)}
-                  disabled={enrolling !== null}
-                  className={`w-full p-4 border-2 rounded-xl text-left transition-all flex items-center gap-4 ${
-                    enrolling === bank.bsimId
-                      ? "border-indigo-500 bg-indigo-50"
-                      : "border-gray-200 hover:border-indigo-500 hover:bg-indigo-50"
-                  } ${enrolling !== null && enrolling !== bank.bsimId ? "opacity-50" : ""}`}
-                >
-                  <div className="text-3xl">🏦</div>
-                  <div className="flex-1">
-                    <div className="font-semibold text-gray-800">
-                      {bank.name}
+            <p className="text-gray-600 mb-6">
+              Connect your bank to import your cards into your wallet.
+            </p>
+
+            {loading ? (
+              <div className="text-center py-8 text-gray-500">
+                Loading available banks...
+              </div>
+            ) : banks.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 mb-4">
+                  No banks are currently configured.
+                </p>
+                <p className="text-sm text-gray-400">
+                  Bank integration requires BSIM configuration. Check the backend
+                  BSIM_PROVIDERS environment variable.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {banks.map((bank) => (
+                  <button
+                    key={bank.bsimId}
+                    onClick={() => enrollWithBank(bank.bsimId)}
+                    disabled={enrolling !== null}
+                    className={`w-full p-4 border-2 rounded-xl text-left transition-all flex items-center gap-4 ${
+                      enrolling === bank.bsimId
+                        ? "border-indigo-500 bg-indigo-50"
+                        : "border-gray-200 hover:border-indigo-500 hover:bg-indigo-50"
+                    } ${enrolling !== null && enrolling !== bank.bsimId ? "opacity-50" : ""}`}
+                  >
+                    <div className="text-3xl">🏦</div>
+                    <div className="flex-1">
+                      <div className="font-semibold text-gray-800">
+                        {bank.name}
+                      </div>
+                      <div className="text-sm text-gray-500">{bank.bsimId}</div>
                     </div>
-                    <div className="text-sm text-gray-500">{bank.bsimId}</div>
-                  </div>
-                  {enrolling === bank.bsimId && (
-                    <div className="text-indigo-600">Connecting...</div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+                    {enrolling === bank.bsimId && (
+                      <div className="text-indigo-600">Connecting...</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="mt-6 p-4 bg-indigo-50 rounded-xl">
           <h3 className="font-semibold text-indigo-800 mb-2">
             How it works
           </h3>
           <ol className="text-sm text-indigo-700 space-y-2">
-            <li>1. Select your bank from the list above</li>
-            <li>2. Sign in to your bank account</li>
-            <li>3. Authorize WSIM to access your card information</li>
-            <li>4. Your cards will be imported to your wallet</li>
+            <li>1. Create a wallet password (optional)</li>
+            <li>2. Select your bank from the list</li>
+            <li>3. Sign in to your bank account</li>
+            <li>4. Authorize WSIM to access your card information</li>
+            <li>5. Your cards will be imported to your wallet</li>
           </ol>
         </div>
       </main>
@@ -168,9 +281,9 @@ export default function EnrollPage() {
           <Link href="/wallet" className="text-indigo-100 hover:text-white text-sm mb-2 inline-block">
             &larr; Back to Wallet
           </Link>
-          <h1 className="text-2xl font-bold">Add a Bank</h1>
+          <h1 className="text-2xl font-bold">Enroll in Wallet</h1>
           <p className="text-indigo-100 text-sm">
-            Connect your bank to import your cards
+            Connect your bank to create your wallet and import your cards
           </p>
         </div>
       </header>

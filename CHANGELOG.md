@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Authentication Improvements (2025-12-05)**
+  - New login page (`/login`) with password and passkey authentication options
+  - Password authentication endpoint (`POST /api/auth/login`) with bcrypt verification
+  - Password setup during enrollment flow (optional, can skip for passkey-only)
+  - `passwordHash` field added to `WalletUser` schema
+  - Homepage buttons renamed: "Add a Bank" → "Enroll in Wallet", "Open Wallet" → "Sign in to Wallet"
+  - Wallet page redirects to login on 401 with `?redirect=/wallet` parameter
+  - Suspense boundary added to login page for Next.js 16 compatibility
+
+### Fixed
+- **Enrollment Session Issue (2025-12-05)**
+  - Added `prompt: 'login'` to OIDC authorization URL to force BSIM login screen
+  - Prevents auto-login with existing BSIM session during new enrollment
+
+- **Input Field Visibility (2025-12-05)**
+  - Added explicit `text-gray-900 bg-white` to input fields on login and enroll pages
+  - Fixes light grey text on white background issue
+
 - **E2E Integration Complete (2025-12-05)**
   - Full wallet payment flow working: SSIM → WSIM → BSIM → NSIM
   - WSIM OIDC provider issues JWT access tokens via Resource Indicators feature

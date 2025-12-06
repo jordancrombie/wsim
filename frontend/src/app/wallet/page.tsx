@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 interface Card {
@@ -15,6 +16,7 @@ interface Card {
 }
 
 export default function WalletPage() {
+  const router = useRouter();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +33,8 @@ export default function WalletPage() {
       );
 
       if (res.status === 401) {
-        // Not authenticated - show empty state
-        setCards([]);
-        setLoading(false);
+        // Not authenticated - redirect to login
+        router.push("/login?redirect=/wallet");
         return;
       }
 

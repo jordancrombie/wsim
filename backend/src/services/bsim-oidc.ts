@@ -78,6 +78,7 @@ export async function buildAuthorizationUrl(
     nonce,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
+    prompt: 'login', // Force BSIM to show login screen even if user has existing session
   });
 
   return authUrl.href;
