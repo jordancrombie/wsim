@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Test setup files with environment configuration
   - Comprehensive TESTING_PLAN.md with prioritized test strategy (P0-P3)
   - Mock Prisma factory (`mockPrisma.ts`) with in-memory storage for all WSIM models
-  - **163 tests implemented (148 backend + 15 auth-server):**
+  - **199 tests implemented (163 backend + 36 auth-server):**
     - P0 Critical (Security & State Management):
       - `backend/src/utils/crypto.test.ts` (23 tests) - encrypt/decrypt, token generation, tamper detection
       - `backend/src/middleware/auth.test.ts` (20 tests) - requireAuth, optionalAuth, JWT functions
@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       - `backend/src/routes/enrollment.test.ts` (21 tests) - bank enrollment OIDC flow, callbacks, card fetching
       - `backend/src/routes/wallet.test.ts` (23 tests) - card management, enrollments, user profile
       - `backend/src/routes/wallet-api.test.ts` (20 tests) - merchant API, authentication, payment initiation
+      - `auth-server/src/routes/admin.test.ts` (21 tests) - OAuth client CRUD, session management
 
 - **Admin Interface for Auth Server (2025-12-06)**
   - New `/administration` routes for OAuth client management

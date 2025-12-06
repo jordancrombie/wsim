@@ -1,18 +1,18 @@
 # WSIM Unit Testing Plan
 
 > **Date**: 2025-12-06
-> **Status**: Phase 3 P1 tests in progress
+> **Status**: Phase 3 P1 tests complete, P2 in progress
 
 ## Current State
 
-**163 tests passing** across backend and auth-server:
-- ✅ Backend: 148 tests (crypto, auth, passkey, payment, bsim-oidc, enrollment, wallet, wallet-api)
-- ✅ Auth-server: 15 tests (adminAuth.ts middleware)
+**199 tests passing** across backend and auth-server:
+- ✅ Backend: 163 tests (crypto, auth, passkey, payment, bsim-oidc, enrollment, wallet, wallet-api)
+- ✅ Auth-server: 36 tests (adminAuth.ts middleware, admin.ts routes)
 
 Run tests with:
 ```bash
-cd backend && npm test       # 148 tests
-cd auth-server && npm test   # 15 tests
+cd backend && npm test       # 163 tests
+cd auth-server && npm test   # 36 tests
 ```
 
 ---
@@ -62,8 +62,8 @@ Core business flows that users depend on.
 | `enrollment.ts` | backend/src/routes/ | High | Medium | ✅ 21 tests |
 | `wallet.ts` | backend/src/routes/ | Medium | Medium | ✅ 23 tests |
 | `wallet-api.ts` | backend/src/routes/ | High | Medium | ✅ 20 tests |
-| `interaction.ts` | auth-server/src/routes/ | High | Medium | |
-| `adminAuth.ts` (routes) | auth-server/src/routes/ | Medium | Medium | |
+| `interaction.ts` | auth-server/src/routes/ | High | Medium | ⏭️ Skipped (tightly coupled to oidc-provider) |
+| `admin.ts` (routes) | auth-server/src/routes/ | Medium | Medium | ✅ 21 tests |
 
 ### P2: Medium (Integration)
 
