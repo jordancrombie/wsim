@@ -23,7 +23,7 @@
 - BSIM card token contains: `merchantId: "ssim-merchant"` (WSIM's OAuth client_id for SSIM)
 - SSIM sends in claims: `merchantId: "ssim-client"` (SSIM's BSIM client_id)
 
-**See:** [HANDOFF_BSIM_NSIM.md](./HANDOFF_BSIM_NSIM.md) for detailed analysis and fix options
+**Status:** Resolved - see CHANGELOG.md for fix details
 
 ---
 
@@ -55,8 +55,8 @@
 - Full Prisma schema (WalletUser, BsimEnrollment, WalletCard, etc.)
 
 ### BSIM Team ✅ PHASE 1 COMPLETE
-> See [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) for details
-> See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for local dev setup
+> See [docs/BANK_INTEGRATION_API.md](./docs/BANK_INTEGRATION_API.md) for integration spec
+> See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for deployment setup
 
 - [x] Add `wallet:enroll` OIDC scope
 - [x] Create `WalletCredential` data model
@@ -66,11 +66,11 @@
 - [x] Update consent UI for wallet enrollment
 - [x] Create `GET /api/registry/info` endpoint
 - [x] Register WSIM as OAuth client in BSIM auth-server
-- [ ] **Integrate WSIM into docker-compose stack** (see BSIM_DEPLOYMENT_INTEGRATION.md)
+- [ ] **Integrate WSIM into docker-compose stack** (see docs/DEPLOYMENT_GUIDE.md)
 - [ ] Testing and documentation
 
 ### NSIM Team 🟡 CAN START IN PARALLEL
-> See [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) for details
+> See [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) for integration spec
 
 - [ ] Design BSIM registry data structure
 - [ ] Implement registry service
@@ -127,7 +127,8 @@
 ## Phase 3: SSIM Integration (Week 4-5)
 
 ### SSIM Team ✅ COMPLETE
-> See [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) for details
+> See [docs/MERCHANT_UI_INTEGRATION_GUIDE.md](./docs/MERCHANT_UI_INTEGRATION_GUIDE.md) for UI integration
+> See [docs/API_PAYMENT_INTEGRATION_FLOWS.md](./docs/API_PAYMENT_INTEGRATION_FLOWS.md) for API integration
 
 - [x] Add WSIM as OIDC provider
 - [x] Update checkout UI with "Pay with Wallet" button
@@ -168,7 +169,7 @@ cd frontend && npm run dev
 Access at: http://localhost:3004
 
 ### For Full Stack (BSIM-orchestrated)
-> Requires BSIM team to implement changes in [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md)
+> See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for deployment configuration
 
 ```bash
 # From bsim directory
@@ -197,21 +198,21 @@ Access at: https://wsim-dev.banksim.ca
 
 | Document | Purpose |
 |----------|---------|
-| [ARCHITECTURE_PLAN.md](./ARCHITECTURE_PLAN.md) | System design, data models, flows |
-| [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) | BSIM team task list |
-| [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) | **NEW** - How to add WSIM to BSIM docker stack |
-| [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) | NSIM team task list |
-| [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) | SSIM team task list |
-| [WSIM_IMPLEMENTATION_PLAN.md](./WSIM_IMPLEMENTATION_PLAN.md) | WSIM implementation details |
-| [EMBEDDED_WALLET_PLAN.md](./EMBEDDED_WALLET_PLAN.md) | **NEW** - Embedded wallet (popup/iframe/API) checkout |
-| [FUTURE_CONSIDERATIONS.md](./FUTURE_CONSIDERATIONS.md) | Post-MVP features |
+| [docs/ARCHITECTURE_PLAN.md](./docs/ARCHITECTURE_PLAN.md) | System design, data models, flows |
+| [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) | Docker, nginx, environment setup |
+| [docs/MERCHANT_UI_INTEGRATION_GUIDE.md](./docs/MERCHANT_UI_INTEGRATION_GUIDE.md) | Popup, iframe, redirect integration |
+| [docs/API_PAYMENT_INTEGRATION_FLOWS.md](./docs/API_PAYMENT_INTEGRATION_FLOWS.md) | API-based wallet integration |
+| [docs/BANK_INTEGRATION_API.md](./docs/BANK_INTEGRATION_API.md) | Bank provider integration |
+| [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing |
+| [docs/EMBEDDED_WALLET_PLAN.md](./docs/EMBEDDED_WALLET_PLAN.md) | Embedded wallet implementation status |
+| [docs/FUTURE_CONSIDERATIONS.md](./docs/FUTURE_CONSIDERATIONS.md) | Post-MVP features |
 
 ---
 
 ## Notes
 
 - **BSIM docker integration is critical path** - WSIM containers are ready, waiting for BSIM team to add to their stack
-- **BSIM team should review [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md)** for nginx/docker-compose changes
+- **See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md)** for nginx/docker-compose changes
 - NSIM routing can proceed in parallel once basic registry structure is agreed
 - SSIM integration is last in sequence - needs working WSIM OIDC provider
 - WSIM uses Prisma 5.x (not 7.x) for compatibility

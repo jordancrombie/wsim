@@ -396,9 +396,9 @@ model WalletPaymentConsent {
 
 ## Phase 4: Component Changes
 
-### 4.1 BSIM Changes (Sub-Plan for BSIM Team)
+### 4.1 BSIM Changes (Bank Provider Integration)
 
-See: [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md)
+See: [BANK_INTEGRATION_API.md](./BANK_INTEGRATION_API.md)
 
 **Summary of Required Changes**:
 
@@ -430,9 +430,9 @@ See: [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md)
    - bsim must register with nsim (or central registry)
    - Provides: bsimId, API base URL, supported card types
 
-### 4.2 SSIM Changes (Sub-Plan for SSIM Team)
+### 4.2 SSIM Changes (Merchant Integration)
 
-See: [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md)
+See: [MERCHANT_UI_INTEGRATION_GUIDE.md](./MERCHANT_UI_INTEGRATION_GUIDE.md) and [API_PAYMENT_INTEGRATION_FLOWS.md](./API_PAYMENT_INTEGRATION_FLOWS.md)
 
 **Summary of Required Changes**:
 
@@ -459,9 +459,9 @@ See: [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md)
    - Checkout page: Add wallet payment option
    - Payment callback: Handle wsim responses
 
-### 4.3 NSIM Changes (Sub-Plan for NSIM Team)
+### 4.3 NSIM Changes (Payment Network Integration)
 
-See: [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md)
+See: [PAYMENT_NETWORK_INTEGRATION.md](./PAYMENT_NETWORK_INTEGRATION.md)
 
 **Summary of Required Changes**:
 

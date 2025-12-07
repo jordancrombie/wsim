@@ -699,6 +699,6 @@ WEBAUTHN_ORIGIN=https://wsim-auth-dev.banksim.ca
 
 ## Related Documents
 
-- [TODO.md](./TODO.md) - Project status
+- [../TODO.md](../TODO.md) - Project status
 - [ARCHITECTURE_PLAN.md](./ARCHITECTURE_PLAN.md) - System architecture
-- [HANDOFF_BSIM_NSIM.md](./HANDOFF_BSIM_NSIM.md) - Current integration status
+- [API_PAYMENT_INTEGRATION_FLOWS.md](./API_PAYMENT_INTEGRATION_FLOWS.md) - API integration documentation

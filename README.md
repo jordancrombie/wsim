@@ -141,24 +141,26 @@ Features:
 - Health checks on all services
 - Next.js standalone output mode
 
-See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for complete docker-compose configuration.
+See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-compose configuration.
 
 ## Documentation
 
+### Architecture & Planning
+
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE_PLAN.md](./ARCHITECTURE_PLAN.md) | System design, data models, flows |
-| [WSIM_IMPLEMENTATION_PLAN.md](./WSIM_IMPLEMENTATION_PLAN.md) | Core implementation details |
-| [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) | BSIM docker-compose integration |
-| [FUTURE_CONSIDERATIONS.md](./FUTURE_CONSIDERATIONS.md) | Deferred features and enhancements |
+| [docs/ARCHITECTURE_PLAN.md](./docs/ARCHITECTURE_PLAN.md) | System design, data models, flows |
+| [docs/FUTURE_CONSIDERATIONS.md](./docs/FUTURE_CONSIDERATIONS.md) | Deferred features and enhancements |
 
-### Team Sub-Plans
+### Integration Guides
 
-| Team | Document | Summary |
-|------|----------|---------|
-| BSIM | [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) | Wallet credential support, new APIs |
-| NSIM | [NSIM_SUBPLAN.md](./NSIM_SUBPLAN.md) | Multi-bsim routing registry |
-| SSIM | [SSIM_SUBPLAN.md](./SSIM_SUBPLAN.md) | "Pay with Wallet" integration |
+| Document | Description |
+|----------|-------------|
+| [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) | Docker, nginx, environment setup |
+| [docs/MERCHANT_UI_INTEGRATION_GUIDE.md](./docs/MERCHANT_UI_INTEGRATION_GUIDE.md) | Popup, iframe, redirect integration |
+| [docs/API_PAYMENT_INTEGRATION_FLOWS.md](./docs/API_PAYMENT_INTEGRATION_FLOWS.md) | API-based wallet integration |
+| [docs/BANK_INTEGRATION_API.md](./docs/BANK_INTEGRATION_API.md) | Bank provider integration spec |
+| [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing integration |
 
 ## API Endpoints
 
@@ -218,8 +220,8 @@ See [BSIM_DEPLOYMENT_INTEGRATION.md](./BSIM_DEPLOYMENT_INTEGRATION.md) for compl
 This project is part of a coordinated multi-team effort. Please review:
 
 1. [TODO.md](./TODO.md) for current status
-2. Your team's sub-plan document for specific tasks
-3. [BSIM_SUBPLAN.md](./BSIM_SUBPLAN.md) FAQ section for integration questions
+2. [CHANGELOG.md](./CHANGELOG.md) for recent changes
+3. The integration guides in [docs/](./docs/) for your specific integration needs
 
 ## License
 
