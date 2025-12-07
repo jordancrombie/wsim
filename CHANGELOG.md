@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Public Integration Guides (2025-12-07)**
+  - **DEPLOYMENT_GUIDE.md** - Comprehensive deployment guide for external developers
+    - Docker Compose service configuration (frontend, backend, auth-server)
+    - Nginx reverse proxy configuration with SSL
+    - Environment variables reference
+    - Database setup and migrations
+    - First-time admin setup instructions
+    - Health checks and troubleshooting
+  - **BANK_INTEGRATION_API.md** - Bank provider integration specification
+    - OIDC requirements (`wallet:enroll` scope)
+    - REST API endpoints (cards, tokens, revoke)
+    - Token architecture (walletCardToken vs cardToken)
+    - Security requirements and error handling
+  - **PAYMENT_NETWORK_INTEGRATION.md** - Payment network routing guide
+    - Token-based routing with walletCardToken parsing
+    - Bank registry structure and API endpoints
+    - Authorization flow with request/response examples
+    - Multi-bank scenarios and health monitoring
+
+### Changed
+- **Documentation Reorganization (2025-12-07)**
+  - Moved planning documents to `docs/` directory
+  - Moved internal deployment plans to `LOCAL_DEPLOYMENT_PLANS/` (gitignored)
+  - Removed AWS deployment instructions from repo (kept locally)
+  - Fixed broken links in README.md, TODO.md, and docs/ files
+  - Updated ARCHITECTURE_PLAN.md to reference new public guides
+  - Added `.claude/` to .gitignore (Claude Code session context stays local)
+
 - **Merchant Integration Documentation (2025-12-07)**
   - **API_PAYMENT_INTEGRATION_FLOWS.md** - Comprehensive implementation guide for API-based wallet integration
     - Complete code examples for all three API modes:
