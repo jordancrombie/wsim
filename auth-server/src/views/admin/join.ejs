@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join as Administrator - WSIM Auth</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .container { width: 100%; max-width: 440px; }
+    .card { background: white; border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); overflow: hidden; }
+    .card-header { padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #e5e7eb; }
+    .card-header h1 { font-size: 24px; font-weight: 600; color: #111827; margin-bottom: 8px; }
+    .card-header p { font-size: 14px; color: #6b7280; }
+    .invite-info { background: #f3f4f6; padding: 16px; margin: 0 24px; border-radius: 8px; margin-top: -12px; margin-bottom: 24px; }
+    .invite-info p { font-size: 13px; color: #6b7280; }
+    .invite-info strong { color: #374151; }
+    .card-body { padding: 24px 32px 32px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+    .form-group input { width: 100%; padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+    .form-group input:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+    .form-group input:disabled { background: #f9fafb; color: #6b7280; }
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-group { flex: 1; }
+    .btn { display: block; width: 100%; padding: 14px 20px; border-radius: 8px; font-size: 16px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; border: none; text-align: center; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+    .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
+    .alert-error { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; }
+    .alert-info { background: #dbeafe; border: 1px solid #bfdbfe; color: #1e40af; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-super { background: #ede9fe; color: #5b21b6; }
+    .badge-admin { background: #dbeafe; color: #1e40af; }
+    .step-indicator { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
+    .step { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
+    .step.active { background: #4f46e5; color: white; }
+    .step.complete { background: #10b981; color: white; }
+    .step.pending { background: #e5e7eb; color: #9ca3af; }
+    .step-line { width: 40px; height: 2px; background: #e5e7eb; align-self: center; }
+    #passkey-section { display: none; }
+    .passkey-prompt { text-align: center; padding: 24px; }
+    .passkey-prompt svg { width: 64px; height: 64px; color: #4f46e5; margin-bottom: 16px; }
+    .passkey-prompt h3 { font-size: 18px; color: #111827; margin-bottom: 8px; }
+    .passkey-prompt p { font-size: 14px; color: #6b7280; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <div class="card-header">
+        <h1>Join WSIM Administration</h1>
+        <p>You've been invited to become an administrator</p>
+      </div>
+
+      <div class="invite-info">
+        <p>
+          Invited by <strong><%= invite.createdBy.firstName %> <%= invite.createdBy.lastName %></strong>
+          as <% if (invite.role === 'SUPER_ADMIN') { %><span class="badge badge-super">Super Admin</span><% } else { %><span class="badge badge-admin">Admin</span><% } %>
+        </p>
+      </div>
+
+      <div class="card-body">
+        <div class="step-indicator">
+          <div class="step active" id="step1">1</div>
+          <div class="step-line"></div>
+          <div class="step pending" id="step2">2</div>
+        </div>
+
+        <div id="details-section">
+          <% if (error) { %>
+            <div class="alert alert-error"><%= error %></div>
+          <% } %>
+
+          <form id="details-form">
+            <input type="hidden" name="code" value="<%= invite.code %>">
+
+            <div class="form-group">
+              <label for="email">Email Address</label>
+              <% if (invite.email) { %>
+                <input type="email" id="email" name="email" value="<%= invite.email %>" disabled>
+              <% } else { %>
+                <input type="email" id="email" name="email" required placeholder="you@example.com">
+              <% } %>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="firstName">First Name</label>
+                <input type="text" id="firstName" name="firstName" required placeholder="John">
+              </div>
+              <div class="form-group">
+                <label for="lastName">Last Name</label>
+                <input type="text" id="lastName" name="lastName" required placeholder="Doe">
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Continue to Passkey Setup</button>
+          </form>
+        </div>
+
+        <div id="passkey-section">
+          <div class="passkey-prompt">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+            </svg>
+            <h3>Register Your Passkey</h3>
+            <p>Use your device's biometric sensor, security key, or PIN to create a secure login credential.</p>
+            <button type="button" class="btn btn-primary" id="register-passkey-btn">Register Passkey</button>
+          </div>
+          <div id="passkey-error" class="alert alert-error" style="display: none;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const code = '<%= invite.code %>';
+    const restrictedEmail = '<%= invite.email || "" %>';
+    let adminEmail = null;
+
+    document.getElementById('details-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Processing...';
+
+      // Store the email for the passkey registration step
+      adminEmail = restrictedEmail || document.getElementById('email').value;
+
+      try {
+        const response = await fetch(`/administration/join/${code}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: adminEmail,
+            firstName: document.getElementById('firstName').value,
+            lastName: document.getElementById('lastName').value,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to create admin account');
+        }
+
+        // Show passkey section
+        document.getElementById('details-section').style.display = 'none';
+        document.getElementById('passkey-section').style.display = 'block';
+        document.getElementById('step1').classList.remove('active');
+        document.getElementById('step1').classList.add('complete');
+        document.getElementById('step2').classList.remove('pending');
+        document.getElementById('step2').classList.add('active');
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Continue to Passkey Setup';
+        alert(err.message);
+      }
+    });
+
+    document.getElementById('register-passkey-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('register-passkey-btn');
+      const errorDiv = document.getElementById('passkey-error');
+      btn.disabled = true;
+      btn.textContent = 'Registering...';
+      errorDiv.style.display = 'none';
+
+      try {
+        // Get registration options
+        const optionsRes = await fetch(`/administration/join/${code}/register-options`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: adminEmail }),
+        });
+
+        if (!optionsRes.ok) {
+          const errData = await optionsRes.json();
+          throw new Error(errData.error || 'Failed to get registration options');
+        }
+
+        const { options } = await optionsRes.json();
+
+        // Convert base64url to ArrayBuffer
+        options.challenge = base64urlToBuffer(options.challenge);
+        options.user.id = base64urlToBuffer(options.user.id);
+        if (options.excludeCredentials) {
+          options.excludeCredentials = options.excludeCredentials.map(c => ({
+            ...c,
+            id: base64urlToBuffer(c.id),
+          }));
+        }
+
+        // Create credential
+        const credential = await navigator.credentials.create({ publicKey: options });
+
+        // Prepare response
+        const response = {
+          id: credential.id,
+          rawId: bufferToBase64url(credential.rawId),
+          type: credential.type,
+          response: {
+            clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+            attestationObject: bufferToBase64url(credential.response.attestationObject),
+          },
+        };
+
+        if (credential.response.getTransports) {
+          response.response.transports = credential.response.getTransports();
+        }
+
+        // Verify registration
+        const verifyRes = await fetch(`/administration/join/${code}/register-verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: adminEmail, credential: response }),
+        });
+
+        if (!verifyRes.ok) {
+          const data = await verifyRes.json();
+          throw new Error(data.error || 'Failed to verify passkey');
+        }
+
+        // Success - redirect to dashboard
+        window.location.href = '/administration?message=Welcome! Your admin account has been created.';
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Register Passkey';
+        errorDiv.textContent = err.message;
+        errorDiv.style.display = 'block';
+      }
+    });
+
+    // Helper functions for base64url encoding/decoding
+    function base64urlToBuffer(base64url) {
+      const padding = '='.repeat((4 - base64url.length % 4) % 4);
+      const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/') + padding;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+
+    function bufferToBase64url(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+  </script>
+</body>
+</html>

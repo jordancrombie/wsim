@@ -49,4 +49,7 @@ export const env = {
 
   // Admin authentication
   AUTH_ADMIN_JWT_SECRET: process.env.AUTH_ADMIN_JWT_SECRET || 'wsim-admin-secret-change-in-production',
+
+  // Public auth server URL (for invite URLs)
+  AUTH_SERVER_URL: process.env.AUTH_SERVER_URL || process.env.ISSUER || 'http://localhost:3005',
 };

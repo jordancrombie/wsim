@@ -384,4 +384,279 @@ router.get('/logout', (req: Request, res: Response) => {
   res.redirect('/administration/login');
 });
 
+// =============================================================================
+// INVITE ACCEPTANCE FLOW
+// =============================================================================
+
+// Helper to validate invite
+async function validateInvite(code: string) {
+  const invite = await prisma.adminInvite.findUnique({
+    where: { code },
+    include: {
+      createdBy: {
+        select: { firstName: true, lastName: true },
+      },
+    },
+  });
+
+  if (!invite) {
+    return { valid: false, error: 'Invalid invite code' };
+  }
+
+  if (invite.revokedAt) {
+    return { valid: false, error: 'This invite has been revoked' };
+  }
+
+  if (invite.usedAt) {
+    return { valid: false, error: 'This invite has already been used' };
+  }
+
+  if (invite.expiresAt < new Date()) {
+    return { valid: false, error: 'This invite has expired' };
+  }
+
+  return { valid: true, invite };
+}
+
+/**
+ * GET /administration/join/:code - Show invite acceptance page
+ */
+router.get('/join/:code', async (req: Request, res: Response) => {
+  const { code } = req.params;
+  const result = await validateInvite(code);
+
+  if (!result.valid) {
+    return res.render('admin/join-error', {
+      error: result.error,
+    });
+  }
+
+  res.render('admin/join', {
+    invite: result.invite,
+    code,
+    rpId: RP_ID,
+    error: req.query.error,
+  });
+});
+
+/**
+ * POST /administration/join/:code - Create admin user from invite
+ */
+router.post('/join/:code', async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    const { email, firstName, lastName } = req.body;
+
+    const result = await validateInvite(code);
+    if (!result.valid) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    const invite = result.invite!;
+
+    // If invite has email restriction, enforce it
+    if (invite.email && invite.email.toLowerCase() !== email.toLowerCase()) {
+      return res.status(400).json({ error: 'Email does not match the invite' });
+    }
+
+    // Check if email already exists
+    const existingAdmin = await prisma.adminUser.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (existingAdmin) {
+      return res.status(400).json({ error: 'An admin with this email already exists' });
+    }
+
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: 'First name and last name are required' });
+    }
+
+    // Create the admin user
+    const admin = await prisma.adminUser.create({
+      data: {
+        email: email.toLowerCase(),
+        firstName,
+        lastName,
+        role: invite.role,
+      },
+    });
+
+    // Mark invite as used
+    await prisma.adminInvite.update({
+      where: { id: invite.id },
+      data: {
+        usedAt: new Date(),
+        usedById: admin.id,
+      },
+    });
+
+    console.log(`[Admin] New admin created via invite: ${email} (${invite.role})`);
+
+    res.json({
+      success: true,
+      admin: {
+        id: admin.id,
+        email: admin.email,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        role: admin.role,
+      },
+    });
+  } catch (error) {
+    console.error('[Admin] Failed to create admin from invite:', error);
+    res.status(500).json({ error: 'Failed to create admin user' });
+  }
+});
+
+/**
+ * POST /administration/join/:code/register-options - Generate passkey registration options for invited user
+ */
+router.post('/join/:code/register-options', async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    const { email } = req.body;
+
+    // Look up the invite - allow "used" invites since we're in the passkey registration step
+    // The invite is marked as "used" when the admin user is created, but we still need to register the passkey
+    const invite = await prisma.adminInvite.findUnique({
+      where: { code },
+    });
+
+    if (!invite) {
+      return res.status(400).json({ error: 'Invalid invite code' });
+    }
+
+    if (invite.revokedAt) {
+      return res.status(400).json({ error: 'This invite has been revoked' });
+    }
+
+    if (invite.expiresAt < new Date()) {
+      return res.status(400).json({ error: 'This invite has expired' });
+    }
+
+    // Note: We allow usedAt to be set - that just means the admin was created
+
+    const admin = await prisma.adminUser.findUnique({
+      where: { email },
+      include: {
+        passkeys: {
+          select: { credentialId: true },
+        },
+      },
+    });
+
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin user not found. Please complete registration first.' });
+    }
+
+    if (admin.passkeys.length > 0) {
+      return res.status(400).json({ error: 'Admin already has a passkey registered' });
+    }
+
+    const options = await generateRegistrationOptions({
+      rpName: RP_NAME,
+      rpID: RP_ID,
+      userID: new TextEncoder().encode(admin.id),
+      userName: admin.email,
+      userDisplayName: `${admin.firstName} ${admin.lastName}`,
+      attestationType: 'none',
+      excludeCredentials: [],
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'preferred',
+      },
+    });
+
+    // Store challenge with invite code prefix for security
+    registrationChallenges.set(`invite:${code}:${email}`, {
+      challenge: options.challenge,
+      userId: admin.id,
+    });
+
+    res.json({ options });
+  } catch (error) {
+    console.error('[Admin] Failed to generate invite registration options:', error);
+    res.status(500).json({ error: 'Failed to generate registration options' });
+  }
+});
+
+/**
+ * POST /administration/join/:code/register-verify - Verify passkey registration for invited user
+ */
+router.post('/join/:code/register-verify', async (req: Request, res: Response) => {
+  try {
+    const { code } = req.params;
+    const { credential, email } = req.body;
+
+    const challengeKey = `invite:${code}:${email}`;
+    const challengeData = registrationChallenges.get(challengeKey);
+    if (!challengeData) {
+      return res.status(400).json({ error: 'Registration challenge expired' });
+    }
+
+    const admin = await prisma.adminUser.findUnique({
+      where: { id: challengeData.userId },
+    });
+
+    if (!admin) {
+      return res.status(404).json({ error: 'Admin user not found' });
+    }
+
+    const verification = await verifyRegistrationResponse({
+      response: credential,
+      expectedChallenge: challengeData.challenge,
+      expectedOrigin: ORIGINS,
+      expectedRPID: RP_ID,
+    });
+
+    if (!verification.verified || !verification.registrationInfo) {
+      return res.status(400).json({ error: 'Registration verification failed' });
+    }
+
+    const { credential: registrationCredential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+
+    // Save the passkey
+    await prisma.adminPasskey.create({
+      data: {
+        adminUserId: admin.id,
+        credentialId: registrationCredential.id,
+        credentialPublicKey: Buffer.from(registrationCredential.publicKey),
+        counter: BigInt(registrationCredential.counter),
+        deviceType: credentialDeviceType,
+        backedUp: credentialBackedUp,
+        transports: credential.response.transports || [],
+      },
+    });
+
+    // Clean up challenge
+    registrationChallenges.delete(challengeKey);
+
+    // Create JWT token and log them in
+    const token = await createAdminToken({
+      userId: admin.id,
+      email: admin.email,
+      role: admin.role,
+    });
+
+    setAdminCookie(res, token);
+
+    console.log(`[Admin] Passkey registered for invited admin ${admin.email}`);
+
+    res.json({
+      success: true,
+      admin: {
+        id: admin.id,
+        email: admin.email,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        role: admin.role,
+      },
+    });
+  } catch (error) {
+    console.error('[Admin] Failed to verify invite registration:', error);
+    res.status(500).json({ error: 'Failed to verify registration' });
+  }
+});
+
 export default router;

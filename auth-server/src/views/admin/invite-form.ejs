@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Admin Invite - WSIM Auth Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f3f4f6; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-subtitle { font-size: 14px; opacity: 0.8; }
+    .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #f9fafb; }
+    .nav-tabs { display: flex; gap: 8px; margin-right: 24px; }
+    .nav-tab { padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: rgba(255, 255, 255, 0.8); transition: all 0.2s; }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+    .nav-tab.active { background: rgba(255, 255, 255, 0.2); color: white; }
+    .container { max-width: 600px; margin: 0 auto; padding: 40px 20px; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); overflow: hidden; }
+    .card-header { padding: 20px 24px; border-bottom: 1px solid #e5e7eb; }
+    .card-header h2 { font-size: 18px; font-weight: 600; color: #111827; }
+    .card-header p { font-size: 14px; color: #6b7280; margin-top: 4px; }
+    .card-body { padding: 24px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+    .form-group input, .form-group select { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+    .form-group .help-text { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .form-actions { display: flex; gap: 12px; justify-content: flex-end; padding-top: 12px; border-top: 1px solid #e5e7eb; margin-top: 24px; }
+    .alert { padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; }
+    .alert-error { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>WSIM Auth Administration</h1>
+      <p class="header-subtitle">Create Admin Invitation</p>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <div class="nav-tabs">
+        <a href="/administration" class="nav-tab">Clients</a>
+        <a href="/administration/sessions" class="nav-tab">Sessions</a>
+        <a href="/administration/users" class="nav-tab">Users</a>
+        <% if (admin && admin.role === 'SUPER_ADMIN') { %>
+          <a href="/administration/admins" class="nav-tab">Admins</a>
+          <a href="/administration/invites" class="nav-tab active">Invites</a>
+        <% } %>
+      </div>
+      <% if (admin) { %>
+        <span style="font-size: 14px; opacity: 0.9; margin-right: 16px;"><%= admin.email %></span>
+      <% } %>
+      <a href="/administration/logout" class="btn btn-secondary" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <% if (error) { %>
+      <div class="alert alert-error"><%= error %></div>
+    <% } %>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Create Admin Invitation</h2>
+        <p>Generate an invite link that can be used to register a new administrator.</p>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/administration/invites">
+          <div class="form-group">
+            <label for="email">Email Address (Optional)</label>
+            <input type="email" id="email" name="email" placeholder="admin@example.com">
+            <p class="help-text">If specified, only this email can use the invite. Leave blank to allow any email.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="role">Role</label>
+            <select id="role" name="role">
+              <option value="ADMIN">Admin</option>
+              <option value="SUPER_ADMIN">Super Admin</option>
+            </select>
+            <p class="help-text">Super Admins can manage other administrators and create invites.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="expiry">Expiry</label>
+            <select id="expiry" name="expiry">
+              <option value="1">1 day</option>
+              <option value="7" selected>7 days</option>
+              <option value="30">30 days</option>
+            </select>
+            <p class="help-text">How long the invite link will remain valid.</p>
+          </div>
+
+          <div class="form-actions">
+            <a href="/administration/invites" class="btn btn-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary">Create Invite</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

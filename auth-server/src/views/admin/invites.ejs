@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Invites - WSIM Auth Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f3f4f6; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-subtitle { font-size: 14px; opacity: 0.8; }
+    .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #f9fafb; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .nav-tabs { display: flex; gap: 8px; margin-right: 24px; }
+    .nav-tab { padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: rgba(255, 255, 255, 0.8); transition: all 0.2s; }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+    .nav-tab.active { background: rgba(255, 255, 255, 0.2); color: white; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+    .alert { padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; }
+    .alert-success { background: #d1fae5; border: 1px solid #a7f3d0; color: #065f46; }
+    .alert-error { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 24px; }
+    .card-header { padding: 20px 24px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+    .card-header h2 { font-size: 18px; font-weight: 600; color: #111827; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { padding: 16px 24px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    .table th { background: #f9fafb; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+    .table td { font-size: 14px; color: #374151; }
+    .table tr:last-child td { border-bottom: none; }
+    .table tr:hover td { background: #f9fafb; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-super { background: #ede9fe; color: #5b21b6; }
+    .badge-admin { background: #dbeafe; color: #1e40af; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .badge-used { background: #d1fae5; color: #065f46; }
+    .badge-expired { background: #fee2e2; color: #991b1b; }
+    .badge-revoked { background: #f3f4f6; color: #6b7280; }
+    .invite-url { font-family: monospace; font-size: 11px; color: #6b7280; background: #f3f4f6; padding: 8px 12px; border-radius: 6px; display: flex; align-items: center; gap: 8px; }
+    .invite-url input { flex: 1; border: none; background: transparent; font-family: monospace; font-size: 11px; color: #374151; }
+    .copy-btn { background: #e5e7eb; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+    .copy-btn:hover { background: #d1d5db; }
+    .timestamp { font-size: 12px; color: #6b7280; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #6b7280; }
+    .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #374151; }
+    .actions { display: flex; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>WSIM Auth Administration</h1>
+      <p class="header-subtitle">Admin Invitations</p>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <div class="nav-tabs">
+        <a href="/administration" class="nav-tab">Clients</a>
+        <a href="/administration/sessions" class="nav-tab">Sessions</a>
+        <a href="/administration/users" class="nav-tab">Users</a>
+        <% if (admin && admin.role === 'SUPER_ADMIN') { %>
+          <a href="/administration/admins" class="nav-tab">Admins</a>
+          <a href="/administration/invites" class="nav-tab active">Invites</a>
+        <% } %>
+      </div>
+      <% if (admin) { %>
+        <span style="font-size: 14px; opacity: 0.9; margin-right: 16px;"><%= admin.email %></span>
+      <% } %>
+      <a href="/administration/invites/new" class="btn btn-primary" style="margin-right: 8px;">+ Create Invite</a>
+      <a href="/administration/logout" class="btn btn-secondary" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <% if (message) { %>
+      <div class="alert alert-success"><%= message %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="alert alert-error"><%= error %></div>
+    <% } %>
+
+    <!-- Pending Invites -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Pending Invites</h2>
+        <span><%= invites.filter(i => !i.usedAt && !i.revokedAt && i.expiresAt > new Date()).length %> pending</span>
+      </div>
+
+      <% const pendingInvites = invites.filter(i => !i.usedAt && !i.revokedAt && i.expiresAt > new Date()); %>
+      <% if (pendingInvites.length === 0) { %>
+        <div class="empty-state">
+          <h3>No pending invites</h3>
+          <p>Create a new invite to add administrators.</p>
+        </div>
+      <% } else { %>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Invite URL</th>
+              <th>Email Restriction</th>
+              <th>Role</th>
+              <th>Created By</th>
+              <th>Expires</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% pendingInvites.forEach(function(invite) { %>
+              <tr>
+                <td>
+                  <div class="invite-url">
+                    <input type="text" readonly value="<%= invite.url %>" id="url-<%= invite.id %>">
+                    <button class="copy-btn" onclick="copyUrl('<%= invite.id %>')">Copy</button>
+                  </div>
+                </td>
+                <td>
+                  <% if (invite.email) { %>
+                    <code style="font-size: 12px;"><%= invite.email %></code>
+                  <% } else { %>
+                    <span style="color: #9ca3af; font-style: italic;">Any email</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (invite.role === 'SUPER_ADMIN') { %>
+                    <span class="badge badge-super">Super Admin</span>
+                  <% } else { %>
+                    <span class="badge badge-admin">Admin</span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="timestamp"><%= invite.createdBy.firstName %> <%= invite.createdBy.lastName %></span>
+                </td>
+                <td>
+                  <span class="timestamp"><%= new Date(invite.expiresAt).toLocaleDateString() %></span>
+                </td>
+                <td>
+                  <div class="actions">
+                    <form method="post" action="/administration/invites/<%= invite.id %>/revoke" style="display: inline;" onsubmit="return confirm('Are you sure you want to revoke this invite?');">
+                      <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+
+    <!-- Used/Expired/Revoked Invites -->
+    <% const inactiveInvites = invites.filter(i => i.usedAt || i.revokedAt || i.expiresAt <= new Date()); %>
+    <% if (inactiveInvites.length > 0) { %>
+      <div class="card">
+        <div class="card-header">
+          <h2>Invite History</h2>
+          <span><%= inactiveInvites.length %> invite(s)</span>
+        </div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Created By</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% inactiveInvites.forEach(function(invite) { %>
+              <tr>
+                <td>
+                  <% if (invite.email) { %>
+                    <code style="font-size: 12px;"><%= invite.email %></code>
+                  <% } else if (invite.usedBy) { %>
+                    <code style="font-size: 12px;"><%= invite.usedBy.email %></code>
+                  <% } else { %>
+                    <span style="color: #9ca3af;">—</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (invite.role === 'SUPER_ADMIN') { %>
+                    <span class="badge badge-super">Super Admin</span>
+                  <% } else { %>
+                    <span class="badge badge-admin">Admin</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (invite.usedAt) { %>
+                    <span class="badge badge-used">Used</span>
+                  <% } else if (invite.revokedAt) { %>
+                    <span class="badge badge-revoked">Revoked</span>
+                  <% } else { %>
+                    <span class="badge badge-expired">Expired</span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="timestamp"><%= invite.createdBy.firstName %> <%= invite.createdBy.lastName %></span>
+                </td>
+                <td>
+                  <span class="timestamp"><%= new Date(invite.createdAt).toLocaleDateString() %></span>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+
+  <script>
+    function copyUrl(inviteId) {
+      const input = document.getElementById('url-' + inviteId);
+      input.select();
+      document.execCommand('copy');
+      const btn = input.nextElementSibling;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+    }
+  </script>
+</body>
+</html>

@@ -1,8 +1,22 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../adapters/prisma';
+import { env } from '../config/env';
 
 const router = Router();
+
+// Helper to check if current admin is SUPER_ADMIN
+function isSuperAdmin(req: Request): boolean {
+  return (req as any).admin?.role === 'SUPER_ADMIN';
+}
+
+// Middleware to require SUPER_ADMIN role
+function requireSuperAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!isSuperAdmin(req)) {
+    return res.redirect('/administration?error=Super admin access required');
+  }
+  next();
+}
 
 /**
  * GET /administration - List all OAuth clients
@@ -365,6 +379,179 @@ router.get('/users', async (req: Request, res: Response, next: NextFunction) => 
       message: req.query.message,
       error: req.query.error,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// =============================================================================
+// ADMIN USER MANAGEMENT (SUPER_ADMIN only)
+// =============================================================================
+
+/**
+ * GET /administration/admins - List all admin users
+ */
+router.get('/admins', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const admins = await prisma.adminUser.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        passkeys: {
+          select: {
+            id: true,
+            lastUsedAt: true,
+          },
+        },
+        _count: {
+          select: {
+            invitesCreated: true,
+          },
+        },
+      },
+    });
+
+    res.render('admin/admins', {
+      admins,
+      admin: (req as any).admin,
+      message: req.query.message,
+      error: req.query.error,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /administration/invites - List pending invites
+ */
+router.get('/invites', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const invites = await prisma.adminInvite.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        createdBy: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+        usedBy: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Build invite URLs
+    const baseUrl = env.AUTH_SERVER_URL || 'http://localhost:3002';
+    const invitesWithUrls = invites.map(invite => ({
+      ...invite,
+      url: `${baseUrl}/administration/join/${invite.code}`,
+      status: invite.revokedAt
+        ? 'revoked'
+        : invite.usedAt
+          ? 'used'
+          : invite.expiresAt < new Date()
+            ? 'expired'
+            : 'pending',
+    }));
+
+    res.render('admin/invites', {
+      invites: invitesWithUrls,
+      admin: (req as any).admin,
+      message: req.query.message,
+      error: req.query.error,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /administration/invites/new - Show create invite form
+ */
+router.get('/invites/new', requireSuperAdmin, async (req: Request, res: Response) => {
+  res.render('admin/invite-form', {
+    admin: (req as any).admin,
+    error: null,
+  });
+});
+
+/**
+ * POST /administration/invites - Create new invite
+ */
+router.post('/invites', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { email, role, expiryDays } = req.body;
+    const currentAdmin = (req as any).admin;
+
+    // Validate role
+    const validRoles = ['ADMIN', 'SUPER_ADMIN'];
+    const inviteRole = validRoles.includes(role) ? role : 'ADMIN';
+
+    // Generate secure invite code (32 bytes = 64 hex chars)
+    const code = crypto.randomBytes(32).toString('hex');
+
+    // Calculate expiry (default 7 days)
+    const days = parseInt(expiryDays) || 7;
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + days);
+
+    // Create invite
+    const invite = await prisma.adminInvite.create({
+      data: {
+        code,
+        email: email?.trim() || null,
+        role: inviteRole,
+        createdById: currentAdmin.id,
+        expiresAt,
+      },
+    });
+
+    const baseUrl = env.AUTH_SERVER_URL || 'http://localhost:3002';
+    const inviteUrl = `${baseUrl}/administration/join/${code}`;
+
+    console.log(`[Admin] Invite created by ${currentAdmin.email} for ${email || 'anyone'} (${inviteRole})`);
+
+    res.redirect(`/administration/invites?message=${encodeURIComponent(`Invite created! URL: ${inviteUrl}`)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /administration/invites/:id/revoke - Revoke an invite
+ */
+router.post('/invites/:id/revoke', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const invite = await prisma.adminInvite.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!invite) {
+      return res.redirect('/administration/invites?error=Invite not found');
+    }
+
+    if (invite.usedAt) {
+      return res.redirect('/administration/invites?error=Cannot revoke a used invite');
+    }
+
+    if (invite.revokedAt) {
+      return res.redirect('/administration/invites?error=Invite already revoked');
+    }
+
+    await prisma.adminInvite.update({
+      where: { id: req.params.id },
+      data: { revokedAt: new Date() },
+    });
+
+    console.log(`[Admin] Invite ${req.params.id} revoked by ${(req as any).admin.email}`);
+
+    res.redirect('/administration/invites?message=Invite revoked successfully');
   } catch (err) {
     next(err);
   }

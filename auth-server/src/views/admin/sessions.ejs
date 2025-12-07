@@ -275,6 +275,10 @@
         <a href="/administration" class="nav-tab">Clients</a>
         <a href="/administration/sessions" class="nav-tab active">Sessions</a>
         <a href="/administration/users" class="nav-tab">Users</a>
+        <% if (admin && admin.role === 'SUPER_ADMIN') { %>
+          <a href="/administration/admins" class="nav-tab">Admins</a>
+          <a href="/administration/invites" class="nav-tab">Invites</a>
+        <% } %>
       </div>
       <% if (admin) { %>
         <span style="font-size: 14px; opacity: 0.9; margin-right: 16px;"><%= admin.email %></span>

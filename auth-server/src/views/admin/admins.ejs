@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Users - WSIM Auth Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f3f4f6; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-subtitle { font-size: 14px; opacity: 0.8; }
+    .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #f9fafb; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .nav-tabs { display: flex; gap: 8px; margin-right: 24px; }
+    .nav-tab { padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: rgba(255, 255, 255, 0.8); transition: all 0.2s; }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+    .nav-tab.active { background: rgba(255, 255, 255, 0.2); color: white; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+    .alert { padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; }
+    .alert-success { background: #d1fae5; border: 1px solid #a7f3d0; color: #065f46; }
+    .alert-error { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); overflow: hidden; }
+    .card-header { padding: 20px 24px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+    .card-header h2 { font-size: 18px; font-weight: 600; color: #111827; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { padding: 16px 24px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    .table th { background: #f9fafb; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+    .table td { font-size: 14px; color: #374151; }
+    .table tr:last-child td { border-bottom: none; }
+    .table tr:hover td { background: #f9fafb; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-super { background: #ede9fe; color: #5b21b6; }
+    .badge-admin { background: #dbeafe; color: #1e40af; }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .admin-name { font-weight: 600; color: #111827; }
+    .admin-email { font-family: monospace; font-size: 12px; color: #6b7280; }
+    .timestamp { font-size: 12px; color: #6b7280; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #6b7280; }
+    .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #374151; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>WSIM Auth Administration</h1>
+      <p class="header-subtitle">Administrator Management</p>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <div class="nav-tabs">
+        <a href="/administration" class="nav-tab">Clients</a>
+        <a href="/administration/sessions" class="nav-tab">Sessions</a>
+        <a href="/administration/users" class="nav-tab">Users</a>
+        <% if (admin && admin.role === 'SUPER_ADMIN') { %>
+          <a href="/administration/admins" class="nav-tab active">Admins</a>
+          <a href="/administration/invites" class="nav-tab">Invites</a>
+        <% } %>
+      </div>
+      <% if (admin) { %>
+        <span style="font-size: 14px; opacity: 0.9; margin-right: 16px;"><%= admin.email %></span>
+      <% } %>
+      <a href="/administration/invites/new" class="btn btn-primary" style="margin-right: 8px;">+ Invite Admin</a>
+      <a href="/administration/logout" class="btn btn-secondary" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <% if (message) { %>
+      <div class="alert alert-success"><%= message %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="alert alert-error"><%= error %></div>
+    <% } %>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Administrator Users</h2>
+        <span><%= admins.length %> admin(s)</span>
+      </div>
+
+      <% if (admins.length === 0) { %>
+        <div class="empty-state">
+          <h3>No admin users found</h3>
+          <p>This shouldn't happen - you're logged in as one!</p>
+        </div>
+      <% } else { %>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Admin</th>
+              <th>Role</th>
+              <th>Passkey Status</th>
+              <th>Created</th>
+              <th>Last Login</th>
+              <th>Invites Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% admins.forEach(function(a) { %>
+              <tr>
+                <td>
+                  <div class="admin-name"><%= a.firstName %> <%= a.lastName %></div>
+                  <div class="admin-email"><%= a.email %></div>
+                </td>
+                <td>
+                  <% if (a.role === 'SUPER_ADMIN') { %>
+                    <span class="badge badge-super">Super Admin</span>
+                  <% } else { %>
+                    <span class="badge badge-admin">Admin</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (a.passkeys.length > 0) { %>
+                    <span class="badge badge-active">Registered</span>
+                  <% } else { %>
+                    <span class="badge badge-pending">Pending</span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="timestamp"><%= new Date(a.createdAt).toLocaleDateString() %></span>
+                </td>
+                <td>
+                  <% if (a.passkeys.length > 0 && a.passkeys[0].lastUsedAt) { %>
+                    <span class="timestamp"><%= new Date(a.passkeys[0].lastUsedAt).toLocaleString() %></span>
+                  <% } else { %>
+                    <span class="timestamp">Never</span>
+                  <% } %>
+                </td>
+                <td>
+                  <span class="timestamp"><%= a._count.invitesCreated %></span>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+  </div>
+</body>
+</html>

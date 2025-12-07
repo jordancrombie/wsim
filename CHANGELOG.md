@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Admin Invitation System (2025-12-06)**
+  - SUPER_ADMIN users can now view all admin users on a dedicated "Admins" tab
+  - Invite system for new administrators with secure 64-character hex invite codes
+  - Optional email restriction (invite can be locked to a specific email)
+  - Configurable expiry (1, 3, 7, 14, or 30 days)
+  - Role selection (ADMIN or SUPER_ADMIN) when creating invites
+  - Invites can be revoked before use
+  - Two-step join flow: enter details, then register passkey
+  - Automatic login after successful passkey registration
+  - Navigation updates: "Admins" and "Invites" tabs visible to SUPER_ADMIN only
+  - New environment variable `AUTH_SERVER_URL` for invite URL generation
+  - New files:
+    - `auth-server/src/views/admin/admins.ejs` - Admin users list view
+    - `auth-server/src/views/admin/invites.ejs` - Invite management view
+    - `auth-server/src/views/admin/invite-form.ejs` - Create invite form
+    - `auth-server/src/views/admin/join.ejs` - Invite acceptance page
+    - `auth-server/src/views/admin/join-error.ejs` - Invalid invite error page
+  - Modified files:
+    - `auth-server/src/routes/admin.ts` - Added admin/invite management routes
+    - `auth-server/src/routes/adminAuth.ts` - Added join/register routes for invite flow
+    - `auth-server/src/config/env.ts` - Added AUTH_SERVER_URL
+    - `auth-server/src/views/admin/clients.ejs` - Added Admins/Invites nav tabs
+    - `auth-server/src/views/admin/sessions.ejs` - Added Admins/Invites nav tabs
+    - `auth-server/src/views/admin/users.ejs` - Added Admins/Invites nav tabs
+
 - **Unit Test Infrastructure (2025-12-06)**
   - Vitest test framework with v8 coverage provider for backend and auth-server
   - Test scripts: `npm test`, `npm run test:watch`, `npm run test:coverage`
@@ -80,6 +105,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Suspense boundary added to login page for Next.js 16 compatibility
 
 ### Fixed
+- **Admin Invite Flow Fixes (2025-12-06)**
+  - Fixed `baseUrl is not defined` error in invites.ejs template - now uses pre-computed `invite.url`
+  - Fixed invite registration flow - frontend now sends `email` instead of `adminId` to register-options/verify endpoints
+  - Fixed response destructuring for registration options API (was missing `{ options }` wrapper)
+  - Fixed invite validation to allow passkey registration after admin account creation (invite marked "used" at step 1)
+
 - **Popup Passkey Authentication Cross-Domain Session (2025-12-05)**
   - Fixed session domain mismatch when authenticating via WSIM popup from SSIM
   - Added `/popup/login/options` and `/popup/login/verify` endpoints to auth-server
