@@ -439,7 +439,9 @@ aws elbv2 create-target-group \
         { "name": "WEBAUTHN_RP_ID", "value": "banksim.ca" },
         { "name": "WEBAUTHN_ORIGINS", "value": "https://wsim.banksim.ca,https://wsim-auth.banksim.ca" },
         { "name": "ALLOWED_POPUP_ORIGINS", "value": "https://ssim.banksim.ca" },
-        { "name": "ALLOWED_EMBED_ORIGINS", "value": "https://ssim.banksim.ca" }
+        { "name": "ALLOWED_EMBED_ORIGINS", "value": "https://ssim.banksim.ca" },
+        { "name": "AUTH_ADMIN_JWT_SECRET", "value": "GENERATE_A_SECURE_SECRET_HERE" },
+        { "name": "AUTH_SERVER_URL", "value": "https://wsim-auth.banksim.ca" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -675,7 +677,14 @@ Generate secure random values for these secrets:
 | `ENCRYPTION_KEY` | wsim-backend | Exactly 32 chars (AES-256) |
 | `INTERNAL_API_SECRET` | wsim-backend, wsim-auth-server | Must match between services |
 | `COOKIE_SECRET` | wsim-auth-server | 32+ chars |
+| `AUTH_ADMIN_JWT_SECRET` | wsim-auth-server | 32+ chars, for admin sessions |
 | `BSIM_CLIENT_SECRET` | wsim-backend | Get from BSIM team |
+
+### Non-Secret Environment Variables
+
+| Variable | Service | Value |
+|----------|---------|-------|
+| `AUTH_SERVER_URL` | wsim-auth-server | `https://wsim-auth.banksim.ca` |
 
 ### Generate Secrets
 
@@ -1048,6 +1057,117 @@ Use this checklist when debugging WSIM/SSIM integration issues:
 
 ---
 
+## Admin Interface Setup (Required for Production)
+
+The WSIM auth-server includes an administration interface for managing OAuth clients, admin users, and invites. This must be set up after initial deployment.
+
+### New Environment Variable Required
+
+Add `AUTH_SERVER_URL` to the wsim-auth-server task definition:
+
+```json
+{ "name": "AUTH_SERVER_URL", "value": "https://wsim-auth.banksim.ca" }
+```
+
+This is used for generating invite URLs. Without it, invites will use the wrong domain.
+
+### Updated wsim-auth-server Task Definition Environment
+
+Add these environment variables to the existing wsim-auth-server task definition:
+
+```json
+{ "name": "AUTH_ADMIN_JWT_SECRET", "value": "GENERATE_A_SECURE_SECRET_HERE" },
+{ "name": "AUTH_SERVER_URL", "value": "https://wsim-auth.banksim.ca" }
+```
+
+### First-Time Admin Setup
+
+After deployment, create the first administrator:
+
+1. **Navigate to setup page**: `https://wsim-auth.banksim.ca/administration/setup`
+
+2. **Enter admin details**:
+   - Email address
+   - First name
+   - Last name
+
+3. **Register passkey**:
+   - Click "Create Account & Register Passkey"
+   - Follow browser prompts (Touch ID, Face ID, security key, etc.)
+
+4. **Automatic login**: After passkey registration, you're logged in and redirected to the dashboard.
+
+**Note**: The setup page is only accessible when no admin users exist. After the first admin (SUPER_ADMIN) is created, new admins must be invited.
+
+### Admin Features
+
+| Feature | Route | Access |
+|---------|-------|--------|
+| OAuth Client Management | `/administration` | All admins |
+| Session Management | `/administration/sessions` | All admins |
+| User List | `/administration/users` | All admins |
+| Admin User List | `/administration/admins` | SUPER_ADMIN only |
+| Admin Invitations | `/administration/invites` | SUPER_ADMIN only |
+
+### Admin User Management (SUPER_ADMIN only)
+
+SUPER_ADMINs can:
+- **View all admins** on the Admins tab
+- **Edit admins** - Change name and role (cannot change own role)
+- **Remove admins** - Delete other admin accounts (cannot delete self)
+- **Manage passkeys** - View and delete individual passkeys per admin
+- **Create invites** - Generate secure invite links for new admins
+
+### Creating Admin Invites
+
+1. Go to `/administration/invites`
+2. Click "+ Create Invite"
+3. Configure:
+   - **Email restriction** (optional) - Lock invite to specific email
+   - **Role** - ADMIN or SUPER_ADMIN
+   - **Expiry** - 1, 3, 7, 14, or 30 days
+4. Copy the invite URL and send to the new admin
+
+The invite URL format: `https://wsim-auth.banksim.ca/administration/join/<64-char-code>`
+
+### Admin Database Tables
+
+The following tables are created by Prisma migration:
+
+```sql
+-- Admin users table
+SELECT id, email, "firstName", "lastName", role, "createdAt"
+FROM admin_users;
+
+-- Admin passkeys table (WebAuthn credentials)
+SELECT id, "adminUserId", "credentialId", "lastUsedAt"
+FROM admin_passkeys;
+
+-- Admin invites table
+SELECT id, code, email, role, "expiresAt", "usedAt", "revokedAt"
+FROM admin_invites;
+```
+
+### Troubleshooting Admin Interface
+
+**"Setup already complete" error:**
+- First admin exists. Go to `/administration/login` instead.
+
+**Passkey registration fails:**
+```bash
+aws logs tail /ecs/wsim-auth-server --filter-pattern "passkey\|WebAuthn" --region ca-central-1
+```
+- Check `WEBAUTHN_ORIGINS` includes `https://wsim-auth.banksim.ca`
+- Check `WEBAUTHN_RP_ID` is `banksim.ca`
+
+**Invite URLs show wrong domain:**
+- Ensure `AUTH_SERVER_URL` is set to `https://wsim-auth.banksim.ca`
+
+**Cannot change own role / Cannot delete self:**
+- This is intentional - prevents lockout. Have another SUPER_ADMIN make the change.
+
+---
+
 ## Support
 
 - **WSIM Repository:** https://github.com/jordancrombie/wsim
@@ -1057,4 +1177,4 @@ Use this checklist when debugging WSIM/SSIM integration issues:
 ---
 
 *Document created: 2025-12-06*
-*Last updated: 2025-12-06 - Added comprehensive troubleshooting guide*
+*Last updated: 2025-12-06 - Added admin interface setup and management documentation*
