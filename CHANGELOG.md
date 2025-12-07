@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Merchant Integration Documentation (2025-12-07)**
+  - **API_PAYMENT_INTEGRATION_FLOWS.md** - Comprehensive implementation guide for API-based wallet integration
+    - Complete code examples for all three API modes:
+      - Direct API Mode (Browser → WSIM): Frontend calls WSIM directly with credentials
+      - Proxy Mode (Browser → Merchant → WSIM): Backend proxies requests, forwarding cookies
+      - API Mode (hybrid approach): Backend initiates, frontend completes
+    - Full frontend JavaScript and backend TypeScript examples
+    - Handling unauthenticated users with popup login flow
+    - CORS troubleshooting section with common issues and solutions
+    - Complete checkout page HTML template with all three API modes
+  - **MERCHANT_UI_INTEGRATION_GUIDE.md** - Comprehensive guide for UI-based wallet integration
+    - Detailed sequence diagrams for Popup, Inline (iframe), and Redirect flows
+    - CORS, Cookies, and Security Configuration section
+    - Cross-origin request summary table (Browser → WSIM, Browser → Merchant, postMessage)
+    - Cookie flow diagrams for popup and redirect modes
+    - Origin validation code examples for postMessage security
+    - iframe security configuration (CSP frame-ancestors, Permissions-Policy)
+    - CSRF protection explanation (why wallet flows are safe)
+    - WebAuthn origin configuration for passkey verification
+
 - **Connected Banks Page (2025-12-06)**
   - New `/banks` page for managing connected bank enrollments
   - View list of connected banks with card counts and enrollment dates
