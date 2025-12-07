@@ -1,0 +1,22 @@
+{
+  "name": "nsim-e2e",
+  "version": "1.0.0",
+  "description": "End-to-end tests for NSIM payment ecosystem",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:chromium": "playwright test --project=chromium",
+    "test:webkit": "playwright test --project=webkit",
+    "test:dev": "TEST_ENV=dev playwright test",
+    "test:prod": "TEST_ENV=prod playwright test",
+    "report": "playwright show-report",
+    "install-browsers": "playwright install chromium webkit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.10.1"
+  }
+}

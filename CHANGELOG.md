@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **E2E Test Suite (2025-12-07)** - Comprehensive Playwright-based end-to-end testing
+  - Full BSIM → WSIM enrollment flow testing
+  - BSIM helpers: account creation, login, passkey registration, credit card creation
+  - WSIM helpers: OAuth enrollment, card import, dashboard verification
+  - WebAuthn virtual authenticator for passkey testing (Chrome DevTools Protocol)
+  - Multi-environment support (dev/prod/local) via `TEST_ENV` variable
+  - Global setup/teardown for automatic test user cleanup
+  - Test fixtures for users, cards, and environment URLs
+  - NPM scripts: `npm run test:e2e`, `npm run test:e2e:ui`, `npm run test:e2e:debug`
+  - Test specs:
+    - `tests/setup/bsim-user.spec.ts` - BSIM user setup (8 tests)
+    - `tests/enrollment/enrollment.spec.ts` - WSIM enrollment flow
+
 - **Public Integration Guides (2025-12-07)**
   - **DEPLOYMENT_GUIDE.md** - Comprehensive deployment guide for external developers
     - Docker Compose service configuration (frontend, backend, auth-server)
