@@ -108,7 +108,7 @@ export default function ProfilePage() {
               <span className="text-xs">Wallet</span>
             </Link>
             <Link
-              href="/enroll"
+              href="/banks"
               className="flex flex-col items-center text-gray-400 hover:text-gray-600"
             >
               <span className="text-xl">🏦</span>
@@ -202,7 +202,7 @@ export default function ProfilePage() {
             <span className="text-gray-400">&rarr;</span>
           </Link>
           <Link
-            href="/enroll"
+            href="/banks"
             className="flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
           >
             <div className="flex items-center gap-3">
@@ -244,7 +244,7 @@ export default function ProfilePage() {
             <span className="text-xs">Wallet</span>
           </Link>
           <Link
-            href="/enroll"
+            href="/banks"
             className="flex flex-col items-center text-gray-400 hover:text-gray-600"
           >
             <span className="text-xl">🏦</span>

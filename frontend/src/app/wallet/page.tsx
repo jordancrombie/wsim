@@ -222,7 +222,7 @@ export default function WalletPage() {
             <span className="text-xs">Wallet</span>
           </Link>
           <Link
-            href="/enroll"
+            href="/banks"
             className="flex flex-col items-center text-gray-400 hover:text-gray-600"
           >
             <span className="text-xl">🏦</span>

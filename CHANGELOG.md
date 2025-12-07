@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Connected Banks Page (2025-12-06)**
+  - New `/banks` page for managing connected bank enrollments
+  - View list of connected banks with card counts and enrollment dates
+  - Disconnect banks (removes enrollment and all associated cards)
+  - "Connect Another Bank" button links to enrollment flow
+  - Updated navigation: "Connected Banks" in profile now goes to `/banks` instead of `/enroll`
+  - Footer navigation updated across all pages to use `/banks` for Banks tab
+  - New files:
+    - `frontend/src/app/banks/page.tsx` - Connected banks management page
+  - Modified files:
+    - `frontend/src/app/profile/page.tsx` - Updated "Connected Banks" link
+    - `frontend/src/app/wallet/page.tsx` - Updated footer navigation
+    - `frontend/src/app/enroll/page.tsx` - Updated footer navigation
+
 - **Admin User Management (2025-12-06)**
   - SUPER_ADMIN can now edit other admin users (name, role)
   - SUPER_ADMIN can remove/delete other admin users

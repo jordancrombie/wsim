@@ -311,8 +311,8 @@ export default function EnrollPage() {
             <span className="text-xs">Wallet</span>
           </Link>
           <Link
-            href="/enroll"
-            className="flex flex-col items-center text-indigo-600"
+            href="/banks"
+            className="flex flex-col items-center text-gray-400 hover:text-gray-600"
           >
             <span className="text-xl">🏦</span>
             <span className="text-xs">Banks</span>
