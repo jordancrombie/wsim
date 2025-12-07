@@ -55,3 +55,6 @@ backend/src/generated/
 
 # Local deployment plans (shared via local filesystem, not repo)
 LOCAL_DEPLOYMENT_PLANS/
+
+# Claude Code local context (session-specific, not repo)
+.claude/
