@@ -52,3 +52,6 @@ backend/src/generated/
 .turbo/
 .vercel/
 .cache/
+
+# Local deployment plans (shared via local filesystem, not repo)
+LOCAL_DEPLOYMENT_PLANS/
