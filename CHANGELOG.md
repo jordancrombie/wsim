@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Admin User Management (2025-12-06)**
+  - SUPER_ADMIN can now edit other admin users (name, role)
+  - SUPER_ADMIN can remove/delete other admin users
+  - Cannot change your own role (prevents lockout)
+  - Cannot delete your own account
+  - Passkey management: view and delete individual passkeys
+  - Cannot delete an admin's only passkey (must have at least one auth method)
+  - New edit form with danger zone for account deletion
+  - New files:
+    - `auth-server/src/views/admin/admin-edit.ejs` - Admin edit form
+  - Modified files:
+    - `auth-server/src/routes/admin.ts` - Added edit/delete/passkey routes
+    - `auth-server/src/views/admin/admins.ejs` - Added Edit/Remove buttons
+
 - **Admin Invitation System (2025-12-06)**
   - SUPER_ADMIN users can now view all admin users on a dedicated "Admins" tab
   - Invite system for new administrators with secure 64-character hex invite codes

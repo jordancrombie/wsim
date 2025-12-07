@@ -557,4 +557,159 @@ router.post('/invites/:id/revoke', requireSuperAdmin, async (req: Request, res: 
   }
 });
 
+/**
+ * GET /administration/admins/:id/edit - Show edit admin form
+ */
+router.get('/admins/:id/edit', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentAdmin = (req as any).admin;
+    const targetAdmin = await prisma.adminUser.findUnique({
+      where: { id: req.params.id },
+      include: {
+        passkeys: {
+          select: {
+            id: true,
+            credentialId: true,
+            lastUsedAt: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!targetAdmin) {
+      return res.redirect('/administration/admins?error=Admin not found');
+    }
+
+    res.render('admin/admin-edit', {
+      targetAdmin,
+      admin: currentAdmin,
+      isSelf: currentAdmin.id === targetAdmin.id,
+      error: req.query.error || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /administration/admins/:id - Update admin user
+ */
+router.post('/admins/:id', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentAdmin = (req as any).admin;
+    const { firstName, lastName, role } = req.body;
+    const targetId = req.params.id;
+
+    const targetAdmin = await prisma.adminUser.findUnique({
+      where: { id: targetId },
+    });
+
+    if (!targetAdmin) {
+      return res.redirect('/administration/admins?error=Admin not found');
+    }
+
+    // Prevent changing own role (to avoid accidentally locking yourself out)
+    const updateData: any = {
+      firstName: firstName?.trim() || targetAdmin.firstName,
+      lastName: lastName?.trim() || targetAdmin.lastName,
+    };
+
+    // Only allow role change if not editing self
+    if (currentAdmin.id !== targetId && role && ['ADMIN', 'SUPER_ADMIN'].includes(role)) {
+      updateData.role = role;
+    }
+
+    await prisma.adminUser.update({
+      where: { id: targetId },
+      data: updateData,
+    });
+
+    console.log(`[Admin] Admin ${targetAdmin.email} updated by ${currentAdmin.email}`);
+
+    res.redirect('/administration/admins?message=' + encodeURIComponent(`Admin "${targetAdmin.email}" updated successfully`));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /administration/admins/:id/delete - Delete admin user
+ */
+router.post('/admins/:id/delete', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentAdmin = (req as any).admin;
+    const targetId = req.params.id;
+
+    // Prevent self-deletion
+    if (currentAdmin.id === targetId) {
+      return res.redirect('/administration/admins?error=You cannot delete your own admin account');
+    }
+
+    const targetAdmin = await prisma.adminUser.findUnique({
+      where: { id: targetId },
+      select: { email: true, firstName: true, lastName: true },
+    });
+
+    if (!targetAdmin) {
+      return res.redirect('/administration/admins?error=Admin not found');
+    }
+
+    // Delete passkeys first (cascade), then admin
+    await prisma.adminPasskey.deleteMany({
+      where: { adminUserId: targetId },
+    });
+
+    await prisma.adminUser.delete({
+      where: { id: targetId },
+    });
+
+    console.log(`[Admin] Admin ${targetAdmin.email} deleted by ${currentAdmin.email}`);
+
+    res.redirect('/administration/admins?message=' + encodeURIComponent(`Admin "${targetAdmin.firstName} ${targetAdmin.lastName}" has been removed`));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /administration/admins/:adminId/passkeys/:passkeyId/delete - Delete a specific passkey
+ */
+router.post('/admins/:adminId/passkeys/:passkeyId/delete', requireSuperAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const currentAdmin = (req as any).admin;
+    const { adminId, passkeyId } = req.params;
+
+    const passkey = await prisma.adminPasskey.findUnique({
+      where: { id: passkeyId },
+      include: {
+        adminUser: { select: { email: true, id: true } },
+      },
+    });
+
+    if (!passkey || passkey.adminUserId !== adminId) {
+      return res.redirect(`/administration/admins/${adminId}/edit?error=Passkey not found`);
+    }
+
+    // Check if this is the admin's only passkey
+    const passkeyCount = await prisma.adminPasskey.count({
+      where: { adminUserId: adminId },
+    });
+
+    if (passkeyCount === 1) {
+      return res.redirect(`/administration/admins/${adminId}/edit?error=Cannot delete the only passkey. Admin must have at least one authentication method.`);
+    }
+
+    await prisma.adminPasskey.delete({
+      where: { id: passkeyId },
+    });
+
+    console.log(`[Admin] Passkey ${passkeyId} deleted for ${passkey.adminUser.email} by ${currentAdmin.email}`);
+
+    res.redirect(`/administration/admins/${adminId}/edit?message=Passkey deleted successfully`);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

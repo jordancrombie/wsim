@@ -43,6 +43,10 @@
     .timestamp { font-size: 12px; color: #6b7280; }
     .empty-state { text-align: center; padding: 60px 20px; color: #6b7280; }
     .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: #374151; }
+    .actions { display: flex; gap: 8px; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .self-badge { font-size: 10px; background: #f3f4f6; color: #6b7280; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
   </style>
 </head>
 <body>
@@ -98,13 +102,17 @@
               <th>Created</th>
               <th>Last Login</th>
               <th>Invites Created</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             <% admins.forEach(function(a) { %>
               <tr>
                 <td>
-                  <div class="admin-name"><%= a.firstName %> <%= a.lastName %></div>
+                  <div class="admin-name">
+                    <%= a.firstName %> <%= a.lastName %>
+                    <% if (a.id === admin.id) { %><span class="self-badge">You</span><% } %>
+                  </div>
                   <div class="admin-email"><%= a.email %></div>
                 </td>
                 <td>
@@ -133,6 +141,16 @@
                 </td>
                 <td>
                   <span class="timestamp"><%= a._count.invitesCreated %></span>
+                </td>
+                <td>
+                  <div class="actions">
+                    <a href="/administration/admins/<%= a.id %>/edit" class="btn btn-secondary btn-sm">Edit</a>
+                    <% if (a.id !== admin.id) { %>
+                      <form method="post" action="/administration/admins/<%= a.id %>/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to remove <%= a.firstName %> <%= a.lastName %>? This cannot be undone.');">
+                        <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+                      </form>
+                    <% } %>
+                  </div>
                 </td>
               </tr>
             <% }); %>

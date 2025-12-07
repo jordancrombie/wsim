@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edit Admin - WSIM Auth Admin</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f3f4f6; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 24px; font-weight: 600; }
+    .header-subtitle { font-size: 14px; opacity: 0.8; }
+    .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-secondary { background: white; color: #374151; border: 1px solid #d1d5db; }
+    .btn-secondary:hover { background: #f9fafb; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-danger:hover { background: #b91c1c; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+    .nav-tabs { display: flex; gap: 8px; margin-right: 24px; }
+    .nav-tab { padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; text-decoration: none; color: rgba(255, 255, 255, 0.8); transition: all 0.2s; }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+    .nav-tab.active { background: rgba(255, 255, 255, 0.2); color: white; }
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+    .alert { padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; font-size: 14px; }
+    .alert-success { background: #d1fae5; border: 1px solid #a7f3d0; color: #065f46; }
+    .alert-error { background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; }
+    .alert-warning { background: #fef3c7; border: 1px solid #fde68a; color: #92400e; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); overflow: hidden; margin-bottom: 24px; }
+    .card-header { padding: 20px 24px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; }
+    .card-header h2 { font-size: 18px; font-weight: 600; color: #111827; }
+    .card-body { padding: 24px; }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-size: 14px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+    .form-group input, .form-group select { width: 100%; padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }
+    .form-group input:focus, .form-group select:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+    .form-group input:disabled { background: #f9fafb; color: #6b7280; cursor: not-allowed; }
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-group { flex: 1; }
+    .form-help { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge-super { background: #ede9fe; color: #5b21b6; }
+    .badge-admin { background: #dbeafe; color: #1e40af; }
+    .badge-active { background: #d1fae5; color: #065f46; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+    .table th { background: #f9fafb; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; }
+    .table td { font-size: 14px; color: #374151; }
+    .table tr:last-child td { border-bottom: none; }
+    .timestamp { font-size: 12px; color: #6b7280; }
+    .credential-id { font-family: monospace; font-size: 11px; color: #6b7280; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; color: #6b7280; text-decoration: none; font-size: 14px; margin-bottom: 16px; }
+    .back-link:hover { color: #374151; }
+    .actions { display: flex; gap: 12px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>WSIM Auth Administration</h1>
+      <p class="header-subtitle">Edit Administrator</p>
+    </div>
+    <div style="display: flex; align-items: center;">
+      <div class="nav-tabs">
+        <a href="/administration" class="nav-tab">Clients</a>
+        <a href="/administration/sessions" class="nav-tab">Sessions</a>
+        <a href="/administration/users" class="nav-tab">Users</a>
+        <% if (admin && admin.role === 'SUPER_ADMIN') { %>
+          <a href="/administration/admins" class="nav-tab active">Admins</a>
+          <a href="/administration/invites" class="nav-tab">Invites</a>
+        <% } %>
+      </div>
+      <% if (admin) { %>
+        <span style="font-size: 14px; opacity: 0.9; margin-right: 16px;"><%= admin.email %></span>
+      <% } %>
+      <a href="/administration/logout" class="btn btn-secondary" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: white;">Logout</a>
+    </div>
+  </div>
+
+  <div class="container">
+    <a href="/administration/admins" class="back-link">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 12L6 8L10 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Back to Admins
+    </a>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div class="alert alert-success"><%= message %></div>
+    <% } %>
+    <% if (error) { %>
+      <div class="alert alert-error"><%= error %></div>
+    <% } %>
+    <% if (isSelf) { %>
+      <div class="alert alert-warning">You are editing your own account. You cannot change your own role.</div>
+    <% } %>
+
+    <!-- Basic Info Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Administrator Details</h2>
+        <% if (targetAdmin.role === 'SUPER_ADMIN') { %>
+          <span class="badge badge-super">Super Admin</span>
+        <% } else { %>
+          <span class="badge badge-admin">Admin</span>
+        <% } %>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/administration/admins/<%= targetAdmin.id %>">
+          <div class="form-group">
+            <label for="email">Email Address</label>
+            <input type="email" id="email" value="<%= targetAdmin.email %>" disabled>
+            <p class="form-help">Email cannot be changed after account creation.</p>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="firstName">First Name</label>
+              <input type="text" id="firstName" name="firstName" value="<%= targetAdmin.firstName %>" required>
+            </div>
+            <div class="form-group">
+              <label for="lastName">Last Name</label>
+              <input type="text" id="lastName" name="lastName" value="<%= targetAdmin.lastName %>" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="role">Role</label>
+            <% if (isSelf) { %>
+              <input type="text" value="<%= targetAdmin.role === 'SUPER_ADMIN' ? 'Super Admin' : 'Admin' %>" disabled>
+              <p class="form-help">You cannot change your own role to prevent accidentally locking yourself out.</p>
+            <% } else { %>
+              <select id="role" name="role">
+                <option value="ADMIN" <%= targetAdmin.role === 'ADMIN' ? 'selected' : '' %>>Admin</option>
+                <option value="SUPER_ADMIN" <%= targetAdmin.role === 'SUPER_ADMIN' ? 'selected' : '' %>>Super Admin</option>
+              </select>
+              <p class="form-help">Super Admins can manage other administrators and create invites.</p>
+            <% } %>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+            <a href="/administration/admins" class="btn btn-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Passkeys Card -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Registered Passkeys</h2>
+        <span><%= targetAdmin.passkeys.length %> passkey(s)</span>
+      </div>
+      <% if (targetAdmin.passkeys.length === 0) { %>
+        <div class="card-body" style="text-align: center; padding: 40px; color: #6b7280;">
+          <p>No passkeys registered. This admin will not be able to log in.</p>
+        </div>
+      <% } else { %>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Credential ID</th>
+              <th>Created</th>
+              <th>Last Used</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% targetAdmin.passkeys.forEach(function(passkey) { %>
+              <tr>
+                <td>
+                  <span class="credential-id" title="<%= passkey.credentialId %>"><%= passkey.credentialId.substring(0, 24) %>...</span>
+                </td>
+                <td>
+                  <span class="timestamp"><%= new Date(passkey.createdAt).toLocaleDateString() %></span>
+                </td>
+                <td>
+                  <% if (passkey.lastUsedAt) { %>
+                    <span class="timestamp"><%= new Date(passkey.lastUsedAt).toLocaleString() %></span>
+                  <% } else { %>
+                    <span class="timestamp">Never</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (targetAdmin.passkeys.length > 1) { %>
+                    <form method="post" action="/administration/admins/<%= targetAdmin.id %>/passkeys/<%= passkey.id %>/delete" style="display: inline;" onsubmit="return confirm('Are you sure you want to delete this passkey?');">
+                      <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                  <% } else { %>
+                    <span class="timestamp" title="Cannot delete the only passkey">Protected</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+
+    <!-- Danger Zone (only show for other admins, not self) -->
+    <% if (!isSelf) { %>
+      <div class="card" style="border: 1px solid #fecaca;">
+        <div class="card-header" style="background: #fef2f2;">
+          <h2 style="color: #991b1b;">Danger Zone</h2>
+        </div>
+        <div class="card-body">
+          <p style="margin-bottom: 16px; color: #6b7280;">Removing this administrator will permanently delete their account and all associated passkeys. This action cannot be undone.</p>
+          <form method="post" action="/administration/admins/<%= targetAdmin.id %>/delete" onsubmit="return confirm('Are you absolutely sure you want to remove <%= targetAdmin.firstName %> <%= targetAdmin.lastName %>? This action cannot be undone.');">
+            <button type="submit" class="btn btn-danger">Remove Administrator</button>
+          </form>
+        </div>
+      </div>
+    <% } %>
+  </div>
+</body>
+</html>
