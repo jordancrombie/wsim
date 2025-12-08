@@ -1,6 +1,39 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Home() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace("/wallet");
+    }
+  }, [isAuthenticated, isLoading, router]);
+
+  // Show loading state while checking auth
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center p-4">
+        <main className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
+          <div className="text-center">
+            <div className="text-6xl mb-4">&#x1F4B3;</div>
+            <div className="text-gray-500">Loading...</div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // If authenticated, show nothing (will redirect)
+  if (isAuthenticated) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center p-4">
       <main className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">

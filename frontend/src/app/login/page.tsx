@@ -3,11 +3,13 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get("redirect") || "/wallet";
+  const { isAuthenticated, isLoading: authLoading, checkAuth } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -15,6 +17,13 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!authLoading && isAuthenticated) {
+      router.replace(redirect);
+    }
+  }, [isAuthenticated, authLoading, router, redirect]);
 
   useEffect(() => {
     // Check if WebAuthn is available
@@ -45,7 +54,8 @@ function LoginForm() {
         throw new Error(data.message || "Invalid credentials");
       }
 
-      // Login successful - redirect
+      // Login successful - update auth context and redirect
+      await checkAuth();
       router.push(redirect);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -102,7 +112,8 @@ function LoginForm() {
         throw new Error(data.error || "Passkey verification failed");
       }
 
-      // Login successful - redirect
+      // Login successful - update auth context and redirect
+      await checkAuth();
       router.push(redirect);
     } catch (err) {
       // Handle user cancellation gracefully
@@ -114,6 +125,23 @@ function LoginForm() {
     } finally {
       setPasskeyLoading(false);
     }
+  }
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <main className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8">
+        <div className="text-center">
+          <div className="text-6xl mb-4">&#x1F4B3;</div>
+          <div className="text-gray-500">Loading...</div>
+        </div>
+      </main>
+    );
+  }
+
+  // If authenticated, show nothing (will redirect)
+  if (isAuthenticated) {
+    return null;
   }
 
   return (
