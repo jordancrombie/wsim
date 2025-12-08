@@ -29,6 +29,7 @@ vi.mock('../config/env', () => ({
         clientSecret: 'test-client-secret',
       },
     ]),
+    JWT_SECRET: 'test-jwt-secret-for-testing',
   },
 }));
 
@@ -58,6 +59,7 @@ let mockPrismaInstance: MockPrismaClient;
 // Get the mocked module
 import * as database from '../config/database';
 import walletApiRouter from './wallet-api';
+import { generateJwt } from '../middleware/auth';
 
 // Helper to create app with merchant API key and user session
 function createApp(apiKey?: string, userId?: string) {
@@ -65,6 +67,21 @@ function createApp(apiKey?: string, userId?: string) {
   app.use(express.json());
   app.use((req: any, res, next) => {
     req.session = userId ? { userId } : {};
+    if (apiKey) {
+      req.headers['x-api-key'] = apiKey;
+    }
+    next();
+  });
+  app.use('/api/merchant', walletApiRouter);
+  return app;
+}
+
+// Helper to create app with JWT bearer token instead of session
+function createAppWithJwt(apiKey?: string) {
+  const app = express();
+  app.use(express.json());
+  app.use((req: any, res, next) => {
+    req.session = {}; // No session userId
     if (apiKey) {
       req.headers['x-api-key'] = apiKey;
     }
@@ -505,5 +522,183 @@ describe('Wallet API Routes', () => {
     // 2. Passkey verification
     // 3. BSIM API call
     // These would be better tested as integration tests
+  });
+
+  describe('JWT Bearer Token Authentication (API Direct Flow)', () => {
+    beforeEach(() => {
+      mockPrismaInstance._addOAuthClient(createValidMerchant());
+      mockPrismaInstance._addBsimEnrollment({
+        id: 'enrollment-123',
+        userId: 'user-123',
+        bsimId: 'test-bank',
+        bsimIssuer: 'http://localhost:3001',
+        fiUserRef: 'fi-user-ref',
+        walletCredential: 'encrypted-credential',
+        credentialExpiry: null,
+        refreshToken: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      mockPrismaInstance._addWalletCard({
+        id: 'card-123',
+        userId: 'user-123',
+        enrollmentId: 'enrollment-123',
+        cardType: 'VISA',
+        lastFour: '4242',
+        cardholderName: 'Test User',
+        expiryMonth: 12,
+        expiryYear: 2025,
+        bsimCardRef: 'bsim-card-ref',
+        walletCardToken: 'wsim_test-bank_abc',
+        isDefault: true,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    });
+
+    it('should authenticate with valid JWT bearer token on /cards', async () => {
+      const token = generateJwt('user-123');
+      const app = createAppWithJwt('wsim_api_test123');
+
+      const response = await request(app)
+        .get('/api/merchant/cards')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.cards).toHaveLength(1);
+      expect(response.body.cards[0].lastFour).toBe('4242');
+    });
+
+    it('should reject invalid JWT token', async () => {
+      const app = createAppWithJwt('wsim_api_test123');
+
+      const response = await request(app)
+        .get('/api/merchant/cards')
+        .set('Authorization', 'Bearer invalid-token-here');
+
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('not_authenticated');
+    });
+
+    it('should reject expired JWT token', async () => {
+      // Generate token that expires immediately
+      const token = generateJwt('user-123', '0s');
+      const app = createAppWithJwt('wsim_api_test123');
+
+      // Wait a moment for token to expire
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const response = await request(app)
+        .get('/api/merchant/cards')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('not_authenticated');
+    });
+
+    it('should reject malformed Authorization header', async () => {
+      const app = createAppWithJwt('wsim_api_test123');
+
+      const response = await request(app)
+        .get('/api/merchant/cards')
+        .set('Authorization', 'NotBearer some-token');
+
+      expect(response.status).toBe(401);
+      expect(response.body.error).toBe('not_authenticated');
+    });
+
+    it('should prefer session cookie over JWT when both present', async () => {
+      // Create app with session userId 'session-user'
+      const app = express();
+      app.use(express.json());
+      app.use((req: any, res, next) => {
+        req.session = { userId: 'session-user' };
+        req.headers['x-api-key'] = 'wsim_api_test123';
+        next();
+      });
+      app.use('/api/merchant', walletApiRouter);
+
+      // Add user for session-user
+      mockPrismaInstance._addWalletUser({
+        id: 'session-user',
+        email: 'session@example.com',
+        passwordHash: null,
+        firstName: 'Session',
+        lastName: 'User',
+        walletId: 'wallet-session',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // JWT is for 'user-123', session is for 'session-user'
+      const token = generateJwt('user-123');
+
+      const response = await request(app)
+        .get('/api/merchant/user')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.authenticated).toBe(true);
+      // Should use session user, not JWT user
+      expect(response.body.user.id).toBe('session-user');
+      expect(response.body.user.email).toBe('session@example.com');
+    });
+
+    it('should fall back to JWT when session is empty', async () => {
+      mockPrismaInstance._addWalletUser({
+        id: 'user-123',
+        email: 'jwt@example.com',
+        passwordHash: null,
+        firstName: 'JWT',
+        lastName: 'User',
+        walletId: 'wallet-jwt',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const token = generateJwt('user-123');
+      const app = createAppWithJwt('wsim_api_test123');
+
+      const response = await request(app)
+        .get('/api/merchant/user')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.authenticated).toBe(true);
+      expect(response.body.user.id).toBe('user-123');
+      expect(response.body.user.email).toBe('jwt@example.com');
+    });
+
+    it('should work with JWT on payment initiate endpoint', async () => {
+      mockPrismaInstance._addPasskeyCredential({
+        id: 'passkey-123',
+        userId: 'user-123',
+        credentialId: 'cred-abc',
+        publicKey: 'pub-key-base64',
+        counter: 0,
+        transports: ['internal'],
+        deviceName: null,
+        aaguid: null,
+        createdAt: new Date(),
+        lastUsedAt: null,
+      });
+
+      const token = generateJwt('user-123');
+      const app = createAppWithJwt('wsim_api_test123');
+
+      const response = await request(app)
+        .post('/api/merchant/payment/initiate')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          cardId: 'card-123',
+          amount: 99.99,
+          currency: 'CAD',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.paymentId).toMatch(/^pay_/);
+      expect(response.body.passkeyOptions).toBeDefined();
+    });
   });
 });

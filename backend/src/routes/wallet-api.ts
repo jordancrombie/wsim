@@ -28,6 +28,7 @@ import type {
 import { prisma } from '../config/database';
 import { env } from '../config/env';
 import { decrypt } from '../utils/crypto';
+import { verifyJwt } from '../middleware/auth';
 
 const router = Router();
 
@@ -126,14 +127,37 @@ async function verifyMerchantApiKey(req: Request, res: Response, next: NextFunct
 
 /**
  * Middleware to require authenticated user session
+ *
+ * Supports two authentication methods (checked in order):
+ * 1. Session cookie (wsim.sid) - traditional browser session
+ * 2. JWT bearer token in Authorization header - for cross-origin API calls
+ *
+ * This hybrid approach allows:
+ * - Existing flows (OIDC popup/redirect) to continue working via session cookies
+ * - New "API Direct (JWT)" flow where merchant stores and sends JWT token
  */
 function requireUserSession(req: Request, res: Response, next: NextFunction) {
-  const userId = (req.session as { userId?: string })?.userId;
+  let userId: string | null = null;
+
+  // Method 1: Try session cookie first (existing flow)
+  userId = (req.session as { userId?: string })?.userId || null;
+
+  // Method 2: Fall back to JWT bearer token (new API Direct flow)
+  if (!userId) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.slice(7); // Remove "Bearer " prefix
+      const verified = verifyJwt(token);
+      if (verified?.sub) {
+        userId = verified.sub;
+      }
+    }
+  }
 
   if (!userId) {
     return res.status(401).json({
       error: 'not_authenticated',
-      message: 'User must be authenticated. Redirect to WSIM login.',
+      message: 'User must be authenticated. Provide session cookie or JWT bearer token.',
     });
   }
 
@@ -505,7 +529,20 @@ router.post('/payment/confirm', verifyMerchantApiKey, async (req: Request, res: 
  */
 router.get('/user', verifyMerchantApiKey, async (req: Request, res: Response) => {
   try {
-    const userId = (req.session as { userId?: string })?.userId;
+    // Support both session cookie and JWT bearer token (hybrid auth)
+    let userId: string | null = (req.session as { userId?: string })?.userId || null;
+
+    // Fall back to JWT bearer token if no session
+    if (!userId) {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        const token = authHeader.slice(7);
+        const verified = verifyJwt(token);
+        if (verified?.sub) {
+          userId = verified.sub;
+        }
+      }
+    }
 
     if (!userId) {
       return res.json({ authenticated: false });
