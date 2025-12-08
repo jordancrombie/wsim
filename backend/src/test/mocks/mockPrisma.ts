@@ -539,7 +539,7 @@ export function createMockPrismaClient() {
         if (args?.include?.enrollment) {
           result = result.map((c) => ({
             ...c,
-            enrollment: bsimEnrollments.find((e) => e.id === c.enrollmentId) || null,
+            enrollment: bsimEnrollments.find((e) => e.id === c.enrollmentId),
           }));
         }
 
