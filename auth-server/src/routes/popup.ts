@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import * as jose from 'jose';
 import { prisma } from '../adapters/prisma';
 import { env } from '../config/env';
 import {
@@ -10,6 +11,23 @@ import type {
   AuthenticatorTransportFuture,
   AuthenticationResponseJSON,
 } from '@simplewebauthn/types';
+
+/**
+ * Generate a JWT session token for Merchant API access
+ * This token can be used by merchants for cross-origin API calls
+ * when session cookies don't work (Safari ITP, incognito, etc.)
+ *
+ * Token lifetime: 30 days (matches long session cookie approach)
+ * Used by: SSIM "API Direct (JWT)" flow
+ */
+async function generateSessionToken(userId: string): Promise<string> {
+  const secret = new TextEncoder().encode(env.JWT_SECRET);
+  return await new jose.SignJWT({ sub: userId })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('30d')
+    .sign(secret);
+}
 
 const router = Router();
 
@@ -274,6 +292,9 @@ router.post('/login/verify', async (req: Request, res: Response) => {
     // Set session on auth-server
     (req.session as { userId?: string }).userId = credential.userId;
 
+    // Generate JWT session token for API Direct flow
+    const sessionToken = await generateSessionToken(credential.userId);
+
     console.log(`[Popup] Login successful for user ${credential.userId.substring(0, 8)}...`);
 
     res.json({
@@ -282,6 +303,10 @@ router.post('/login/verify', async (req: Request, res: Response) => {
         id: credential.user.id,
         email: credential.user.email,
       },
+      // JWT token for Merchant API access (API Direct flow)
+      // Merchant can store this and use as: Authorization: Bearer <sessionToken>
+      sessionToken,
+      sessionTokenExpiresIn: 30 * 24 * 60 * 60, // 30 days in seconds
     });
   } catch (error) {
     console.error('[Popup] Login verify error:', error);
@@ -449,6 +474,9 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
     // Return the token data for postMessage
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 min TTL
 
+    // Generate JWT session token for API Direct flow
+    const sessionToken = await generateSessionToken(credential.userId);
+
     console.log(`[Popup] Payment token generated for card ${card.lastFour}`);
 
     res.json({
@@ -458,6 +486,10 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
       cardLast4: card.lastFour,
       cardBrand: card.cardType.toLowerCase(),
       expiresAt,
+      // JWT token for Merchant API access (API Direct flow)
+      // Merchant can store this and use as: Authorization: Bearer <sessionToken>
+      sessionToken,
+      sessionTokenExpiresIn: 30 * 24 * 60 * 60, // 30 days in seconds
     });
   } catch (error) {
     console.error('[Popup] Passkey verify error:', error);
@@ -515,6 +547,9 @@ router.post('/select-card-simple', async (req: Request, res: Response) => {
 
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
+    // Generate JWT session token for API Direct flow
+    const sessionToken = await generateSessionToken(sessionUserId);
+
     res.json({
       success: true,
       token: tokenResult.walletCardToken,
@@ -522,6 +557,10 @@ router.post('/select-card-simple', async (req: Request, res: Response) => {
       cardLast4: card.lastFour,
       cardBrand: card.cardType.toLowerCase(),
       expiresAt,
+      // JWT token for Merchant API access (API Direct flow)
+      // Merchant can store this and use as: Authorization: Bearer <sessionToken>
+      sessionToken,
+      sessionTokenExpiresIn: 30 * 24 * 60 * 60, // 30 days in seconds
     });
   } catch (error) {
     console.error('[Popup] Simple select error:', error);
