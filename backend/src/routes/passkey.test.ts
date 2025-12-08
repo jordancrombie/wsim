@@ -147,7 +147,7 @@ describe('Passkey Routes', () => {
         excludeCredentials: [{ id: existingPasskey.credentialId, type: 'public-key' }],
       });
 
-      const excludeCredentials = user!.passkeyCredentials!.map((cred) => ({
+      const excludeCredentials = user!.passkeyCredentials!.map((cred: MockPasskeyCredentialData) => ({
         id: cred.credentialId,
         transports: cred.transports,
       }));
@@ -299,19 +299,19 @@ describe('Passkey Routes', () => {
 
       expect(user?.passkeyCredentials).toHaveLength(2);
 
-      const credentials = user!.passkeyCredentials!.map((c) => ({
+      const credentials = user!.passkeyCredentials!.map((c: MockPasskeyCredentialData) => ({
         credentialId: c.credentialId,
         transports: c.transports,
       }));
 
       mockGenerateAuthenticationOptions.mockResolvedValue({
         challenge: 'auth-challenge',
-        allowCredentials: credentials.map((c) => ({ id: c.credentialId, type: 'public-key' })),
+        allowCredentials: credentials.map((c: { credentialId: string; transports: string[] }) => ({ id: c.credentialId, type: 'public-key' })),
       });
 
       const options = await mockGenerateAuthenticationOptions({
         rpID: 'localhost',
-        allowCredentials: credentials.map((c) => ({
+        allowCredentials: credentials.map((c: { credentialId: string; transports: string[] }) => ({
           id: c.credentialId,
           transports: c.transports,
         })),
