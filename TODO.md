@@ -227,6 +227,124 @@ Access at: https://wsim-dev.banksim.ca
     - `auth-server/src/routes/embed.ts` - Check DB + env
     - `auth-server/src/views/administration/` - Add origins management page
 
+### Merchant-Scoped Session JWTs
+- [ ] **Add audience (aud) claim to session JWTs to make them store-specific**
+  - **Current behavior:** Session JWTs contain only `sub` (userId) - they work across all merchants
+  - **Security concern:** A JWT obtained at SSIM could theoretically be used at regalmoose.ca
+  - **Proposed Enhancement:**
+    - Add `aud` (audience) claim with the merchant's `client_id` when generating session tokens
+    - Validate `aud` claim when merchants use the JWT for API calls
+    - Reject tokens where audience doesn't match the calling merchant
+  - **Token payload (current):**
+    ```json
+    { "sub": "user-id", "iat": 1234567890, "exp": 1237159890 }
+    ```
+  - **Token payload (proposed):**
+    ```json
+    { "sub": "user-id", "aud": "ssim-merchant", "iat": 1234567890, "exp": 1237159890 }
+    ```
+  - **Files to modify:**
+    - `auth-server/src/routes/popup.ts` - Add `aud` to `generateSessionToken()`
+    - `auth-server/src/routes/embed.ts` - Same change
+    - `backend/src/middleware/auth.ts` - Validate `aud` claim on API calls
+  - **Tradeoff:** User must re-authenticate at each new merchant (better security, slightly worse UX)
+
+### Server-to-Server Merchant Access Grants (Quick Pay Enhancement)
+- [ ] **Add persistent server-side grants for returning user card access**
+  - **Problem:** Current Quick Pay JWT is browser-based; lost if user clears browser data
+  - **Goal:** Allow merchants to access returning users' card lists via server-to-server calls
+  - **Important:** This is an ADDITION to existing Quick Pay, not a replacement
+  - **User Control:** Users can view and revoke merchant access from WSIM dashboard
+
+  - **Integration Options (merchant can choose):**
+    | Option | Description | Best For |
+    |--------|-------------|----------|
+    | Quick Pay (current) | Browser JWT via postMessage | Simple integration, ephemeral |
+    | Server Grant (new) | Server-to-server with persistent grant | Returning users, cross-device |
+
+  - **Flow for Server Grant option:**
+    ```
+    INITIAL AUTH (Browser - same as today)
+    ─────────────────────────────────────
+    User → WSIM Popup → Passkey → Card Selection
+                                      ↓
+    postMessage returns: { sessionToken, authorizationCode (NEW) }
+                                      ↓
+    Merchant Frontend → sends authorizationCode to Merchant Backend
+                                      ↓
+    Merchant Backend → POST /api/merchant/exchange-grant
+                       (with client_id, client_secret, authorizationCode)
+                                      ↓
+    WSIM returns: { merchantGrantToken, userId, expiresAt }
+                   (Merchant stores this server-side, linked to their user)
+
+    RETURNING USER (Server-to-Server)
+    ─────────────────────────────────
+    Merchant identifies returning user (by email, account ID, etc.)
+                                      ↓
+    Merchant Backend → GET /api/merchant/users/{externalUserId}/cards
+                       Authorization: Bearer {merchantGrantToken}
+                                      ↓
+    WSIM validates grant is active → returns card list
+                                      ↓
+    Merchant displays cards for quick checkout (no popup needed)
+
+    USER CONTROL (WSIM Dashboard)
+    ─────────────────────────────
+    User logs into WSIM → "Connected Merchants" page
+    Shows: SSIM Store (connected Dec 9, 2025) [Revoke]
+           RegalMoose (connected Dec 1, 2025) [Revoke]
+    User clicks Revoke → Merchant can no longer access card list
+    ```
+
+  - **New data model:**
+    ```prisma
+    model MerchantUserGrant {
+      id            String   @id @default(cuid())
+      userId        String   // WSIM user
+      merchantId    String   // OAuth client_id of merchant
+      merchantName  String   // Display name for user dashboard
+      grantToken    String   @unique // Token merchant uses for API calls
+      scope         String   @default("cards:read") // What merchant can access
+      grantedAt     DateTime @default(now())
+      lastUsedAt    DateTime?
+      revokedAt     DateTime? // Null = active, set = revoked
+      expiresAt     DateTime? // Optional expiry
+
+      user          WalletUser @relation(fields: [userId], references: [id])
+
+      @@index([userId])
+      @@index([merchantId])
+      @@index([grantToken])
+    }
+    ```
+
+  - **New API endpoints:**
+    | Endpoint | Method | Auth | Description |
+    |----------|--------|------|-------------|
+    | `/api/merchant/exchange-grant` | POST | client credentials | Exchange auth code for grant token |
+    | `/api/merchant/users/{id}/cards` | GET | grant token | Get user's cards (server-to-server) |
+    | `/api/merchant/grants/{id}` | DELETE | grant token | Merchant revokes their own grant |
+    | `/api/user/connected-merchants` | GET | user session | List merchants with access |
+    | `/api/user/connected-merchants/{id}` | DELETE | user session | User revokes merchant access |
+
+  - **Files to create/modify:**
+    - `auth-server/prisma/schema.prisma` - Add MerchantUserGrant model
+    - `backend/prisma/schema.prisma` - Same (keep in sync)
+    - `auth-server/src/routes/merchantApi.ts` - New server-to-server endpoints
+    - `auth-server/src/routes/popup.ts` - Return authorizationCode alongside sessionToken
+    - `auth-server/src/routes/embed.ts` - Same change
+    - `frontend/src/app/settings/connected-merchants/page.tsx` - User dashboard page
+    - `docs/API_PAYMENT_INTEGRATION_FLOWS.md` - Update with new Server Grant option
+    - `docs/MERCHANT_UI_INTEGRATION_GUIDE.md` - Update with new integration option
+
+  - **Security considerations:**
+    - Grant tokens are merchant-specific (includes `aud` claim)
+    - Grants can be time-limited or indefinite (merchant choice)
+    - Users can revoke at any time
+    - Audit log of grant usage (lastUsedAt tracking)
+    - Rate limiting on server-to-server endpoints
+
 ---
 
 ## Notes
