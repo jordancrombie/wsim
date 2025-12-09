@@ -252,6 +252,17 @@ Both services run `prisma db push` on startup to ensure the schema is current. I
 - When adding models to one schema, add them to both
 - Never use `--accept-data-loss` in production startup commands
 - Test schema changes locally before deploying
+- Run the schema sync check before every deployment
+
+### Schema Sync Validation
+
+Before deploying, verify both schemas are identical:
+
+```bash
+./scripts/check-schema-sync.sh
+```
+
+This script compares `backend/prisma/schema.prisma` and `auth-server/prisma/schema.prisma` and will exit with an error if they differ. **Add this to your CI/CD pipeline.**
 
 ### Initial Migration
 
