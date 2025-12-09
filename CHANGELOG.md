@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Quick Pay Documentation (2025-12-09)**
+  - Added Method 4: Quick Pay Integration to `MERCHANT_UI_INTEGRATION_GUIDE.md`
+  - Quick Pay enables returning users to complete payments without popup/iframe
+  - Uses stored JWT session tokens (30-day lifetime) from previous payments
+  - Complete implementation guide with:
+    - Sequence diagram showing Quick Pay flow
+    - Frontend code examples (token storage, card picker, passkey handling)
+    - Optional server-side token persistence
+    - WSIM Merchant API endpoint reference
+    - Troubleshooting guide for common issues
+  - Updated overview tables with Quick Pay comparison
+  - Updated PostMessage protocol reference with `sessionToken` fields
+  - Updated security considerations for session token handling
+
 - **Global Auth Context for Session Detection (2025-12-08)**
   - New `AuthContext` provider checks session on app load
   - Automatic session re-check on window focus and tab visibility change
