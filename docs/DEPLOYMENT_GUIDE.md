@@ -242,6 +242,17 @@ BSIM_PROVIDERS='[
 
 ## Database Setup
 
+### Shared Database Architecture
+
+> ⚠️ **Important:** Both `wsim-backend` and `wsim-auth-server` share the same PostgreSQL database. Their Prisma schemas **must be kept in sync** to prevent one service from dropping tables used by the other during schema synchronization.
+
+Both services run `prisma db push` on startup to ensure the schema is current. If the schemas differ, one service may inadvertently remove tables it doesn't know about.
+
+**Best practices:**
+- When adding models to one schema, add them to both
+- Never use `--accept-data-loss` in production startup commands
+- Test schema changes locally before deploying
+
 ### Initial Migration
 
 ```bash
