@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-06
+> **Last Updated**: 2025-12-09
 
 ## Current Status: 🟢 WSIM Flow Complete - Pending NSIM Merchant Fix
 
@@ -206,6 +206,26 @@ Access at: https://wsim-dev.banksim.ca
 | [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing |
 | [docs/EMBEDDED_WALLET_PLAN.md](./docs/EMBEDDED_WALLET_PLAN.md) | Embedded wallet implementation status |
 | [docs/FUTURE_CONSIDERATIONS.md](./docs/FUTURE_CONSIDERATIONS.md) | Post-MVP features |
+
+---
+
+## Future Enhancements
+
+### Admin-Configurable Allowed Origins
+- [ ] **Add Popup/Embed Origins to Admin Panel**
+  - Currently, `ALLOWED_POPUP_ORIGINS` and `ALLOWED_EMBED_ORIGINS` are environment variables
+  - This requires container restarts to add new merchant domains (e.g., regalmoose.ca)
+  - **Proposed Enhancement:**
+    - Add `AllowedOrigin` model to Prisma schema with `type` (popup/embed) and `origin` fields
+    - Add admin UI page to manage allowed origins (list, add, remove)
+    - Update `auth-server/src/routes/popup.ts` and `embed.ts` to check database instead of env vars
+    - Keep env vars as fallback/override for deployment flexibility
+  - **Files to modify:**
+    - `auth-server/prisma/schema.prisma` - Add AllowedOrigin model
+    - `auth-server/src/config/env.ts` - Keep as fallback
+    - `auth-server/src/routes/popup.ts` - Check DB + env
+    - `auth-server/src/routes/embed.ts` - Check DB + env
+    - `auth-server/src/views/administration/` - Add origins management page
 
 ---
 
