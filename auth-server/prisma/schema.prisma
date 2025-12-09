@@ -202,7 +202,7 @@ model OAuthClient {
 }
 
 // =============================================================================
-// PASSKEY CREDENTIALS (WebAuthn for payment confirmation)
+// PASSKEY CREDENTIALS (WebAuthn)
 // =============================================================================
 
 model PasskeyCredential {
@@ -211,13 +211,13 @@ model PasskeyCredential {
   user   WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // WebAuthn credential data
-  credentialId String   @unique // Base64url encoded credential ID
+  credentialId String @unique // Base64url encoded credential ID
   publicKey    String // Base64url encoded COSE public key
-  counter      Int      @default(0)
-  transports   String[] // e.g., ["internal", "hybrid"]
+  counter      Int    @default(0) // Signature counter for replay protection
+  transports   String[] // e.g., ["internal", "hybrid", "usb"]
 
   // Metadata
-  deviceName String? // User-friendly device name
+  deviceName String? // User-friendly name, e.g., "iPhone", "MacBook Pro"
   aaguid     String? // Authenticator attestation GUID
 
   createdAt  DateTime  @default(now())
@@ -228,6 +228,10 @@ model PasskeyCredential {
 
 // =============================================================================
 // ADMIN USERS (for auth-server administration)
+// =============================================================================
+// NOTE: These tables are primarily used by auth-server, but must be included
+// here to prevent prisma db push from dropping them. Both services share the
+// same database, so schemas MUST be kept in sync.
 // =============================================================================
 
 enum AdminRole {
