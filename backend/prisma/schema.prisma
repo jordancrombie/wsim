@@ -225,3 +225,65 @@ model PasskeyCredential {
 
   @@index([userId])
 }
+
+// =============================================================================
+// ADMIN USERS (for auth-server administration)
+// =============================================================================
+// NOTE: These tables are primarily used by auth-server, but must be included
+// here to prevent prisma db push from dropping them. Both services share the
+// same database, so schemas MUST be kept in sync.
+// =============================================================================
+
+enum AdminRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
+model AdminUser {
+  id             String         @id @default(uuid())
+  email          String         @unique
+  firstName      String
+  lastName       String
+  role           AdminRole      @default(ADMIN)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  passkeys       AdminPasskey[]
+  invitesCreated AdminInvite[]  @relation("InviteCreator")
+  inviteUsed     AdminInvite?   @relation("InviteUsed")
+
+  @@map("admin_users")
+}
+
+model AdminPasskey {
+  id                  String    @id @default(uuid())
+  adminUserId         String
+  adminUser           AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  credentialId        String    @unique
+  credentialPublicKey Bytes
+  counter             BigInt
+  deviceType          String
+  backedUp            Boolean
+  transports          String[]
+  createdAt           DateTime  @default(now())
+  lastUsedAt          DateTime?
+
+  @@map("admin_passkeys")
+}
+
+// Admin invitations for new administrator signups
+model AdminInvite {
+  id          String            @id @default(uuid())
+  code        String            @unique // The invite code shared with the invitee
+  email       String?           // Optional: restrict invite to specific email
+  role        AdminRole         @default(ADMIN)
+  createdById String
+  createdBy   AdminUser         @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  usedById    String?           @unique
+  usedBy      AdminUser?        @relation("InviteUsed", fields: [usedById], references: [id], onDelete: SetNull)
+  usedAt      DateTime?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime          @default(now())
+
+  @@map("admin_invites")
+}

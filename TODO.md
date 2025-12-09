@@ -237,3 +237,33 @@ Access at: https://wsim-dev.banksim.ca
 - SSIM integration is last in sequence - needs working WSIM OIDC provider
 - WSIM uses Prisma 5.x (not 7.x) for compatibility
 - All Docker images use `node:20-alpine` base with multi-stage builds
+
+---
+
+## Lessons Learned
+
+### 2025-12-09: Shared Database Schema Sync Issue (Production Incident)
+
+**Incident:** Admin tables (`admin_users`, `admin_passkeys`, `admin_invites`) were dropped in production when `wsim-backend` was deployed.
+
+**Root Cause:**
+- `wsim-backend` and `wsim-auth-server` share the same PostgreSQL database
+- Each service had its own `prisma/schema.prisma` with **different models**
+- Backend's schema was missing the admin tables (only in auth-server's schema)
+- Backend's Dockerfile ran `npx prisma db push --accept-data-loss` on every startup
+- The `--accept-data-loss` flag caused Prisma to **drop tables not in the schema**
+
+**Timeline:**
+1. Auth-server deployed → created admin tables ✓
+2. Backend deployed → `prisma db push --accept-data-loss` dropped admin tables ✗
+
+**Fixes Applied:**
+1. **Synced schemas:** Added admin models to `backend/prisma/schema.prisma` with clear comments
+2. **Removed `--accept-data-loss`:** Updated backend Dockerfile to use safer `prisma db push --skip-generate`
+
+**Best Practices Going Forward:**
+- ⚠️ **Keep Prisma schemas in sync** when multiple services share a database
+- ⚠️ **Never use `--accept-data-loss` in production startup commands**
+- ⚠️ Consider using `prisma migrate deploy` instead of `db push` for production
+- ⚠️ Run schema migrations as a separate one-shot task, not embedded in container startup
+- ⚠️ Add comments when models exist in multiple schemas to explain why

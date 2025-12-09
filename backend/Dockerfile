@@ -84,6 +84,9 @@ EXPOSE 3003
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3003/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start command (db push for dev, migrate deploy for prod with migrations)
-# --accept-data-loss is needed for adding unique constraints on nullable fields
-CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/index.js"]
+# Start command
+# NOTE: We use 'prisma db push' without --accept-data-loss to prevent accidental
+# data loss in production. If schema changes require data loss, handle migrations
+# manually before deployment. The --skip-generate flag is safe as Prisma client
+# is already generated during the build stage.
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/index.js"]
