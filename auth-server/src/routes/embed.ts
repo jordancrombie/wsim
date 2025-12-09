@@ -12,6 +12,22 @@ import type {
   AuthenticationResponseJSON,
 } from '@simplewebauthn/types';
 
+/**
+ * Passkey Grace Period - same as popup routes
+ * See popup.ts for detailed documentation
+ */
+const PASSKEY_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
+
+interface EmbedSession {
+  userId?: string;
+  lastPasskeyAuthAt?: number;
+}
+
+function isWithinPasskeyGracePeriod(session: EmbedSession): boolean {
+  if (!session.lastPasskeyAuthAt) return false;
+  return Date.now() - session.lastPasskeyAuthAt < PASSKEY_GRACE_PERIOD_MS;
+}
+
 const router = Router();
 
 // Apply security headers to all embed routes
@@ -118,7 +134,8 @@ router.get('/card-picker', async (req: Request, res: Response) => {
     }
 
     // Check for session cookie
-    const sessionUserId = (req as Request & { session?: { userId?: string } }).session?.userId;
+    const session = req.session as EmbedSession;
+    const sessionUserId = session?.userId;
 
     if (!sessionUserId) {
       // User not logged in - show auth required view
@@ -150,10 +167,17 @@ router.get('/card-picker', async (req: Request, res: Response) => {
       where: { userId: sessionUserId },
     });
 
+    // Check if within passkey grace period
+    const canSkipPasskey = isWithinPasskeyGracePeriod(session);
+    if (canSkipPasskey) {
+      console.log(`[Embed] User ${sessionUserId.substring(0, 8)}... within grace period, passkey can be skipped`);
+    }
+
     res.render('embed/card-picker', {
       title: 'Select Payment Card',
       cards,
       hasPasskeys: passkeys.length > 0,
+      canSkipPasskey,
       payment: {
         merchantId,
         merchantName: merchantName || merchantId || 'Merchant',
@@ -260,9 +284,12 @@ router.post('/login/verify', async (req: Request, res: Response) => {
       },
     });
 
-    (req.session as { userId?: string }).userId = credential.userId;
+    // Set session with passkey auth timestamp for grace period
+    const session = req.session as EmbedSession;
+    session.userId = credential.userId;
+    session.lastPasskeyAuthAt = Date.now();
 
-    console.log(`[Embed] Login successful for user ${credential.userId.substring(0, 8)}...`);
+    console.log(`[Embed] Login successful for user ${credential.userId.substring(0, 8)}... (grace period started)`);
 
     res.json({
       success: true,
@@ -270,6 +297,8 @@ router.post('/login/verify', async (req: Request, res: Response) => {
         id: credential.user.id,
         email: credential.user.email,
       },
+      passkeyGracePeriodActive: true,
+      gracePeriodExpiresIn: PASSKEY_GRACE_PERIOD_MS / 1000,
     });
   } catch (error) {
     console.error('[Embed] Login verify error:', error);
@@ -410,7 +439,11 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`[Embed] Passkey verified, requesting card token for ${walletCardId.substring(0, 8)}...`);
+    // Update session with passkey auth timestamp (restarts grace period)
+    const session = req.session as EmbedSession;
+    session.lastPasskeyAuthAt = Date.now();
+
+    console.log(`[Embed] Passkey verified, requesting card token for ${walletCardId.substring(0, 8)}... (grace period restarted)`);
     const tokenResult = await requestCardToken(
       walletCardId,
       merchantId,
@@ -498,6 +531,114 @@ router.post('/select-card-simple', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Embed] Simple select error:', error);
     res.status(500).json({ error: 'Failed to process card selection' });
+  }
+});
+
+/**
+ * POST /embed/confirm-with-grace-period
+ * Confirm payment using passkey grace period (no passkey prompt required)
+ */
+router.post('/confirm-with-grace-period', async (req: Request, res: Response) => {
+  try {
+    const {
+      walletCardId,
+      merchantId,
+      merchantName,
+      amount,
+      currency,
+      origin,
+    } = req.body;
+
+    if (!isAllowedEmbedOrigin(origin)) {
+      return res.status(403).json({ error: 'Unauthorized origin' });
+    }
+
+    const session = req.session as EmbedSession;
+    const sessionUserId = session?.userId;
+
+    if (!sessionUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    if (!isWithinPasskeyGracePeriod(session)) {
+      console.log(`[Embed] Grace period expired for user ${sessionUserId.substring(0, 8)}..., passkey required`);
+      return res.status(403).json({
+        error: 'grace_period_expired',
+        message: 'Passkey grace period has expired. Please authenticate with your passkey.',
+        requirePasskey: true,
+      });
+    }
+
+    const card = await prisma.walletCard.findFirst({
+      where: { id: walletCardId, userId: sessionUserId, isActive: true },
+    });
+
+    if (!card) {
+      return res.status(400).json({ error: 'Card not found' });
+    }
+
+    console.log(`[Embed] Confirming payment within grace period for user ${sessionUserId.substring(0, 8)}...`);
+
+    const tokenResult = await requestCardToken(
+      walletCardId,
+      merchantId,
+      merchantName,
+      amount ? parseFloat(amount) : undefined,
+      currency
+    );
+
+    if (!tokenResult) {
+      return res.status(500).json({ error: 'Failed to get payment token' });
+    }
+
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+    console.log(`[Embed] Payment confirmed (grace period) for card ${card.lastFour}`);
+
+    res.json({
+      success: true,
+      token: tokenResult.walletCardToken,
+      cardToken: tokenResult.cardToken,
+      cardLast4: card.lastFour,
+      cardBrand: card.cardType.toLowerCase(),
+      expiresAt,
+      usedGracePeriod: true,
+    });
+  } catch (error) {
+    console.error('[Embed] Grace period confirm error:', error);
+    res.status(500).json({ error: 'Failed to process payment' });
+  }
+});
+
+/**
+ * GET /embed/grace-period-status
+ * Check if the current session is within the passkey grace period
+ */
+router.get('/grace-period-status', async (req: Request, res: Response) => {
+  try {
+    const session = req.session as EmbedSession;
+
+    if (!session?.userId) {
+      return res.json({
+        authenticated: false,
+        withinGracePeriod: false,
+      });
+    }
+
+    const withinGracePeriod = isWithinPasskeyGracePeriod(session);
+    const remainingMs = session.lastPasskeyAuthAt
+      ? Math.max(0, PASSKEY_GRACE_PERIOD_MS - (Date.now() - session.lastPasskeyAuthAt))
+      : 0;
+
+    res.json({
+      authenticated: true,
+      withinGracePeriod,
+      remainingSeconds: Math.floor(remainingMs / 1000),
+      gracePeriodDuration: PASSKEY_GRACE_PERIOD_MS / 1000,
+    });
+  } catch (error) {
+    console.error('[Embed] Grace period status error:', error);
+    res.status(500).json({ error: 'Failed to check grace period status' });
   }
 });
 

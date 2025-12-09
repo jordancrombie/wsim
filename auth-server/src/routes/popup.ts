@@ -13,6 +13,38 @@ import type {
 } from '@simplewebauthn/types';
 
 /**
+ * Passkey Grace Period Configuration
+ *
+ * After a user authenticates with their passkey (login), we grant a "grace period"
+ * during which subsequent payment confirmations don't require another passkey prompt.
+ * This improves UX by avoiding redundant passkey prompts when the user just authenticated.
+ *
+ * Security rationale:
+ * - The user has already proven possession of their passkey
+ * - The session is bound to their authenticated identity
+ * - Similar to banking apps that allow transactions for a few minutes after login
+ * - Grace period is short enough to limit exposure if device is compromised
+ */
+const PASSKEY_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Extended session interface with passkey auth tracking
+ */
+interface PopupSession {
+  userId?: string;
+  lastPasskeyAuthAt?: number; // Timestamp of last passkey authentication
+}
+
+/**
+ * Check if the user is within the passkey grace period
+ * Returns true if passkey was used recently and payment passkey can be skipped
+ */
+function isWithinPasskeyGracePeriod(session: PopupSession): boolean {
+  if (!session.lastPasskeyAuthAt) return false;
+  return Date.now() - session.lastPasskeyAuthAt < PASSKEY_GRACE_PERIOD_MS;
+}
+
+/**
  * Generate a JWT session token for Merchant API access
  * This token can be used by merchants for cross-origin API calls
  * when session cookies don't work (Safari ITP, incognito, etc.)
@@ -140,7 +172,8 @@ router.get('/card-picker', async (req: Request, res: Response) => {
     }
 
     // Check for session cookie (simple session check)
-    const sessionUserId = (req as Request & { session?: { userId?: string } }).session?.userId;
+    const session = req.session as PopupSession;
+    const sessionUserId = session?.userId;
 
     if (!sessionUserId) {
       // User not logged in - show auth required page
@@ -173,10 +206,17 @@ router.get('/card-picker', async (req: Request, res: Response) => {
       where: { userId: sessionUserId },
     });
 
+    // Check if within passkey grace period (can skip payment passkey)
+    const canSkipPasskey = isWithinPasskeyGracePeriod(session);
+    if (canSkipPasskey) {
+      console.log(`[Popup] User ${sessionUserId.substring(0, 8)}... within grace period, passkey can be skipped`);
+    }
+
     res.render('popup/card-picker', {
       title: 'Select Payment Card',
       cards,
       hasPasskeys: passkeys.length > 0,
+      canSkipPasskey, // New: indicates if passkey prompt can be skipped
       payment: {
         merchantId,
         merchantName: merchantName || merchantId || 'Merchant',
@@ -289,13 +329,15 @@ router.post('/login/verify', async (req: Request, res: Response) => {
       },
     });
 
-    // Set session on auth-server
-    (req.session as { userId?: string }).userId = credential.userId;
+    // Set session on auth-server with passkey auth timestamp for grace period
+    const session = req.session as PopupSession;
+    session.userId = credential.userId;
+    session.lastPasskeyAuthAt = Date.now(); // Track when passkey was used
 
     // Generate JWT session token for API Direct flow
     const sessionToken = await generateSessionToken(credential.userId);
 
-    console.log(`[Popup] Login successful for user ${credential.userId.substring(0, 8)}...`);
+    console.log(`[Popup] Login successful for user ${credential.userId.substring(0, 8)}... (grace period started)`);
 
     res.json({
       success: true,
@@ -307,6 +349,9 @@ router.post('/login/verify', async (req: Request, res: Response) => {
       // Merchant can store this and use as: Authorization: Bearer <sessionToken>
       sessionToken,
       sessionTokenExpiresIn: 30 * 24 * 60 * 60, // 30 days in seconds
+      // Indicate grace period is active (client can skip payment passkey)
+      passkeyGracePeriodActive: true,
+      gracePeriodExpiresIn: PASSKEY_GRACE_PERIOD_MS / 1000, // seconds
     });
   } catch (error) {
     console.error('[Popup] Login verify error:', error);
@@ -457,8 +502,12 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
       },
     });
 
+    // Update session with passkey auth timestamp (restarts grace period)
+    const session = req.session as PopupSession;
+    session.lastPasskeyAuthAt = Date.now();
+
     // Now get the payment token from BSIM
-    console.log(`[Popup] Passkey verified, requesting card token for ${walletCardId.substring(0, 8)}...`);
+    console.log(`[Popup] Passkey verified, requesting card token for ${walletCardId.substring(0, 8)}... (grace period restarted)`);
     const tokenResult = await requestCardToken(
       walletCardId,
       merchantId,
@@ -565,6 +614,136 @@ router.post('/select-card-simple', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Popup] Simple select error:', error);
     res.status(500).json({ error: 'Failed to process card selection' });
+  }
+});
+
+/**
+ * POST /popup/confirm-with-grace-period
+ * Confirm payment using passkey grace period (no passkey prompt required)
+ *
+ * This endpoint is used when the user has recently authenticated with a passkey
+ * and is within the grace period. It allows card selection and payment without
+ * requiring another passkey prompt, improving UX while maintaining security.
+ *
+ * Security: Only works if:
+ * 1. User has a valid session
+ * 2. Session shows passkey was used within PASSKEY_GRACE_PERIOD_MS
+ * 3. Card belongs to the authenticated user
+ */
+router.post('/confirm-with-grace-period', async (req: Request, res: Response) => {
+  try {
+    const {
+      walletCardId,
+      merchantId,
+      merchantName,
+      amount,
+      currency,
+      origin,
+    } = req.body;
+
+    // Validate origin
+    if (!isAllowedOrigin(origin)) {
+      return res.status(403).json({ error: 'Unauthorized origin' });
+    }
+
+    // Check session
+    const session = req.session as PopupSession;
+    const sessionUserId = session?.userId;
+
+    if (!sessionUserId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Verify user is within grace period
+    if (!isWithinPasskeyGracePeriod(session)) {
+      console.log(`[Popup] Grace period expired for user ${sessionUserId.substring(0, 8)}..., passkey required`);
+      return res.status(403).json({
+        error: 'grace_period_expired',
+        message: 'Passkey grace period has expired. Please authenticate with your passkey.',
+        requirePasskey: true,
+      });
+    }
+
+    // Verify card belongs to user
+    const card = await prisma.walletCard.findFirst({
+      where: { id: walletCardId, userId: sessionUserId, isActive: true },
+    });
+
+    if (!card) {
+      return res.status(400).json({ error: 'Card not found' });
+    }
+
+    // Get payment token (no passkey required - within grace period)
+    console.log(`[Popup] Confirming payment within grace period for user ${sessionUserId.substring(0, 8)}...`);
+
+    const tokenResult = await requestCardToken(
+      walletCardId,
+      merchantId,
+      merchantName,
+      amount ? parseFloat(amount) : undefined,
+      currency
+    );
+
+    if (!tokenResult) {
+      return res.status(500).json({ error: 'Failed to get payment token' });
+    }
+
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+    // Generate JWT session token for API Direct flow
+    const sessionToken = await generateSessionToken(sessionUserId);
+
+    console.log(`[Popup] Payment confirmed (grace period) for card ${card.lastFour}`);
+
+    res.json({
+      success: true,
+      token: tokenResult.walletCardToken,
+      cardToken: tokenResult.cardToken,
+      cardLast4: card.lastFour,
+      cardBrand: card.cardType.toLowerCase(),
+      expiresAt,
+      sessionToken,
+      sessionTokenExpiresIn: 30 * 24 * 60 * 60,
+      // Indicate this was processed via grace period
+      usedGracePeriod: true,
+    });
+  } catch (error) {
+    console.error('[Popup] Grace period confirm error:', error);
+    res.status(500).json({ error: 'Failed to process payment' });
+  }
+});
+
+/**
+ * GET /popup/grace-period-status
+ * Check if the current session is within the passkey grace period
+ *
+ * Used by the card-picker UI to determine whether to show passkey prompt
+ */
+router.get('/grace-period-status', async (req: Request, res: Response) => {
+  try {
+    const session = req.session as PopupSession;
+
+    if (!session?.userId) {
+      return res.json({
+        authenticated: false,
+        withinGracePeriod: false,
+      });
+    }
+
+    const withinGracePeriod = isWithinPasskeyGracePeriod(session);
+    const remainingMs = session.lastPasskeyAuthAt
+      ? Math.max(0, PASSKEY_GRACE_PERIOD_MS - (Date.now() - session.lastPasskeyAuthAt))
+      : 0;
+
+    res.json({
+      authenticated: true,
+      withinGracePeriod,
+      remainingSeconds: Math.floor(remainingMs / 1000),
+      gracePeriodDuration: PASSKEY_GRACE_PERIOD_MS / 1000,
+    });
+  } catch (error) {
+    console.error('[Popup] Grace period status error:', error);
+    res.status(500).json({ error: 'Failed to check grace period status' });
   }
 });
 
