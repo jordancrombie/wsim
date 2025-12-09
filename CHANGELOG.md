@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Global Auth Context for Session Detection (2025-12-08)**
+  - New `AuthContext` provider checks session on app load
+  - Automatic session re-check on window focus and tab visibility change
+  - Homepage redirects authenticated users directly to `/wallet`
+  - Login page redirects if already authenticated
+  - Fixes issue where opening new browser tab didn't detect existing session
+  - New files:
+    - `frontend/src/context/AuthContext.tsx` - Global auth state provider
+    - `frontend/src/components/Providers.tsx` - Client wrapper component
+  - Modified files:
+    - `frontend/src/app/layout.tsx` - Wraps app with Providers
+    - `frontend/src/app/page.tsx` - Checks auth, redirects if authenticated
+    - `frontend/src/app/login/page.tsx` - Checks auth, calls `checkAuth()` after login
+
+- **JWT Bearer Token Support for Merchant API (2025-12-08)**
+  - New "API Direct" integration mode for SSIM
+  - Merchants can authenticate using JWT bearer tokens instead of session cookies
+  - `POST /api/merchant/payment/initiate` accepts `Authorization: Bearer <sessionToken>` header
+  - `POST /api/merchant/payment/confirm` accepts JWT bearer token authentication
+  - Session tokens returned in card-picker `postMessage` response
+  - Enables server-to-server payment flows without browser cookies
+  - Modified files:
+    - `backend/src/routes/wallet-api.ts` - Added JWT authentication support
+    - `backend/src/middleware/auth.ts` - Added `authenticateJwtOrSession` middleware
+
 - **E2E Test Suite (2025-12-07)** - Comprehensive Playwright-based end-to-end testing
   - Full BSIM → WSIM enrollment flow testing
   - BSIM helpers: account creation, login, passkey registration, credit card creation
@@ -194,6 +219,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Suspense boundary added to login page for Next.js 16 compatibility
 
 ### Fixed
+- **sessionToken Missing from postMessage (2025-12-08)**
+  - Added `sessionToken` and `sessionTokenExpiresIn` to card-picker postMessage responses
+  - Affects both popup (`popup/card-picker.ejs`) and embed (`embed/card-picker.ejs`) views
+  - Required for SSIM JWT Direct integration to receive session tokens for subsequent API calls
+
+- **TypeScript Strict Type Errors in Tests (2025-12-08)**
+  - Fixed strict type errors in test files for TypeScript compliance
+  - Ensures clean `npm test` runs without type warnings
+
 - **Admin Invite Flow Fixes (2025-12-06)**
   - Fixed `baseUrl is not defined` error in invites.ejs template - now uses pre-computed `invite.url`
   - Fixed invite registration flow - frontend now sends `email` instead of `adminId` to register-options/verify endpoints
