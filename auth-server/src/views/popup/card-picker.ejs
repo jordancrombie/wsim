@@ -145,12 +145,12 @@
           <% }); %>
         </div>
 
-        <% if (hasPasskeys) { %>
+        <% if (hasPasskeys && !canSkipPasskey) { %>
           <button type="button" class="btn btn-primary" id="payBtn" onclick="initiatePayment()">
             &#128274; Confirm with Passkey
           </button>
         <% } else { %>
-          <button type="button" class="btn btn-primary" id="payBtn" onclick="initiateSimplePayment()">
+          <button type="button" class="btn btn-primary" id="payBtn" onclick="initiateGracePeriodPayment()">
             Confirm Payment
           </button>
         <% } %>
@@ -190,6 +190,7 @@
     };
     const userId = '<%= userId %>';
     const hasPasskeys = <%= hasPasskeys ? 'true' : 'false' %>;
+    const canSkipPasskey = <%= typeof canSkipPasskey !== 'undefined' && canSkipPasskey ? 'true' : 'false' %>;
 
     let selectedCard = document.querySelector('.card-option.selected');
 
@@ -308,7 +309,11 @@
       }
     }
 
-    async function initiateSimplePayment() {
+    /**
+     * Payment using grace period - no passkey required
+     * Used when user recently authenticated with passkey (within 5 min)
+     */
+    async function initiateGracePeriodPayment() {
       if (!selectedCard) {
         alert('Please select a card');
         return;
@@ -319,7 +324,10 @@
       try {
         const walletCardId = selectedCard.dataset.cardId;
 
-        const res = await fetch('/popup/select-card-simple', {
+        // Use grace period endpoint if available, otherwise fall back to simple
+        const endpoint = canSkipPasskey ? '/popup/confirm-with-grace-period' : '/popup/select-card-simple';
+
+        const res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -333,12 +341,19 @@
           })
         });
 
-        if (!res.ok) {
-          const error = await res.json();
-          throw new Error(error.error || 'Payment failed');
+        const result = await res.json();
+
+        // If grace period expired, fall back to passkey flow
+        if (!res.ok && result.error === 'grace_period_expired') {
+          console.log('Grace period expired, falling back to passkey flow');
+          showLoading(false);
+          // Switch to passkey flow
+          return initiatePayment();
         }
 
-        const result = await res.json();
+        if (!res.ok) {
+          throw new Error(result.error || 'Payment failed');
+        }
 
         sendAndClose({
           type: 'wsim:card-selected',
@@ -348,7 +363,8 @@
           cardBrand: result.cardBrand,
           expiresAt: result.expiresAt,
           sessionToken: result.sessionToken,
-          sessionTokenExpiresIn: result.sessionTokenExpiresIn
+          sessionTokenExpiresIn: result.sessionTokenExpiresIn,
+          usedGracePeriod: result.usedGracePeriod || false
         });
 
       } catch (error) {
@@ -356,6 +372,11 @@
         showLoading(false);
         handleError('payment_failed', error.message || 'Payment failed');
       }
+    }
+
+    // Legacy alias for backwards compatibility
+    async function initiateSimplePayment() {
+      return initiateGracePeriodPayment();
     }
   </script>
 </body>
