@@ -16,14 +16,19 @@ import type {
  * Passkey Grace Period Configuration
  *
  * After a user authenticates with their passkey (login), we grant a "grace period"
- * during which subsequent payment confirmations don't require another passkey prompt.
- * This improves UX by avoiding redundant passkey prompts when the user just authenticated.
+ * during which the FIRST subsequent payment can skip the passkey prompt.
+ * This improves UX by avoiding double passkey prompts within the same checkout flow.
+ *
+ * IMPORTANT: The grace period is consumed (cleared) after each successful payment.
+ * This ensures that:
+ * - Each transaction requires at least one passkey authentication
+ * - The grace period only prevents double-prompting within the SAME checkout
+ * - Subsequent transactions in the same session still require passkey
  *
  * Security rationale:
- * - The user has already proven possession of their passkey
- * - The session is bound to their authenticated identity
- * - Similar to banking apps that allow transactions for a few minutes after login
- * - Grace period is short enough to limit exposure if device is compromised
+ * - The user has already proven possession of their passkey for THIS transaction
+ * - Grace period prevents annoying double-prompts, not multi-transaction skipping
+ * - One passkey verification per payment authorization is required
  */
 const PASSKEY_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -502,12 +507,13 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
       },
     });
 
-    // Update session with passkey auth timestamp (restarts grace period)
+    // Clear grace period - each transaction requires its own passkey authentication
+    // This prevents the grace period from persisting across multiple transactions
     const session = req.session as PopupSession;
-    session.lastPasskeyAuthAt = Date.now();
+    delete session.lastPasskeyAuthAt;
 
     // Now get the payment token from BSIM
-    console.log(`[Popup] Passkey verified, requesting card token for ${walletCardId.substring(0, 8)}... (grace period restarted)`);
+    console.log(`[Popup] Passkey verified for payment, requesting card token for ${walletCardId.substring(0, 8)}... (grace period consumed)`);
     const tokenResult = await requestCardToken(
       walletCardId,
       merchantId,
@@ -673,8 +679,12 @@ router.post('/confirm-with-grace-period', async (req: Request, res: Response) =>
       return res.status(400).json({ error: 'Card not found' });
     }
 
-    // Get payment token (no passkey required - within grace period)
-    console.log(`[Popup] Confirming payment within grace period for user ${sessionUserId.substring(0, 8)}...`);
+    // Clear grace period BEFORE getting payment token - one-time use per transaction
+    // This ensures the next transaction will require passkey authentication
+    delete session.lastPasskeyAuthAt;
+
+    // Get payment token (no passkey required - grace period was valid and is now consumed)
+    console.log(`[Popup] Confirming payment within grace period for user ${sessionUserId.substring(0, 8)}... (grace period consumed)`);
 
     const tokenResult = await requestCardToken(
       walletCardId,
