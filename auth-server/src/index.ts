@@ -60,7 +60,9 @@ async function main() {
   // Mount admin routes (OAuth client management - protected)
   app.use('/administration', requireAdminAuth, adminRoutes);
 
-  // Health check
+  // Health check endpoints (ECS/ALB compatible)
+
+  // Detailed health check - checks dependencies
   app.get('/health', async (req, res) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
@@ -68,14 +70,31 @@ async function main() {
         status: 'healthy',
         timestamp: new Date().toISOString(),
         service: 'wsim-auth-server',
+        version: process.env.npm_package_version || '0.1.0',
       });
     } catch {
       res.status(503).json({
         status: 'unhealthy',
         timestamp: new Date().toISOString(),
         service: 'wsim-auth-server',
+        error: 'Database connection failed',
       });
     }
+  });
+
+  // Readiness check - is the service ready to accept traffic?
+  app.get('/health/ready', async (req, res) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  // Liveness check - is the service alive?
+  app.get('/health/live', (req, res) => {
+    res.json({ alive: true });
   });
 
   // Home page
@@ -96,6 +115,8 @@ async function main() {
         <ul>
           <li><a href="/.well-known/openid-configuration">OpenID Configuration</a></li>
           <li><a href="/health">Health Check</a></li>
+          <li><a href="/health/ready">Readiness Check</a></li>
+          <li><a href="/health/live">Liveness Check</a></li>
           <li><a href="/administration">Administration</a></li>
         </ul>
       </body>
