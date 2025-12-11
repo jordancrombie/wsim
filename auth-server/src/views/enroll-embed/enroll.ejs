@@ -251,8 +251,9 @@
     const RP_NAME = '<%= rpName %>';
 
     // State
-    let enrollmentData = null; // Will be populated from parent via postMessage
-    let selectedCards = [];
+    let enrollmentData = null;  // Will be populated from parent via postMessage
+    let availableCards = [];    // Cards fetched server-to-server from BSIM
+    let selectedCardIds = [];   // IDs of cards user has selected
 
     // DOM elements
     const cardListEl = document.getElementById('cardList');
@@ -280,8 +281,11 @@
 
     // Helper functions
     function sendToParent(message) {
-      if (window.parent && window.parent !== window && ALLOWED_ORIGIN) {
-        window.parent.postMessage(message, ALLOWED_ORIGIN);
+      // Support both iframe (window.parent) and popup (window.opener) contexts
+      const targetWindow = window.opener || (window.parent !== window ? window.parent : null);
+
+      if (targetWindow && ALLOWED_ORIGIN) {
+        targetWindow.postMessage(message, ALLOWED_ORIGIN);
       }
     }
 
@@ -341,9 +345,9 @@
     }
 
     function updateSelectedCards() {
-      selectedCards = Array.from(cardListEl.querySelectorAll('input:checked'))
-        .map(input => enrollmentData.cards.find(c => c.id === input.value));
-      continueBtnEl.disabled = selectedCards.length === 0;
+      selectedCardIds = Array.from(cardListEl.querySelectorAll('input:checked'))
+        .map(input => input.value);
+      continueBtnEl.disabled = selectedCardIds.length === 0;
     }
 
     function showError(message) {
@@ -389,6 +393,32 @@
       }
     }
 
+    /**
+     * Fetch cards from WSIM backend (which fetches from BSIM server-to-server)
+     * This keeps card data off the browser postMessage channel
+     */
+    async function fetchCards() {
+      const response = await fetch('/enroll/embed/cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardToken: enrollmentData.cardToken,
+          bsimId: enrollmentData.bsimId,
+          claims: enrollmentData.claims,
+          signature: enrollmentData.signature,
+          timestamp: enrollmentData.timestamp,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch cards');
+      }
+
+      const data = await response.json();
+      return data.cards;
+    }
+
     async function getPasskeyRegistrationOptions() {
       const response = await fetch('/enroll/embed/passkey/register/options', {
         method: 'POST',
@@ -418,7 +448,8 @@
           lastName: enrollmentData.claims.family_name,
           bsimId: enrollmentData.bsimId,
           bsimSub: enrollmentData.claims.sub,
-          cards: selectedCards,
+          cardToken: enrollmentData.cardToken,
+          selectedCardIds: selectedCardIds,
           credential,
           signature: enrollmentData.signature,
           timestamp: enrollmentData.timestamp,
@@ -557,12 +588,19 @@
       if (type === 'wsim:enroll-init') {
         enrollmentData = data;
 
+        // Validate required fields
+        if (!data.cardToken) {
+          showError('Missing card token. Please try again.');
+          sendToParent({ type: 'wsim:enroll-error', error: 'Missing cardToken', code: 'MISSING_TOKEN' });
+          return;
+        }
+
         // Check if already enrolled
         showLoading('Checking enrollment status...');
         const status = await checkEnrollmentStatus();
-        hideLoading();
 
         if (status.enrolled) {
+          hideLoading();
           showSection(alreadyEnrolledSection);
           sendToParent({
             type: 'wsim:already-enrolled',
@@ -571,11 +609,22 @@
           return;
         }
 
-        // Render cards
-        if (data.cards && data.cards.length > 0) {
-          renderCards(data.cards);
-        } else {
-          showError('No cards available for enrollment.');
+        // Fetch cards server-to-server (not passed via postMessage for security)
+        showLoading('Loading your cards...');
+        try {
+          availableCards = await fetchCards();
+          hideLoading();
+
+          if (availableCards && availableCards.length > 0) {
+            renderCards(availableCards);
+          } else {
+            showError('No cards available for enrollment.');
+          }
+        } catch (error) {
+          hideLoading();
+          console.error('Failed to fetch cards:', error);
+          showError('Failed to load your cards. Please try again.');
+          sendToParent({ type: 'wsim:enroll-error', error: error.message, code: 'CARD_FETCH_FAILED' });
         }
       }
     });

@@ -13,6 +13,7 @@ import type {
 } from '@simplewebauthn/types';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import axios from 'axios';
 
 const router = Router();
 
@@ -52,11 +53,12 @@ function getChallenge(key: string): string | null {
 /**
  * Verify HMAC signature from BSIM
  * This ensures the claims haven't been tampered with client-side
+ * Note: Cards are NOT included in signature - they're fetched server-to-server
  */
 function verifyBsimSignature(
   payload: {
     claims: Record<string, unknown>;
-    cards: unknown[];
+    cardToken: string;  // Token to fetch cards, not card data itself
     bsimId: string;
     timestamp: number;
   },
@@ -66,7 +68,7 @@ function verifyBsimSignature(
   // Recreate the signed payload
   const signedData = JSON.stringify({
     claims: payload.claims,
-    cards: payload.cards,
+    cardToken: payload.cardToken,
     bsimId: payload.bsimId,
     timestamp: payload.timestamp,
   });
@@ -80,6 +82,67 @@ function verifyBsimSignature(
     Buffer.from(signature, 'hex'),
     Buffer.from(expectedSignature, 'hex')
   );
+}
+
+interface CardData {
+  id: string;
+  cardType: string;
+  lastFour: string;
+  cardHolder: string;
+  expiryMonth: number;
+  expiryYear: number;
+}
+
+/**
+ * Get BSIM API URL for server-to-server card fetch
+ * Configured via BSIM_API_URL environment variable
+ *
+ * Environment examples:
+ *   - Local dev: http://localhost:3001 (or Docker network name)
+ *   - Dev/staging: https://dev.banksim.ca
+ *   - Production: https://banksim.ca
+ */
+function getBsimApiUrl(_bsimId: string): string {
+  // Use configured URL - allows flexibility across environments
+  return env.BSIM_API_URL;
+}
+
+/**
+ * Fetch cards from BSIM using the card token (server-to-server)
+ * This keeps card data off the browser and maintains the same security pattern as OIDC flow
+ */
+async function fetchCardsFromBsim(
+  bsimId: string,
+  cardToken: string
+): Promise<CardData[]> {
+  const baseUrl = getBsimApiUrl(bsimId);
+  const cardsUrl = `${baseUrl}/api/wallet/cards/enroll`;
+
+  console.log(`[Enroll Embed] Fetching cards from ${cardsUrl} using card token`);
+
+  try {
+    const response = await axios.get(cardsUrl, {
+      headers: {
+        'Authorization': `Bearer ${cardToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const rawCards = response.data.cards || [];
+
+    // Transform BSIM response format to our format
+    return rawCards.map((card: { id: string; cardType: string; lastFour: string; cardHolder: string; expiryMonth: number; expiryYear: number }) => ({
+      id: card.id,
+      cardType: card.cardType,
+      lastFour: card.lastFour,
+      cardHolder: card.cardHolder,
+      expiryMonth: card.expiryMonth,
+      expiryYear: card.expiryYear,
+    }));
+  } catch (error) {
+    console.error('[Enroll Embed] Failed to fetch cards from BSIM:', error);
+    throw new Error('Failed to fetch cards from bank');
+  }
 }
 
 /**
@@ -106,7 +169,7 @@ router.get('/', (req: Request, res: Response) => {
   if (!origin || !env.ALLOWED_EMBED_ORIGINS.includes(origin)) {
     return res.render('embed/error', {
       title: 'Error',
-      error: 'Invalid or missing origin',
+      message: 'Invalid or missing origin',
       allowedOrigin: origin || '',
     });
   }
@@ -166,6 +229,56 @@ router.post('/check', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Enroll Embed] Check error:', error);
     res.status(500).json({ error: 'Failed to check enrollment status' });
+  }
+});
+
+/**
+ * POST /enroll/embed/cards
+ * Fetch cards from BSIM server-to-server using a card token
+ * This keeps card data off the browser and maintains security
+ */
+router.post('/cards', async (req: Request, res: Response) => {
+  try {
+    const { cardToken, bsimId, claims, signature, timestamp } = req.body as {
+      cardToken: string;
+      bsimId: string;
+      claims: { sub: string; email: string; given_name?: string; family_name?: string };
+      signature: string;
+      timestamp: number;
+    };
+
+    // Validate required fields
+    if (!cardToken || !bsimId || !claims || !signature || !timestamp) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Verify timestamp is within 5 minutes (replay protection)
+    const now = Date.now();
+    if (Math.abs(now - timestamp) > 5 * 60 * 1000) {
+      return res.status(400).json({ error: 'Request expired', code: 'EXPIRED' });
+    }
+
+    // Verify BSIM signature
+    const isValidSignature = verifyBsimSignature(
+      { claims, cardToken, bsimId, timestamp },
+      signature,
+      env.INTERNAL_API_SECRET
+    );
+
+    if (!isValidSignature) {
+      console.error('[Enroll Embed] Invalid signature for cards request');
+      return res.status(403).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
+    }
+
+    // Fetch cards from BSIM server-to-server
+    const cards = await fetchCardsFromBsim(bsimId, cardToken);
+
+    console.log(`[Enroll Embed] Fetched ${cards.length} cards for ${claims.email}`);
+
+    res.json({ cards });
+  } catch (error) {
+    console.error('[Enroll Embed] Cards fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch cards' });
   }
 });
 
@@ -232,15 +345,6 @@ router.post('/passkey/register/options', async (req: Request, res: Response) => 
   }
 });
 
-interface CardData {
-  id: string;
-  cardType: string;
-  lastFour: string;
-  cardHolder: string;
-  expiryMonth: number;
-  expiryYear: number;
-}
-
 interface EnrollmentClaims {
   sub: string;
   email: string;
@@ -251,6 +355,7 @@ interface EnrollmentClaims {
 /**
  * POST /enroll/embed/passkey/register/verify
  * Verify passkey registration and create user with cards
+ * Cards are fetched server-to-server using cardToken, not passed directly
  */
 router.post('/passkey/register/verify', async (req: Request, res: Response) => {
   try {
@@ -260,7 +365,8 @@ router.post('/passkey/register/verify', async (req: Request, res: Response) => {
       lastName,
       bsimId,
       bsimSub,
-      cards,
+      cardToken,
+      selectedCardIds,
       credential,
       signature,
       timestamp,
@@ -271,7 +377,8 @@ router.post('/passkey/register/verify', async (req: Request, res: Response) => {
       lastName?: string;
       bsimId: string;
       bsimSub: string;
-      cards: CardData[];
+      cardToken: string;
+      selectedCardIds: string[];  // IDs of cards user selected (fetched earlier via /cards)
       credential: RegistrationResponseJSON;
       signature: string;
       timestamp: number;
@@ -279,8 +386,12 @@ router.post('/passkey/register/verify', async (req: Request, res: Response) => {
     };
 
     // Validate required fields
-    if (!email || !bsimId || !bsimSub || !credential || !signature || !timestamp) {
+    if (!email || !bsimId || !bsimSub || !cardToken || !credential || !signature || !timestamp) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!selectedCardIds || selectedCardIds.length === 0) {
+      return res.status(400).json({ error: 'At least one card must be selected' });
     }
 
     // Verify timestamp is within 5 minutes (replay protection)
@@ -295,7 +406,7 @@ router.post('/passkey/register/verify', async (req: Request, res: Response) => {
     const isValidSignature = verifyBsimSignature(
       {
         claims: { sub: bsimSub, email, given_name: firstName, family_name: lastName },
-        cards,
+        cardToken,
         bsimId,
         timestamp,
       },
@@ -306,6 +417,14 @@ router.post('/passkey/register/verify', async (req: Request, res: Response) => {
     if (!isValidSignature) {
       console.error('[Enroll Embed] Invalid signature for', email);
       return res.status(403).json({ error: 'Invalid signature', code: 'INVALID_SIGNATURE' });
+    }
+
+    // Fetch cards server-to-server and filter to selected ones
+    const allCards = await fetchCardsFromBsim(bsimId, cardToken);
+    const selectedCards = allCards.filter(card => selectedCardIds.includes(card.id));
+
+    if (selectedCards.length === 0) {
+      return res.status(400).json({ error: 'No valid cards selected' });
     }
 
     // Get stored challenge
@@ -375,9 +494,9 @@ router.post('/passkey/register/verify', async (req: Request, res: Response) => {
         },
       });
 
-      // Create wallet cards for selected cards
+      // Create wallet cards for selected cards (fetched server-to-server)
       const walletCards = await Promise.all(
-        cards.map((card) =>
+        selectedCards.map((card) =>
           tx.walletCard.create({
             data: {
               userId: user.id,

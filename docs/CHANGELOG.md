@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
   - Already-enrolled detection
   - Session token generation on successful enrollment
 
+### Security
+- **Server-to-server card fetch for enrollment**: Card data (even masked last4, expiry) is now fetched server-to-server during embedded enrollment, rather than being passed through browser postMessage. Only a short-lived `cardToken` JWT passes through the browser.
+
 ### Documentation
 - **BSIM Integration Guide**: Created comprehensive integration documentation for banks to implement the enrollment flow ([BSIM_ENROLLMENT_INTEGRATION.md](BSIM_ENROLLMENT_INTEGRATION.md))
 - **Feature BRD**: Added detailed requirements and implementation tracking ([IN_BANK_ENROLLMENT.md](features/IN_BANK_ENROLLMENT.md))

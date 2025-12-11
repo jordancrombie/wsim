@@ -165,9 +165,9 @@ For cross-origin passkey registration to work, WSIM must publish a `/.well-known
 - Safari 18+ (September 2024)
 - Firefox: Not yet supported (fallback to popup approach needed)
 
-### Data Flow: Identity from BSIM
+### Data Flow: Identity and Card Token from BSIM
 
-BSIM passes user identity via postMessage (same data as OIDC claims):
+BSIM passes user identity and a card access token via postMessage. **Card data is NOT passed through the browser** - it's fetched server-to-server for security.
 
 ```typescript
 interface EnrollmentInitMessage {
@@ -179,23 +179,20 @@ interface EnrollmentInitMessage {
     given_name: string;
     family_name: string;
   };
-  // Available cards to enroll
-  cards: Array<{
-    id: string;            // BSIM card reference
-    cardType: string;      // VISA, MC, etc.
-    lastFour: string;
-    cardHolder: string;
-    expiryMonth: number;
-    expiryYear: number;
-  }>;
+  // Card access token (NOT card data!)
+  cardToken: string;       // Short-lived JWT for server-to-server card fetch
   // Authentication
   bsimId: string;          // Bank identifier
-  apiSignature: string;    // HMAC signature for verification
+  signature: string;       // HMAC signature for verification
   timestamp: number;       // For replay protection
 }
 ```
 
-**Security:** The `apiSignature` is computed server-side by BSIM using a shared secret, ensuring the claims haven't been tampered with client-side.
+**Security:**
+- The `signature` is computed server-side by BSIM using a shared secret
+- Card data (even masked last4, expiry) never passes through browser postMessage
+- WSIM fetches cards server-to-server using the `cardToken`
+- This matches the security pattern of the existing OIDC enrollment flow
 
 ### Response Messages
 
@@ -303,6 +300,29 @@ Check if user is already enrolled.
 }
 ```
 
+#### POST /enroll/embed/cards
+Fetch cards from BSIM server-to-server using card token.
+
+**Request:**
+```json
+{
+  "cardToken": "eyJhbGciOiJIUzI1NiIs...",
+  "bsimId": "bsim",
+  "claims": { "sub": "...", "email": "..." },
+  "signature": "...",
+  "timestamp": 1234567890
+}
+```
+
+**Response:**
+```json
+{
+  "cards": [
+    { "id": "card_123", "cardType": "VISA", "lastFour": "4242", ... }
+  ]
+}
+```
+
 #### POST /enroll/embed/passkey/register/options
 Generate passkey registration options for cross-origin registration.
 
@@ -318,7 +338,7 @@ Generate passkey registration options for cross-origin registration.
 **Response:** WebAuthn PublicKeyCredentialCreationOptions
 
 #### POST /enroll/embed/passkey/register/verify
-Verify passkey registration and create user.
+Verify passkey registration and create user. Cards are fetched server-to-server.
 
 **Request:**
 ```json
@@ -328,7 +348,8 @@ Verify passkey registration and create user.
   "lastName": "Doe",
   "bsimId": "bsim",
   "bsimSub": "bsim-user-id",
-  "cards": [...],
+  "cardToken": "eyJhbGciOiJIUzI1NiIs...",
+  "selectedCardIds": ["card_123", "card_456"],
   "credential": { /* WebAuthn response */ },
   "signature": "...",
   "timestamp": 1234567890
@@ -349,10 +370,16 @@ Verify passkey registration and create user.
 
 ## Security Considerations
 
+### Server-to-Server Card Fetch
+- Card data (even masked last4, expiry) never passes through browser postMessage
+- Only a short-lived `cardToken` JWT passes through the browser
+- WSIM fetches cards directly from BSIM's `/api/wallet/cards` endpoint
+- This matches the security pattern used in the standard OIDC enrollment flow
+
 ### Origin Validation
 - Strict origin checking on postMessage
 - Only allow origins listed in `/.well-known/webauthn`
-- Validate `apiSignature` from BSIM to prevent claim tampering
+- Validate `signature` from BSIM to prevent claim tampering
 
 ### Replay Protection
 - Include `timestamp` in signed payload
@@ -442,11 +469,13 @@ Verify passkey registration and create user.
 |-----------|--------|-------|
 | `/.well-known/webauthn` endpoint | Done | Returns related origins for cross-origin passkey |
 | `/enroll/embed` route | Done | Main enrollment embed routes |
+| `/enroll/embed/cards` endpoint | Done | Server-to-server card fetch from BSIM |
 | Enrollment embed view | Done | Card selection + passkey registration UI |
 | postMessage protocol | Done | Full bi-directional communication |
 | Identity verification | Done | HMAC signature validation |
 | Already enrolled detection | Done | Check by email or BSIM sub |
 | Cross-origin passkey registration | Done | Using WebAuthn Level 3 |
+| Server-to-server card fetch | Done | Card data never passes through browser |
 | User/enrollment/card creation | Done | Transaction-safe creation |
 | Session token generation | Done | 30-day JWT returned on success |
 
@@ -455,7 +484,9 @@ Verify passkey registration and create user.
 | Component | Status | Notes |
 |-----------|--------|-------|
 | "Enable Wallet Pay" button | Pending | BSIM team to implement |
+| Backend card token generation | Pending | BSIM team to implement |
 | Backend signature generation | Pending | BSIM team to implement |
+| `/api/wallet/cards` endpoint | Pending | May already exist from OIDC flow |
 | postMessage communication | Pending | BSIM team to implement |
 
 **Integration Guide:** See [BSIM_ENROLLMENT_INTEGRATION.md](../BSIM_ENROLLMENT_INTEGRATION.md)
@@ -466,5 +497,6 @@ Verify passkey registration and create user.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2025-12-11 | Claude | Security enhancement: Server-to-server card fetch (card data no longer passes through browser postMessage) |
 | 2025-12-11 | Claude | WSIM implementation complete; BSIM integration guide created |
 | 2025-12-10 | Claude | Initial BRD created |
