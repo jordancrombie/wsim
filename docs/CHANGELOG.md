@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2025-12-11
+
+### Added
+- **In-Bank Enrollment (Cross-Origin Passkey Registration)**: New feature allowing users to enroll in WSIM from within their bank's website without redirecting away
+  - `/.well-known/webauthn` endpoint for WebAuthn Related Origin Requests
+  - `/enroll/embed` routes for popup/iframe enrollment flow
+  - Card selection UI with passkey registration
+  - HMAC signature verification for secure identity passing
+  - Already-enrolled detection
+  - Session token generation on successful enrollment
+
+### Documentation
+- **BSIM Integration Guide**: Created comprehensive integration documentation for banks to implement the enrollment flow ([BSIM_ENROLLMENT_INTEGRATION.md](BSIM_ENROLLMENT_INTEGRATION.md))
+- **Feature BRD**: Added detailed requirements and implementation tracking ([IN_BANK_ENROLLMENT.md](features/IN_BANK_ENROLLMENT.md))
+
 ## 2025-12-09
 
 ### Fixed

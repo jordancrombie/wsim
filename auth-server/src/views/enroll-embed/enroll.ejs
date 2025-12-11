@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> - WSIM Wallet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      min-height: auto;
+    }
+    .embed-container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      max-width: 400px;
+      margin: 0 auto;
+    }
+    .embed-header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1rem;
+      text-align: center;
+    }
+    .embed-header .logo { font-size: 2rem; margin-bottom: 0.5rem; }
+    .embed-header h1 { font-size: 1.1rem; font-weight: 600; }
+    .embed-header p { font-size: 0.8rem; opacity: 0.9; margin-top: 0.25rem; }
+    .embed-content { padding: 1.25rem; }
+
+    /* Steps indicator */
+    .steps {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .step {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #e5e7eb;
+      transition: all 0.3s;
+    }
+    .step.active { background: #667eea; width: 24px; border-radius: 4px; }
+    .step.completed { background: #10b981; }
+
+    /* Card list */
+    .card-list { margin-bottom: 1rem; }
+    .card-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .card-item:hover { border-color: #667eea; background: #f9fafb; }
+    .card-item.selected { border-color: #667eea; background: #eef2ff; }
+    .card-item input { margin-right: 0.75rem; }
+    .card-icon { font-size: 1.5rem; margin-right: 0.75rem; }
+    .card-details { flex: 1; }
+    .card-type { font-weight: 600; font-size: 0.875rem; }
+    .card-number { color: #666; font-size: 0.8rem; font-family: monospace; }
+    .card-expiry { color: #999; font-size: 0.75rem; }
+
+    /* Messages */
+    .message {
+      padding: 0.75rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+    }
+    .message.info { background: #dbeafe; color: #1e40af; }
+    .message.success { background: #d1fae5; color: #065f46; }
+    .message.error { background: #fee2e2; color: #991b1b; }
+    .message.warning { background: #fef3c7; color: #92400e; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.875rem 1rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-secondary { background: #f3f4f6; color: #666; margin-top: 0.5rem; }
+    .btn-secondary:hover { background: #e5e7eb; }
+
+    /* Passkey icon animation */
+    .passkey-prompt {
+      text-align: center;
+      padding: 1rem 0;
+    }
+    .passkey-icon {
+      font-size: 3rem;
+      margin-bottom: 0.75rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+    .passkey-prompt h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+    .passkey-prompt p { font-size: 0.8rem; color: #666; }
+
+    /* Success state */
+    .success-state {
+      text-align: center;
+      padding: 1.5rem 0;
+    }
+    .success-icon {
+      font-size: 3rem;
+      margin-bottom: 0.75rem;
+      color: #10b981;
+    }
+    .success-state h3 { font-size: 1.1rem; margin-bottom: 0.5rem; color: #065f46; }
+    .success-state p { font-size: 0.85rem; color: #666; }
+
+    /* Loading overlay */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.95);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .spinner {
+      width: 32px; height: 32px;
+      border: 3px solid #e5e7eb;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Hide sections */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="embed-container" id="embedContainer">
+    <div class="embed-header">
+      <div class="logo">&#128179;</div>
+      <h1>WSIM Wallet</h1>
+      <p>Quick & Secure Payments</p>
+    </div>
+
+    <div class="embed-content">
+      <!-- Steps indicator -->
+      <div class="steps">
+        <div class="step active" id="step1"></div>
+        <div class="step" id="step2"></div>
+        <div class="step" id="step3"></div>
+      </div>
+
+      <!-- Step 1: Card Selection -->
+      <div id="cardSelectionSection">
+        <p style="font-size: 0.9rem; color: #333; margin-bottom: 1rem;">
+          Select the cards you want to add to your wallet:
+        </p>
+        <div class="card-list" id="cardList">
+          <!-- Cards will be populated here -->
+        </div>
+        <button class="btn btn-primary" id="continueBtn" disabled>
+          Continue
+        </button>
+        <button class="btn btn-secondary" id="cancelBtn">
+          Cancel
+        </button>
+      </div>
+
+      <!-- Step 2: Passkey Registration -->
+      <div id="passkeySection" class="hidden">
+        <div class="passkey-prompt">
+          <div class="passkey-icon">&#128272;</div>
+          <h3>Set Up Secure Access</h3>
+          <p>Use Face ID, Touch ID, or your device PIN to secure your wallet.</p>
+        </div>
+        <button class="btn btn-primary" id="registerPasskeyBtn">
+          <span>&#128272;</span> Register Passkey
+        </button>
+        <button class="btn btn-secondary" id="backToCardsBtn">
+          Back
+        </button>
+      </div>
+
+      <!-- Step 3: Success -->
+      <div id="successSection" class="hidden">
+        <div class="success-state">
+          <div class="success-icon">&#9989;</div>
+          <h3>You're All Set!</h3>
+          <p>Your wallet is ready. You can now use it for quick payments.</p>
+        </div>
+        <button class="btn btn-primary" id="doneBtn">
+          Done
+        </button>
+      </div>
+
+      <!-- Already Enrolled Message -->
+      <div id="alreadyEnrolledSection" class="hidden">
+        <div class="message warning">
+          <strong>Already Enrolled</strong><br>
+          You already have a WSIM Wallet. You can use it for payments right away.
+        </div>
+        <button class="btn btn-primary" id="alreadyEnrolledDoneBtn">
+          Got It
+        </button>
+      </div>
+
+      <!-- Error Message -->
+      <div id="errorSection" class="hidden">
+        <div class="message error" id="errorMessage">
+          An error occurred. Please try again.
+        </div>
+        <button class="btn btn-secondary" id="retryBtn">
+          Try Again
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <p style="margin-top: 0.75rem; color: #666; font-size: 0.875rem;" id="loadingText">Processing...</p>
+  </div>
+
+  <script>
+    const ALLOWED_ORIGIN = '<%= allowedOrigin %>';
+    const RP_ID = '<%= rpId %>';
+    const RP_NAME = '<%= rpName %>';
+
+    // State
+    let enrollmentData = null; // Will be populated from parent via postMessage
+    let selectedCards = [];
+
+    // DOM elements
+    const cardListEl = document.getElementById('cardList');
+    const continueBtnEl = document.getElementById('continueBtn');
+    const cancelBtnEl = document.getElementById('cancelBtn');
+    const registerPasskeyBtnEl = document.getElementById('registerPasskeyBtn');
+    const backToCardsBtnEl = document.getElementById('backToCardsBtn');
+    const doneBtnEl = document.getElementById('doneBtn');
+    const alreadyEnrolledDoneBtnEl = document.getElementById('alreadyEnrolledDoneBtn');
+    const retryBtnEl = document.getElementById('retryBtn');
+    const loadingOverlayEl = document.getElementById('loadingOverlay');
+    const loadingTextEl = document.getElementById('loadingText');
+
+    // Sections
+    const cardSelectionSection = document.getElementById('cardSelectionSection');
+    const passkeySection = document.getElementById('passkeySection');
+    const successSection = document.getElementById('successSection');
+    const alreadyEnrolledSection = document.getElementById('alreadyEnrolledSection');
+    const errorSection = document.getElementById('errorSection');
+
+    // Steps
+    const step1 = document.getElementById('step1');
+    const step2 = document.getElementById('step2');
+    const step3 = document.getElementById('step3');
+
+    // Helper functions
+    function sendToParent(message) {
+      if (window.parent && window.parent !== window && ALLOWED_ORIGIN) {
+        window.parent.postMessage(message, ALLOWED_ORIGIN);
+      }
+    }
+
+    function showLoading(text = 'Processing...') {
+      loadingTextEl.textContent = text;
+      loadingOverlayEl.style.display = 'flex';
+    }
+
+    function hideLoading() {
+      loadingOverlayEl.style.display = 'none';
+    }
+
+    function showSection(section) {
+      [cardSelectionSection, passkeySection, successSection, alreadyEnrolledSection, errorSection]
+        .forEach(s => s.classList.add('hidden'));
+      section.classList.remove('hidden');
+    }
+
+    function updateSteps(currentStep) {
+      [step1, step2, step3].forEach((s, i) => {
+        s.classList.remove('active', 'completed');
+        if (i + 1 < currentStep) s.classList.add('completed');
+        if (i + 1 === currentStep) s.classList.add('active');
+      });
+    }
+
+    function getCardIcon(cardType) {
+      const type = cardType?.toUpperCase() || '';
+      if (type.includes('VISA')) return '&#128179;';
+      if (type.includes('MC') || type.includes('MASTER')) return '&#128179;';
+      if (type.includes('AMEX')) return '&#128179;';
+      return '&#128179;';
+    }
+
+    function renderCards(cards) {
+      cardListEl.innerHTML = cards.map((card, index) => `
+        <label class="card-item" data-index="${index}">
+          <input type="checkbox" value="${card.id}" />
+          <span class="card-icon">${getCardIcon(card.cardType)}</span>
+          <div class="card-details">
+            <div class="card-type">${card.cardType}</div>
+            <div class="card-number">**** **** **** ${card.lastFour}</div>
+            <div class="card-expiry">${String(card.expiryMonth).padStart(2, '0')}/${card.expiryYear}</div>
+          </div>
+        </label>
+      `).join('');
+
+      // Add click handlers
+      cardListEl.querySelectorAll('.card-item').forEach((item) => {
+        item.addEventListener('click', () => {
+          const checkbox = item.querySelector('input');
+          checkbox.checked = !checkbox.checked;
+          item.classList.toggle('selected', checkbox.checked);
+          updateSelectedCards();
+        });
+      });
+    }
+
+    function updateSelectedCards() {
+      selectedCards = Array.from(cardListEl.querySelectorAll('input:checked'))
+        .map(input => enrollmentData.cards.find(c => c.id === input.value));
+      continueBtnEl.disabled = selectedCards.length === 0;
+    }
+
+    function showError(message) {
+      document.getElementById('errorMessage').innerHTML = message;
+      showSection(errorSection);
+    }
+
+    // Base64URL helpers for WebAuthn
+    function base64URLToBuffer(base64URL) {
+      const padding = '='.repeat((4 - base64URL.length % 4) % 4);
+      const base64 = (base64URL + padding).replace(/-/g, '+').replace(/_/g, '/');
+      const rawData = atob(base64);
+      return Uint8Array.from(rawData, c => c.charCodeAt(0));
+    }
+
+    function bufferToBase64URL(buffer) {
+      const bytes = new Uint8Array(buffer);
+      let str = '';
+      for (const byte of bytes) {
+        str += String.fromCharCode(byte);
+      }
+      return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    }
+
+    // API calls
+    async function checkEnrollmentStatus() {
+      try {
+        const response = await fetch('/enroll/embed/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: enrollmentData.claims.email,
+            bsimSub: enrollmentData.claims.sub,
+            bsimId: enrollmentData.bsimId,
+          }),
+        });
+
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.error('Check enrollment error:', error);
+        return { enrolled: false };
+      }
+    }
+
+    async function getPasskeyRegistrationOptions() {
+      const response = await fetch('/enroll/embed/passkey/register/options', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: enrollmentData.claims.email,
+          firstName: enrollmentData.claims.given_name,
+          lastName: enrollmentData.claims.family_name,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to get registration options');
+      }
+
+      return response.json();
+    }
+
+    async function verifyPasskeyRegistration(credential) {
+      const response = await fetch('/enroll/embed/passkey/register/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: enrollmentData.claims.email,
+          firstName: enrollmentData.claims.given_name,
+          lastName: enrollmentData.claims.family_name,
+          bsimId: enrollmentData.bsimId,
+          bsimSub: enrollmentData.claims.sub,
+          cards: selectedCards,
+          credential,
+          signature: enrollmentData.signature,
+          timestamp: enrollmentData.timestamp,
+          deviceName: 'Browser Passkey',
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to verify registration');
+      }
+
+      return response.json();
+    }
+
+    // Event handlers
+    continueBtnEl.addEventListener('click', () => {
+      updateSteps(2);
+      showSection(passkeySection);
+    });
+
+    cancelBtnEl.addEventListener('click', () => {
+      sendToParent({ type: 'wsim:enroll-cancelled' });
+    });
+
+    backToCardsBtnEl.addEventListener('click', () => {
+      updateSteps(1);
+      showSection(cardSelectionSection);
+    });
+
+    registerPasskeyBtnEl.addEventListener('click', async () => {
+      try {
+        showLoading('Preparing passkey...');
+
+        // Get registration options
+        const options = await getPasskeyRegistrationOptions();
+
+        hideLoading();
+
+        // Convert challenge and user.id from base64url to ArrayBuffer
+        const publicKeyOptions = {
+          ...options,
+          challenge: base64URLToBuffer(options.challenge),
+          user: {
+            ...options.user,
+            id: base64URLToBuffer(options.user.id),
+          },
+          excludeCredentials: (options.excludeCredentials || []).map(cred => ({
+            ...cred,
+            id: base64URLToBuffer(cred.id),
+          })),
+        };
+
+        // Create credential (this triggers the passkey UI)
+        const credential = await navigator.credentials.create({
+          publicKey: publicKeyOptions,
+        });
+
+        if (!credential) {
+          throw new Error('Passkey registration was cancelled');
+        }
+
+        showLoading('Completing enrollment...');
+
+        // Prepare credential for server
+        const attestationResponse = credential.response;
+        const credentialJSON = {
+          id: credential.id,
+          rawId: bufferToBase64URL(credential.rawId),
+          type: credential.type,
+          response: {
+            clientDataJSON: bufferToBase64URL(attestationResponse.clientDataJSON),
+            attestationObject: bufferToBase64URL(attestationResponse.attestationObject),
+            transports: attestationResponse.getTransports ? attestationResponse.getTransports() : [],
+          },
+          clientExtensionResults: credential.getClientExtensionResults(),
+        };
+
+        // Verify and create user
+        const result = await verifyPasskeyRegistration(credentialJSON);
+
+        hideLoading();
+
+        if (result.success) {
+          updateSteps(3);
+          showSection(successSection);
+
+          // Notify parent of success
+          sendToParent({
+            type: 'wsim:enrolled',
+            walletId: result.walletId,
+            sessionToken: result.sessionToken,
+            sessionTokenExpiresIn: result.sessionTokenExpiresIn,
+            cardsEnrolled: result.cardsEnrolled,
+          });
+        } else {
+          throw new Error('Enrollment failed');
+        }
+      } catch (error) {
+        hideLoading();
+        console.error('Passkey registration error:', error);
+
+        if (error.name === 'NotAllowedError') {
+          showError('Passkey registration was cancelled or not allowed. Please try again.');
+        } else if (error.message?.includes('ALREADY_ENROLLED')) {
+          showSection(alreadyEnrolledSection);
+        } else {
+          showError(error.message || 'Failed to register passkey. Please try again.');
+        }
+      }
+    });
+
+    doneBtnEl.addEventListener('click', () => {
+      sendToParent({ type: 'wsim:enroll-complete' });
+    });
+
+    alreadyEnrolledDoneBtnEl.addEventListener('click', () => {
+      sendToParent({ type: 'wsim:already-enrolled' });
+    });
+
+    retryBtnEl.addEventListener('click', () => {
+      updateSteps(1);
+      showSection(cardSelectionSection);
+    });
+
+    // Handle messages from parent
+    window.addEventListener('message', async (event) => {
+      // Validate origin
+      if (event.origin !== ALLOWED_ORIGIN) {
+        console.warn('Message from unexpected origin:', event.origin);
+        return;
+      }
+
+      const { type, ...data } = event.data;
+
+      if (type === 'wsim:enroll-init') {
+        enrollmentData = data;
+
+        // Check if already enrolled
+        showLoading('Checking enrollment status...');
+        const status = await checkEnrollmentStatus();
+        hideLoading();
+
+        if (status.enrolled) {
+          showSection(alreadyEnrolledSection);
+          sendToParent({
+            type: 'wsim:already-enrolled',
+            walletId: status.walletId,
+          });
+          return;
+        }
+
+        // Render cards
+        if (data.cards && data.cards.length > 0) {
+          renderCards(data.cards);
+        } else {
+          showError('No cards available for enrollment.');
+        }
+      }
+    });
+
+    // Send ready message when loaded
+    window.addEventListener('DOMContentLoaded', () => {
+      sendToParent({ type: 'wsim:enroll-ready' });
+    });
+  </script>
+</body>
+</html>

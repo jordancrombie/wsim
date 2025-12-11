@@ -35,9 +35,12 @@ export const env = {
   ],
 
   // iframe embed allowed origins (for frame-ancestors CSP)
+  // Includes merchants (SSIM) and banks (BSIM) for in-bank enrollment
   ALLOWED_EMBED_ORIGINS: process.env.ALLOWED_EMBED_ORIGINS?.split(',') || [
     'http://localhost:3000',
     'https://ssim-dev.banksim.ca',
+    'https://bsim-dev.banksim.ca',
+    'https://bsim.banksim.ca',
   ],
 
   // WebAuthn / Passkeys
@@ -46,6 +49,12 @@ export const env = {
   // Support multiple origins for passkey verification
   WEBAUTHN_ORIGINS: process.env.WEBAUTHN_ORIGINS?.split(',') ||
     (process.env.WEBAUTHN_ORIGIN ? [process.env.WEBAUTHN_ORIGIN] : ['http://localhost:3005']),
+  // Related origins for cross-origin passkey registration (WebAuthn Level 3)
+  // These origins can register passkeys with WSIM's RP ID
+  WEBAUTHN_RELATED_ORIGINS: process.env.WEBAUTHN_RELATED_ORIGINS?.split(',') || [
+    'https://bsim-dev.banksim.ca',
+    'https://bsim.banksim.ca',
+  ],
 
   // Admin authentication
   AUTH_ADMIN_JWT_SECRET: process.env.AUTH_ADMIN_JWT_SECRET || 'wsim-admin-secret-change-in-production',
