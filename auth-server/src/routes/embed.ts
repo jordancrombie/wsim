@@ -15,6 +15,9 @@ import type {
 /**
  * Passkey Grace Period - same as popup routes
  * See popup.ts for detailed documentation
+ *
+ * IMPORTANT: The grace period is consumed (cleared) after each successful payment.
+ * This ensures each transaction requires at least one passkey authentication.
  */
 const PASSKEY_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -439,11 +442,12 @@ router.post('/passkey/verify', async (req: Request, res: Response) => {
       },
     });
 
-    // Update session with passkey auth timestamp (restarts grace period)
+    // Clear grace period - each transaction requires its own passkey authentication
+    // This prevents the grace period from persisting across multiple transactions
     const session = req.session as EmbedSession;
-    session.lastPasskeyAuthAt = Date.now();
+    delete session.lastPasskeyAuthAt;
 
-    console.log(`[Embed] Passkey verified, requesting card token for ${walletCardId.substring(0, 8)}... (grace period restarted)`);
+    console.log(`[Embed] Passkey verified for payment, requesting card token for ${walletCardId.substring(0, 8)}... (grace period consumed)`);
     const tokenResult = await requestCardToken(
       walletCardId,
       merchantId,
@@ -577,7 +581,11 @@ router.post('/confirm-with-grace-period', async (req: Request, res: Response) =>
       return res.status(400).json({ error: 'Card not found' });
     }
 
-    console.log(`[Embed] Confirming payment within grace period for user ${sessionUserId.substring(0, 8)}...`);
+    // Clear grace period BEFORE getting payment token - one-time use per transaction
+    // This ensures the next transaction will require passkey authentication
+    delete session.lastPasskeyAuthAt;
+
+    console.log(`[Embed] Confirming payment within grace period for user ${sessionUserId.substring(0, 8)}... (grace period consumed)`);
 
     const tokenResult = await requestCardToken(
       walletCardId,
