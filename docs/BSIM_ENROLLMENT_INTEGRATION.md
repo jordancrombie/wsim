@@ -12,7 +12,9 @@ The In-Bank Enrollment feature allows bank users to:
 3. Register a passkey for secure access
 4. Complete enrollment without redirecting away from the bank
 
-**Key Technical Feature:** Cross-origin passkey registration using WebAuthn Related Origin Requests (Level 3).
+**Key Technical Features:**
+- Cross-origin passkey registration using WebAuthn Related Origin Requests (Level 3)
+- **Server-to-server card data transfer** (card data never passes through browser postMessage)
 
 ---
 
@@ -29,33 +31,43 @@ The bank's origin must be registered in WSIM's `/.well-known/webauthn` file. Con
 ### Shared Secret
 A shared HMAC secret is required to sign enrollment payloads. This prevents client-side tampering with user identity claims.
 
+### Card API Endpoint
+Your bank must expose a `/api/wallet/cards` endpoint that WSIM can call server-to-server to fetch user's cards. This is the same endpoint used in the existing OIDC enrollment flow.
+
 ---
 
 ## Integration Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Bank Website                             │
-│                                                                  │
-│  1. User clicks "Enable Wallet Pay"                              │
-│                              │                                   │
-│  2. Bank opens WSIM enrollment popup/iframe                      │
-│     URL: https://wsim-auth.example.com/enroll/embed?origin=...   │
-│                              │                                   │
-│  3. Bank sends user data via postMessage                         │
-│     { type: 'wsim:enroll-init', claims: {...}, cards: [...] }    │
-│                              │                                   │
-│  4. User selects cards in WSIM UI                                │
-│                              │                                   │
-│  5. User registers passkey (cross-origin)                        │
-│                              │                                   │
-│  6. WSIM sends success via postMessage                           │
-│     { type: 'wsim:enrolled', walletId: '...', sessionToken: '...'│
-│                              │                                   │
-│  7. Bank closes popup, shows success message                     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Bank Website                                    │
+│                                                                             │
+│  1. User clicks "Enable Wallet Pay"                                         │
+│                              │                                              │
+│  2. Bank backend generates cardToken (JWT) for card API access              │
+│                              │                                              │
+│  3. Bank opens WSIM enrollment popup/iframe                                 │
+│     URL: https://wsim-auth.example.com/enroll/embed?origin=...              │
+│                              │                                              │
+│  4. Bank sends cardToken + claims via postMessage                           │
+│     { type: 'wsim:enroll-init', claims: {...}, cardToken: '...' }           │
+│                              │                                              │
+│  5. WSIM backend fetches cards from Bank (server-to-server)                 │
+│     GET /api/wallet/cards with Authorization: Bearer <cardToken>            │
+│                              │                                              │
+│  6. User selects cards in WSIM UI                                           │
+│                              │                                              │
+│  7. User registers passkey (cross-origin)                                   │
+│                              │                                              │
+│  8. WSIM sends success via postMessage                                      │
+│     { type: 'wsim:enrolled', walletId: '...', sessionToken: '...' }         │
+│                              │                                              │
+│  9. Bank closes popup, shows success message                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Security Note:** Card data (even masked data like last4, expiry) is fetched server-to-server and never passes through browser postMessage. Only a short-lived `cardToken` is passed through the browser.
 
 ---
 
@@ -71,40 +83,59 @@ Add an "Enable Wallet Pay" button in your user's dashboard or card management ar
 </button>
 ```
 
-### Step 2: Prepare Enrollment Data
+### Step 2: Implement Card Token Endpoint
 
-When the user clicks the button, prepare the enrollment payload:
+Create an endpoint that generates a short-lived JWT token for card API access:
 
 ```typescript
-interface EnrollmentPayload {
-  // User identity (from your session/database)
-  claims: {
-    sub: string;           // Your internal user ID
-    email: string;         // User's email
-    given_name?: string;   // First name
-    family_name?: string;  // Last name
-  };
+// Backend (Node.js example)
+import jwt from 'jsonwebtoken';
 
-  // Cards available for enrollment
-  cards: Array<{
-    id: string;            // Your internal card reference ID
-    cardType: string;      // VISA, MC, AMEX, VISA_DEBIT, MC_DEBIT
-    lastFour: string;      // Last 4 digits
-    cardHolder: string;    // Cardholder name
-    expiryMonth: number;   // 1-12
-    expiryYear: number;    // 4-digit year
-  }>;
+// This endpoint generates a card access token
+app.post('/api/wsim/card-token', requireAuth, async (req, res) => {
+  const user = req.user;
 
-  // Bank identification
-  bsimId: string;          // Your bank identifier (e.g., 'bsim')
+  // Generate a short-lived token (5 minutes) for card API access
+  const cardToken = jwt.sign(
+    {
+      sub: user.id,
+      type: 'wallet_card_access',
+      scope: 'cards:read',
+    },
+    process.env.CARD_TOKEN_SECRET,
+    { expiresIn: '5m' }
+  );
 
-  // Security
-  signature: string;       // HMAC-SHA256 signature (see below)
-  timestamp: number;       // Current timestamp in milliseconds
+  res.json({ cardToken });
+});
+```
+
+### Step 3: Ensure Card API Endpoint Exists
+
+WSIM will call your `/api/wallet/cards/enroll` endpoint server-to-server. Ensure it:
+1. Accepts the `cardToken` as a Bearer token
+2. Returns cards in the expected format:
+
+```typescript
+// GET /api/wallet/cards/enroll
+// Authorization: Bearer <cardToken>
+
+// Response:
+{
+  "cards": [
+    {
+      "id": "card_123",           // Your internal card reference ID
+      "cardType": "VISA",         // VISA, MC, AMEX, VISA_DEBIT, MC_DEBIT
+      "lastFour": "4242",         // Last 4 digits
+      "cardHolder": "John Doe",   // Cardholder name
+      "expiryMonth": 12,          // 1-12
+      "expiryYear": 2025          // 4-digit year
+    }
+  ]
 }
 ```
 
-### Step 3: Generate Signature (Server-Side)
+### Step 4: Generate Enrollment Signature (Server-Side)
 
 **IMPORTANT:** The signature MUST be generated server-side using your shared secret.
 
@@ -114,14 +145,14 @@ import crypto from 'crypto';
 
 function generateEnrollmentSignature(
   claims: { sub: string; email: string; given_name?: string; family_name?: string },
-  cards: Array<{ id: string; cardType: string; lastFour: string; cardHolder: string; expiryMonth: number; expiryYear: number }>,
+  cardToken: string,  // Note: cardToken, not card data
   bsimId: string,
   timestamp: number,
   sharedSecret: string
 ): string {
   const payload = JSON.stringify({
     claims,
-    cards,
+    cardToken,    // Sign the token, not the card data
     bsimId,
     timestamp,
   });
@@ -135,7 +166,13 @@ function generateEnrollmentSignature(
 // API endpoint example
 app.post('/api/wsim/enrollment-data', requireAuth, async (req, res) => {
   const user = req.user;
-  const cards = await getCardsForUser(user.id);
+
+  // Generate card access token
+  const cardToken = jwt.sign(
+    { sub: user.id, type: 'wallet_card_access', scope: 'cards:read' },
+    process.env.CARD_TOKEN_SECRET,
+    { expiresIn: '5m' }
+  );
 
   const timestamp = Date.now();
   const claims = {
@@ -147,7 +184,7 @@ app.post('/api/wsim/enrollment-data', requireAuth, async (req, res) => {
 
   const signature = generateEnrollmentSignature(
     claims,
-    cards,
+    cardToken,
     process.env.BSIM_ID,
     timestamp,
     process.env.WSIM_SHARED_SECRET
@@ -155,7 +192,7 @@ app.post('/api/wsim/enrollment-data', requireAuth, async (req, res) => {
 
   res.json({
     claims,
-    cards,
+    cardToken,      // Token to fetch cards, NOT card data
     bsimId: process.env.BSIM_ID,
     signature,
     timestamp,
@@ -163,11 +200,13 @@ app.post('/api/wsim/enrollment-data', requireAuth, async (req, res) => {
 });
 ```
 
-### Step 4: Open Enrollment Popup
+### Step 5: Open Enrollment Popup
 
 ```typescript
 // Frontend
-const WSIM_AUTH_URL = 'https://wsim-auth.banksim.ca'; // or your WSIM auth server URL
+// Dev: https://wsim-auth-dev.banksim.ca
+// Prod: https://wsim-auth.banksim.ca
+const WSIM_AUTH_URL = 'https://wsim-auth-dev.banksim.ca';
 const BANK_ORIGIN = window.location.origin;
 
 let enrollmentPopup: Window | null = null;
@@ -269,7 +308,7 @@ document.getElementById('enableWalletPay')?.addEventListener('click', () => {
 });
 ```
 
-### Step 5: Alternative - Iframe Integration
+### Step 6: Alternative - Iframe Integration
 
 If you prefer an inline experience instead of a popup:
 
@@ -302,30 +341,25 @@ function openWsimEnrollmentInline() {
 ### Messages FROM Bank TO WSIM
 
 #### wsim:enroll-init
-Sent after WSIM signals ready. Contains user identity and card data.
+Sent after WSIM signals ready. Contains user identity and card access token.
 
 ```typescript
 {
   type: 'wsim:enroll-init',
   claims: {
-    sub: string,
+    sub: string,          // Bank's user ID
     email: string,
     given_name?: string,
     family_name?: string,
   },
-  cards: Array<{
-    id: string,
-    cardType: string,
-    lastFour: string,
-    cardHolder: string,
-    expiryMonth: number,
-    expiryYear: number,
-  }>,
-  bsimId: string,
-  signature: string,
-  timestamp: number,
+  cardToken: string,      // JWT for server-to-server card fetch
+  bsimId: string,         // Bank identifier
+  signature: string,      // HMAC signature
+  timestamp: number,      // Milliseconds since epoch
 }
 ```
+
+**Note:** Card data is NOT included in postMessage. WSIM fetches cards server-to-server using `cardToken`.
 
 ### Messages FROM WSIM TO Bank
 
@@ -373,7 +407,7 @@ An error occurred during enrollment.
 {
   type: 'wsim:enroll-error',
   error: string,    // Human-readable error message
-  code: string,     // Error code (EXPIRED, INVALID_SIGNATURE, etc.)
+  code: string,     // Error code (EXPIRED, INVALID_SIGNATURE, CARD_FETCH_FAILED, etc.)
 }
 ```
 
@@ -381,14 +415,24 @@ An error occurred during enrollment.
 
 ## Security Considerations
 
+### Server-to-Server Card Fetch
+- Card data (even masked last4, expiry) is **never** passed through browser postMessage
+- Only a short-lived `cardToken` JWT passes through the browser
+- WSIM fetches cards directly from your `/api/wallet/cards` endpoint
+- This matches the security pattern used in the standard OIDC enrollment flow
+
 ### Signature Verification
 - The signature is validated server-side by WSIM
-- Prevents client-side tampering with user identity
+- Prevents client-side tampering with user identity and cardToken
 - Uses HMAC-SHA256 with a shared secret
 
 ### Timestamp Validation
 - Timestamps must be within 5 minutes of current time
 - Prevents replay attacks with old signed payloads
+
+### Card Token Expiration
+- The `cardToken` should be short-lived (5 minutes recommended)
+- Limits the window for potential token theft
 
 ### Origin Validation
 - WSIM validates the parent origin against an allowlist
@@ -404,13 +448,14 @@ An error occurred during enrollment.
 ## Testing
 
 ### Test Environment
-- WSIM Auth Server: `https://wsim-dev.banksim.ca/auth`
-- Your origin must be added to the dev allowlist
+- WSIM Auth Server: `https://wsim-auth-dev.banksim.ca`
+- BSIM Dev Origin: `https://dev.banksim.ca` (already in allowlist)
+- BSIM Prod Origin: `https://banksim.ca` (already in allowlist)
 
 ### Test Flow
 1. Log in to your bank test account
 2. Click "Enable Wallet Pay"
-3. Verify popup opens with card selection
+3. Verify popup opens and loads cards (fetched server-to-server)
 4. Select at least one card
 5. Complete passkey registration
 6. Verify success message and session token received
@@ -420,9 +465,11 @@ An error occurred during enrollment.
 | Issue | Cause | Solution |
 |-------|-------|----------|
 | Popup blocked | Browser popup blocker | User must allow popups |
-| Invalid signature | Mismatched secrets | Verify shared secret |
+| Invalid signature | Mismatched secrets | Verify shared secret matches |
 | Origin not allowed | Origin not in allowlist | Contact WSIM admin |
 | Passkey fails | Browser not supported | Use Chrome 128+ or Safari 18+ |
+| Card fetch fails | Card API issue | Verify `/api/wallet/cards` endpoint works with cardToken |
+| CARD_FETCH_FAILED | WSIM can't reach card API | Check CORS, network, cardToken validity |
 
 ---
 
@@ -431,15 +478,49 @@ An error occurred during enrollment.
 Your backend will need these environment variables:
 
 ```bash
-# Your bank identifier (provided by WSIM)
+# Your bank identifier
 BSIM_ID=bsim
 
-# Shared secret for signing (provided by WSIM)
-WSIM_SHARED_SECRET=your-shared-secret-here
+# Shared secret for signing (must match WSIM's INTERNAL_API_SECRET)
+# Dev: use 'dev-internal-secret-change-in-production'
+# Prod: coordinate secure exchange with WSIM team
+WSIM_SHARED_SECRET=dev-internal-secret-change-in-production
+
+# Secret for signing card access tokens (BSIM-internal, generate your own)
+CARD_TOKEN_SECRET=your-card-token-secret-here
 
 # WSIM Auth Server URL
-WSIM_AUTH_URL=https://wsim-auth.banksim.ca
+# Dev: https://wsim-auth-dev.banksim.ca
+# Prod: https://wsim-auth.banksim.ca
+WSIM_AUTH_URL=https://wsim-auth-dev.banksim.ca
 ```
+
+### Environment-Specific Configuration
+
+| Environment | BSIM Origin | WSIM Auth URL |
+|-------------|-------------|---------------|
+| Local dev | `http://localhost:3000` | `http://localhost:3005` |
+| Dev/staging | `https://dev.banksim.ca` | `https://wsim-auth-dev.banksim.ca` |
+| Production | `https://banksim.ca` | `https://wsim-auth.banksim.ca` |
+
+---
+
+## Migration from Previous Version
+
+If you previously integrated with an earlier version that passed cards via postMessage:
+
+1. **Backend changes:**
+   - Generate `cardToken` instead of fetching cards
+   - Update signature to sign `cardToken` instead of `cards` array
+   - Remove `cards` from the enrollment data response
+
+2. **Frontend changes:**
+   - No changes needed - the postMessage format is similar
+   - Just send `cardToken` instead of `cards`
+
+3. **API changes:**
+   - Ensure `/api/wallet/cards` accepts the new `cardToken` format
+   - WSIM will call this endpoint server-to-server
 
 ---
 

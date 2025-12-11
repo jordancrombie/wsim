@@ -39,9 +39,14 @@ export const env = {
   ALLOWED_EMBED_ORIGINS: process.env.ALLOWED_EMBED_ORIGINS?.split(',') || [
     'http://localhost:3000',
     'https://ssim-dev.banksim.ca',
-    'https://bsim-dev.banksim.ca',
-    'https://bsim.banksim.ca',
+    'https://dev.banksim.ca',      // BSIM dev
+    'https://banksim.ca',          // BSIM production
   ],
+
+  // BSIM API URL for server-to-server card fetch during enrollment
+  // Dev: https://dev.banksim.ca
+  // Prod: https://banksim.ca
+  BSIM_API_URL: process.env.BSIM_API_URL || 'https://dev.banksim.ca',
 
   // WebAuthn / Passkeys
   WEBAUTHN_RP_NAME: process.env.WEBAUTHN_RP_NAME || 'WSIM Wallet',
@@ -52,8 +57,8 @@ export const env = {
   // Related origins for cross-origin passkey registration (WebAuthn Level 3)
   // These origins can register passkeys with WSIM's RP ID
   WEBAUTHN_RELATED_ORIGINS: process.env.WEBAUTHN_RELATED_ORIGINS?.split(',') || [
-    'https://bsim-dev.banksim.ca',
-    'https://bsim.banksim.ca',
+    'https://dev.banksim.ca',      // BSIM dev
+    'https://banksim.ca',          // BSIM production
   ],
 
   // Admin authentication
