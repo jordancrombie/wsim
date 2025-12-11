@@ -189,6 +189,9 @@ router.get('/', (req: Request, res: Response) => {
     allowedOrigin: origin,
     rpId: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
+    // Use FRONTEND_URL for browser-facing SSO URL (it proxies /api to backend)
+    // BACKEND_URL is the internal Docker network URL which browsers can't reach
+    backendUrl: env.FRONTEND_URL,
   });
 });
 
@@ -229,9 +232,14 @@ router.post('/check', async (req: Request, res: Response) => {
     }
 
     if (user) {
+      // Generate a session token for SSO (allows "Manage Wallet" to work for already-enrolled users)
+      const { token: sessionToken, expiresIn: sessionTokenExpiresIn } = generateSessionToken(user.id);
+
       return res.json({
         enrolled: true,
         walletId: user.walletId,
+        sessionToken,
+        sessionTokenExpiresIn,
       });
     }
 

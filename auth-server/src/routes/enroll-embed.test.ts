@@ -147,7 +147,7 @@ describe('Enroll Embed Routes', () => {
       expect(response.body.enrolled).toBe(false);
     });
 
-    it('should return enrolled=true for existing user by email', async () => {
+    it('should return enrolled=true with sessionToken for existing user by email', async () => {
       (prisma.walletUser.findUnique as any).mockResolvedValue({
         id: 'user-123',
         walletId: 'wallet-abc',
@@ -162,9 +162,14 @@ describe('Enroll Embed Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.enrolled).toBe(true);
       expect(response.body.walletId).toBe('wallet-abc');
+      // Verify sessionToken is returned for SSO support
+      expect(response.body.sessionToken).toBeDefined();
+      expect(typeof response.body.sessionToken).toBe('string');
+      expect(response.body.sessionTokenExpiresIn).toBeDefined();
+      expect(response.body.sessionTokenExpiresIn).toBe(30 * 24 * 60 * 60); // 30 days in seconds
     });
 
-    it('should return enrolled=true for existing user by bsimSub', async () => {
+    it('should return enrolled=true with sessionToken for existing user by bsimSub', async () => {
       (prisma.walletUser.findUnique as any).mockResolvedValue(null);
       (prisma.bsimEnrollment.findFirst as any).mockResolvedValue({
         user: {
@@ -183,6 +188,10 @@ describe('Enroll Embed Routes', () => {
       expect(response.status).toBe(200);
       expect(response.body.enrolled).toBe(true);
       expect(response.body.walletId).toBe('wallet-def');
+      // Verify sessionToken is returned for SSO support
+      expect(response.body.sessionToken).toBeDefined();
+      expect(typeof response.body.sessionToken).toBe('string');
+      expect(response.body.sessionTokenExpiresIn).toBeDefined();
     });
 
     it('should return 400 if email and bsimSub are both missing', async () => {

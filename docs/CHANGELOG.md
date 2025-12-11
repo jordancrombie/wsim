@@ -13,6 +13,20 @@ All notable changes to this project will be documented in this file.
   - Already-enrolled detection
   - Session token generation on successful enrollment
 
+- **Server-to-Server Partner SSO**: New `POST /api/partner/sso-token` endpoint enables true cross-device SSO
+  - BSIM can request short-lived (5 min) SSO tokens server-to-server
+  - Works on any device/browser - no localStorage dependency
+  - User only needs to be logged into BSIM to access WSIM wallet
+  - HMAC signature verification for request authenticity
+  - Lookup by BSIM user ID or email
+
+- **SSO Login Endpoint**: New `GET /api/auth/sso` endpoint for JWT-to-session exchange
+  - Exchanges JWT token for session cookie
+  - Redirects to wallet dashboard with active session
+  - Open redirect protection (only relative paths allowed)
+
+- **Already-Enrolled SSO Support**: Users who are already enrolled now receive `sessionToken` in the `wsim:already-enrolled` message, enabling "Manage Wallet" functionality
+
 ### Security
 - **Server-to-server card fetch for enrollment**: Card data (even masked last4, expiry) is now fetched server-to-server during embedded enrollment, rather than being passed through browser postMessage. Only a short-lived `cardToken` JWT passes through the browser.
 
