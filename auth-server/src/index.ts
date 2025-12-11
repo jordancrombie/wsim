@@ -7,6 +7,7 @@ import { createOidcProvider } from './oidc-config';
 import { createInteractionRoutes } from './routes/interaction';
 import popupRoutes from './routes/popup';
 import embedRoutes from './routes/embed';
+import enrollEmbedRoutes from './routes/enroll-embed';
 import adminAuthRoutes from './routes/adminAuth';
 import adminRoutes from './routes/admin';
 import { requireAdminAuth } from './middleware/adminAuth';
@@ -54,6 +55,9 @@ async function main() {
   // Mount embed routes (iframe integration)
   app.use('/embed', embedRoutes);
 
+  // Mount enrollment embed routes (in-bank enrollment with cross-origin passkey)
+  app.use('/enroll/embed', enrollEmbedRoutes);
+
   // Mount admin authentication routes (login/logout - public)
   app.use('/administration', adminAuthRoutes);
 
@@ -97,6 +101,15 @@ async function main() {
     res.json({ alive: true });
   });
 
+  // WebAuthn Related Origin Requests (Level 3)
+  // Allows cross-origin passkey registration from listed origins
+  // See: https://w3c.github.io/webauthn/#sctn-related-origins
+  app.get('/.well-known/webauthn', (req, res) => {
+    res.json({
+      origins: env.WEBAUTHN_RELATED_ORIGINS,
+    });
+  });
+
   // Home page
   app.get('/', (req, res) => {
     res.send(`
@@ -114,6 +127,7 @@ async function main() {
         <p>This is the OIDC provider for the Wallet Simulator.</p>
         <ul>
           <li><a href="/.well-known/openid-configuration">OpenID Configuration</a></li>
+          <li><a href="/.well-known/webauthn">WebAuthn Related Origins</a></li>
           <li><a href="/health">Health Check</a></li>
           <li><a href="/health/ready">Readiness Check</a></li>
           <li><a href="/health/live">Liveness Check</a></li>

@@ -1,9 +1,9 @@
 # Feature: In-Bank Enrollment (Cross-Origin Passkey Registration)
 
-**Status:** Planning
+**Status:** WSIM Implementation Complete - Awaiting BSIM Integration
 **Branch:** `feature/in-bank-enrollment`
 **Created:** 2025-12-10
-**Last Updated:** 2025-12-10
+**Last Updated:** 2025-12-11
 
 ---
 
@@ -434,8 +434,37 @@ Verify passkey registration and create user.
 
 ---
 
+## Implementation Status
+
+### WSIM Components (Complete)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `/.well-known/webauthn` endpoint | Done | Returns related origins for cross-origin passkey |
+| `/enroll/embed` route | Done | Main enrollment embed routes |
+| Enrollment embed view | Done | Card selection + passkey registration UI |
+| postMessage protocol | Done | Full bi-directional communication |
+| Identity verification | Done | HMAC signature validation |
+| Already enrolled detection | Done | Check by email or BSIM sub |
+| Cross-origin passkey registration | Done | Using WebAuthn Level 3 |
+| User/enrollment/card creation | Done | Transaction-safe creation |
+| Session token generation | Done | 30-day JWT returned on success |
+
+### BSIM Integration (Pending - External Team)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| "Enable Wallet Pay" button | Pending | BSIM team to implement |
+| Backend signature generation | Pending | BSIM team to implement |
+| postMessage communication | Pending | BSIM team to implement |
+
+**Integration Guide:** See [BSIM_ENROLLMENT_INTEGRATION.md](../BSIM_ENROLLMENT_INTEGRATION.md)
+
+---
+
 ## Changelog
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2025-12-11 | Claude | WSIM implementation complete; BSIM integration guide created |
 | 2025-12-10 | Claude | Initial BRD created |
