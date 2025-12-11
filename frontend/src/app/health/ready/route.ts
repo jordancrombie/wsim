@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
+// Use internal Docker URL for server-side health checks
+const BACKEND_INTERNAL_URL = process.env.BACKEND_INTERNAL_URL || "http://wsim-backend:3003";
 
 /**
  * Readiness check - is the service ready to accept traffic?
@@ -9,7 +10,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
  */
 export async function GET() {
   try {
-    const response = await fetch(`${API_URL}/health/ready`, {
+    const response = await fetch(`${BACKEND_INTERNAL_URL}/health/ready`, {
       method: "GET",
       cache: "no-store",
     });
