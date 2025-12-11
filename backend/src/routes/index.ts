@@ -11,6 +11,7 @@ const router = Router();
 
 // Mount route modules
 router.use('/health', healthRoutes);
+router.use('/api/health', healthRoutes); // Also expose health at /api/health for ALB routing
 router.use('/api/auth', authRoutes);
 router.use('/api/wallet', walletRoutes);
 router.use('/api/enrollment', enrollmentRoutes);
