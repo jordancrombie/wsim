@@ -65,23 +65,33 @@ function verifyBsimSignature(
   signature: string,
   secret: string
 ): boolean {
-  // Recreate the signed payload
-  const signedData = JSON.stringify({
-    claims: payload.claims,
-    cardToken: payload.cardToken,
-    bsimId: payload.bsimId,
-    timestamp: payload.timestamp,
-  });
+  try {
+    // Recreate the signed payload
+    const signedData = JSON.stringify({
+      claims: payload.claims,
+      cardToken: payload.cardToken,
+      bsimId: payload.bsimId,
+      timestamp: payload.timestamp,
+    });
 
-  const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(signedData)
-    .digest('hex');
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(signedData)
+      .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature, 'hex'),
-    Buffer.from(expectedSignature, 'hex')
-  );
+    // Check length first to avoid timing-safe comparison error
+    const signatureBuffer = Buffer.from(signature, 'hex');
+    const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+
+    if (signatureBuffer.length !== expectedBuffer.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+  } catch {
+    // Invalid signature format (e.g., not valid hex)
+    return false;
+  }
 }
 
 interface CardData {
