@@ -6,6 +6,7 @@ import enrollmentRoutes from './enrollment';
 import paymentRoutes from './payment';
 import passkeyRoutes from './passkey';
 import walletApiRoutes from './wallet-api';
+import partnerRoutes from './partner';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use('/api/enrollment', enrollmentRoutes);
 router.use('/api/payment', paymentRoutes);
 router.use('/api/passkey', passkeyRoutes);
 router.use('/api/merchant', walletApiRoutes);
+router.use('/api/partner', partnerRoutes); // Server-to-server partner integrations (BSIM SSO)
 
 export default router;

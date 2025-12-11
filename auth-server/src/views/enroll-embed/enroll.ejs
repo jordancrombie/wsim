@@ -215,6 +215,9 @@
         <button class="btn btn-primary" id="doneBtn">
           Done
         </button>
+        <button class="btn btn-secondary" id="manageWalletBtn" style="margin-top: 0.5rem;">
+          Manage Wallet
+        </button>
       </div>
 
       <!-- Already Enrolled Message -->
@@ -225,6 +228,9 @@
         </div>
         <button class="btn btn-primary" id="alreadyEnrolledDoneBtn">
           Got It
+        </button>
+        <button class="btn btn-secondary" id="alreadyEnrolledManageBtn" style="margin-top: 0.5rem;">
+          Manage Wallet
         </button>
       </div>
 
@@ -249,11 +255,13 @@
     const ALLOWED_ORIGIN = '<%= allowedOrigin %>';
     const RP_ID = '<%= rpId %>';
     const RP_NAME = '<%= rpName %>';
+    const BACKEND_URL = '<%= backendUrl %>';
 
     // State
     let enrollmentData = null;  // Will be populated from parent via postMessage
     let availableCards = [];    // Cards fetched server-to-server from BSIM
     let selectedCardIds = [];   // IDs of cards user has selected
+    let enrollmentResult = null; // Result from successful enrollment (contains sessionToken)
 
     // DOM elements
     const cardListEl = document.getElementById('cardList');
@@ -262,7 +270,9 @@
     const registerPasskeyBtnEl = document.getElementById('registerPasskeyBtn');
     const backToCardsBtnEl = document.getElementById('backToCardsBtn');
     const doneBtnEl = document.getElementById('doneBtn');
+    const manageWalletBtnEl = document.getElementById('manageWalletBtn');
     const alreadyEnrolledDoneBtnEl = document.getElementById('alreadyEnrolledDoneBtn');
+    const alreadyEnrolledManageBtnEl = document.getElementById('alreadyEnrolledManageBtn');
     const retryBtnEl = document.getElementById('retryBtn');
     const loadingOverlayEl = document.getElementById('loadingOverlay');
     const loadingTextEl = document.getElementById('loadingText');
@@ -534,6 +544,9 @@
         hideLoading();
 
         if (result.success) {
+          // Store result for "Manage Wallet" button
+          enrollmentResult = result;
+
           updateSteps(3);
           showSection(successSection);
 
@@ -566,8 +579,27 @@
       sendToParent({ type: 'wsim:enroll-complete' });
     });
 
+    manageWalletBtnEl.addEventListener('click', () => {
+      if (enrollmentResult && enrollmentResult.sessionToken) {
+        // Open wallet management in a new tab with SSO via backend API
+        // Backend will create session and redirect to frontend /wallet
+        const ssoUrl = new URL('/api/auth/sso', BACKEND_URL);
+        ssoUrl.searchParams.set('token', enrollmentResult.sessionToken);
+        window.open(ssoUrl.toString(), '_blank');
+      }
+    });
+
     alreadyEnrolledDoneBtnEl.addEventListener('click', () => {
       sendToParent({ type: 'wsim:already-enrolled' });
+    });
+
+    alreadyEnrolledManageBtnEl.addEventListener('click', () => {
+      if (enrollmentResult && enrollmentResult.sessionToken) {
+        // Open wallet management in a new tab with SSO via backend API
+        const ssoUrl = new URL('/api/auth/sso', BACKEND_URL);
+        ssoUrl.searchParams.set('token', enrollmentResult.sessionToken);
+        window.open(ssoUrl.toString(), '_blank');
+      }
     });
 
     retryBtnEl.addEventListener('click', () => {
@@ -602,9 +634,19 @@
         if (status.enrolled) {
           hideLoading();
           showSection(alreadyEnrolledSection);
+
+          // Store session info for "Manage Wallet" button
+          enrollmentResult = {
+            walletId: status.walletId,
+            sessionToken: status.sessionToken,
+            sessionTokenExpiresIn: status.sessionTokenExpiresIn,
+          };
+
           sendToParent({
             type: 'wsim:already-enrolled',
             walletId: status.walletId,
+            sessionToken: status.sessionToken,
+            sessionTokenExpiresIn: status.sessionTokenExpiresIn,
           });
           return;
         }

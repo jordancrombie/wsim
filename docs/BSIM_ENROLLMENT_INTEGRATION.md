@@ -524,6 +524,245 @@ If you previously integrated with an earlier version that passed cards via postM
 
 ---
 
+## Single Sign-On (SSO) for Wallet Management
+
+After enrollment, users may want to manage their WSIM Wallet (view cards, set default payment method, etc.). WSIM provides two SSO options:
+
+| Option | Description | Best For |
+|--------|-------------|----------|
+| **Server-to-Server SSO** (Recommended) | BSIM server requests fresh token from WSIM | Cross-device, any browser |
+| **Client-Side SSO** | Uses localStorage token from enrollment | Same browser only |
+
+---
+
+### Option 1: Server-to-Server SSO (Recommended)
+
+**True SSO** that works on any device/browser - user just needs to be logged into BSIM.
+
+#### How It Works
+
+1. User clicks "Open WSIM Wallet" in BSIM
+2. BSIM backend calls WSIM's `/api/partner/sso-token` endpoint
+3. WSIM returns a short-lived (5 min) SSO token
+4. BSIM frontend redirects user to WSIM with the token
+5. User is automatically logged in - no passkey needed
+
+#### BSIM Backend Implementation
+
+```typescript
+// POST /api/wsim/sso-url - Returns SSO URL for the current user
+import crypto from 'crypto';
+
+function generateSignature(payload: object, secret: string): string {
+  // Remove undefined values for consistent signing
+  const cleanPayload = Object.fromEntries(
+    Object.entries(payload).filter(([, v]) => v !== undefined)
+  );
+  const signedData = JSON.stringify(cleanPayload);
+  return crypto.createHmac('sha256', secret).update(signedData).digest('hex');
+}
+
+router.get('/api/wsim/sso-url', requireAuth, async (req, res) => {
+  const timestamp = Date.now();
+  const payload = {
+    bsimId: process.env.BSIM_ID,           // e.g., 'bsim'
+    bsimUserId: req.user.sub,               // BSIM user ID (fiUserRef)
+    timestamp,
+  };
+
+  const signature = generateSignature(payload, process.env.WSIM_SHARED_SECRET);
+
+  try {
+    const response = await fetch(`${process.env.WSIM_BACKEND_URL}/api/partner/sso-token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, signature }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      return res.status(response.status).json(error);
+    }
+
+    const data = await response.json();
+    res.json({ ssoUrl: data.ssoUrl });
+  } catch (error) {
+    console.error('Failed to get WSIM SSO URL:', error);
+    res.status(500).json({ error: 'Failed to get SSO URL' });
+  }
+});
+```
+
+#### BSIM Frontend Implementation
+
+```typescript
+async function openWsimWallet() {
+  try {
+    const response = await fetch('/api/wsim/sso-url', {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        // User not enrolled - show enrollment prompt
+        showEnrollmentPrompt();
+        return;
+      }
+      throw new Error('Failed to get SSO URL');
+    }
+
+    const { ssoUrl } = await response.json();
+    window.open(ssoUrl, '_blank');
+  } catch (error) {
+    console.error('Failed to open WSIM wallet:', error);
+    showError('Unable to open wallet. Please try again.');
+  }
+}
+```
+
+```html
+<button onclick="openWsimWallet()">
+  Open WSIM Wallet
+</button>
+```
+
+#### WSIM Partner SSO API Reference
+
+**Endpoint:** `POST /api/partner/sso-token`
+
+**Request:**
+```json
+{
+  "bsimId": "bsim",
+  "bsimUserId": "user-sub-from-bsim",
+  "email": "user@example.com",        // Optional if bsimUserId provided
+  "timestamp": 1733929200000,
+  "signature": "hmac-sha256-hex-signature"
+}
+```
+
+**Response (200):**
+```json
+{
+  "ssoToken": "eyJhbG...",
+  "ssoUrl": "https://wsim-dev.banksim.ca/api/auth/sso?token=eyJhbG...",
+  "expiresIn": 300,
+  "walletId": "wallet-abc"
+}
+```
+
+**Error Responses:**
+- `400` - Missing fields, expired timestamp (>5 min old)
+- `403` - Invalid signature
+- `404` - User not enrolled in WSIM
+
+---
+
+### Option 2: Client-Side SSO (Browser-Specific)
+
+Uses the `sessionToken` returned during enrollment. **Only works in the same browser** where enrollment occurred.
+
+#### How It Works
+
+1. **During Enrollment**: WSIM returns a `sessionToken` JWT (30-day validity) in the `wsim:enrolled` postMessage.
+
+2. **SSO Access**: To open wallet management with SSO:
+   ```
+   https://wsim-dev.banksim.ca/api/auth/sso?token=<sessionToken>
+   ```
+
+3. **What Happens**: The WSIM backend validates the token, creates a session cookie, and redirects the user to the wallet dashboard at `/wallet`.
+
+#### Built-in "Manage Wallet" Button
+
+The WSIM enrollment popup already includes a "Manage Wallet" button after successful enrollment. Users can click this to open their wallet in a new tab with SSO.
+
+No additional BSIM implementation required.
+
+#### Bank-Side Implementation (Optional)
+
+If you want to add a "Manage Wallet" link within your bank's UI:
+
+```typescript
+// WSIM Backend URL (NOT the auth server)
+// Dev: https://wsim-dev.banksim.ca
+// Prod: https://wsim.banksim.ca
+const WSIM_BACKEND_URL = 'https://wsim-dev.banksim.ca';
+
+// Store the session token after enrollment
+window.addEventListener('message', (event) => {
+  if (event.origin !== WSIM_AUTH_URL) return;
+
+  if (event.data.type === 'wsim:enrolled' || event.data.type === 'wsim:already-enrolled') {
+    // Store the token (localStorage)
+    if (event.data.sessionToken) {
+      localStorage.setItem('wsim_session_token', event.data.sessionToken);
+      localStorage.setItem('wsim_session_expires',
+        String(Date.now() + event.data.sessionTokenExpiresIn * 1000));
+    }
+  }
+});
+
+// Function to open wallet management (same-browser only)
+function openWalletManagementClientSide() {
+  const token = localStorage.getItem('wsim_session_token');
+  const expires = parseInt(localStorage.getItem('wsim_session_expires') || '0');
+
+  if (!token || Date.now() > expires) {
+    // Token expired or not available - use server-to-server SSO instead
+    openWsimWallet(); // Call the server-to-server version
+    return;
+  }
+
+  // SSO via backend API - creates session and redirects to frontend /wallet
+  const ssoUrl = `${WSIM_BACKEND_URL}/api/auth/sso?token=${encodeURIComponent(token)}`;
+  window.open(ssoUrl, '_blank');
+}
+```
+
+---
+
+### SSO Endpoints Summary
+
+| Environment | SSO Endpoint |
+|-------------|--------------|
+| Local dev | `http://localhost:3003/api/auth/sso?token=<token>` |
+| Dev/staging | `https://wsim-dev.banksim.ca/api/auth/sso?token=<token>` |
+| Production | `https://wsim.banksim.ca/api/auth/sso?token=<token>` |
+
+| Environment | Partner SSO Token Endpoint |
+|-------------|---------------------------|
+| Local dev | `http://localhost:3003/api/partner/sso-token` |
+| Dev/staging | `https://wsim-dev.banksim.ca/api/partner/sso-token` |
+| Production | `https://wsim.banksim.ca/api/partner/sso-token` |
+
+### SSO Security Considerations
+
+1. **Server-to-Server Tokens**:
+   - Short-lived (5 minutes) - minimizes exposure window
+   - Generated fresh per request - no storage required
+   - HMAC-signed requests prevent forgery
+
+2. **Client-Side Tokens**:
+   - Longer-lived (30 days) - for localStorage convenience
+   - Browser-specific - lost if user clears data or uses different device
+   - Best used as fallback when server-to-server isn't implemented
+
+3. **SSO URL Validation**:
+   - WSIM validates that the redirect stays within relative paths
+   - Open redirect attacks are prevented
+
+### Wallet Management Features
+
+Once logged in via SSO, users can:
+- View all enrolled payment cards
+- Set a default payment card
+- Remove cards from their wallet
+- View registered passkeys
+- Log out of wallet management
+
+---
+
 ## Support
 
 For integration support or to register your origin, contact the WSIM team.
