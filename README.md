@@ -36,12 +36,25 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ## Project Status
 
-**Current Phase**: BSIM Integration Testing
+**Current Phase**: Production Ready
 
-- BSIM team has completed Phase 1 (`wallet:enroll` scope and wallet APIs)
-- WSIM integrated into BSIM docker-compose stack
-- Enrollment flow tested: bank selection → BSIM auth → card consent working
-- Token exchange in progress (RFC 9207 compliance fixes applied)
+### Key Features
+
+- **Multiple Integration Methods**: Popup, Inline (iframe), Redirect, and Quick Pay flows
+- **In-Bank Enrollment**: Users can enroll directly from partner bank websites via embedded iframe
+- **Cross-Origin Passkey Registration**: WebAuthn Level 3 Related Origin Requests support
+- **Partner SSO**: Server-to-server JWT-based authentication for seamless cross-device access
+- **Passkey Authentication**: WebAuthn/FIDO2 for secure, passwordless login
+- **Admin Dashboard**: OAuth client management with passkey-only admin access
+- **Modern Checkout UI**: Branded wallet checkout with step progress and payment summary
+
+### Recent Updates (December 2025)
+
+- In-Bank Enrollment with cross-origin passkey registration
+- Redirect flow checkout UI redesign with branded wallet experience
+- Partner SSO for cross-device wallet access
+- Admin UI enhancements (grant types, API key management)
+- Quick Pay integration for returning users
 
 See [TODO.md](./TODO.md) for detailed progress and [CHANGELOG.md](./CHANGELOG.md) for history.
 
@@ -157,10 +170,12 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 | Document | Description |
 |----------|-------------|
 | [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) | Docker, nginx, environment setup |
-| [docs/MERCHANT_UI_INTEGRATION_GUIDE.md](./docs/MERCHANT_UI_INTEGRATION_GUIDE.md) | Popup, iframe, redirect integration |
+| [docs/MERCHANT_UI_INTEGRATION_GUIDE.md](./docs/MERCHANT_UI_INTEGRATION_GUIDE.md) | Popup, iframe, redirect, Quick Pay integration |
 | [docs/API_PAYMENT_INTEGRATION_FLOWS.md](./docs/API_PAYMENT_INTEGRATION_FLOWS.md) | API-based wallet integration |
 | [docs/BANK_INTEGRATION_API.md](./docs/BANK_INTEGRATION_API.md) | Bank provider integration spec |
 | [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing integration |
+| [docs/BSIM_ENROLLMENT_INTEGRATION.md](./docs/BSIM_ENROLLMENT_INTEGRATION.md) | In-bank enrollment integration for partners |
+| [docs/features/IN_BANK_ENROLLMENT.md](./docs/features/IN_BANK_ENROLLMENT.md) | In-bank enrollment feature documentation |
 
 ## API Endpoints
 
