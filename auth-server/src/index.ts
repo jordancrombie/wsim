@@ -46,6 +46,9 @@ async function main() {
   // Create OIDC provider
   const provider = await createOidcProvider();
 
+  // Store provider on app for cache clearing from admin routes
+  app.set('oidcProvider', provider);
+
   // Mount interaction routes (login, consent, card selection)
   app.use('/interaction', createInteractionRoutes(provider));
 

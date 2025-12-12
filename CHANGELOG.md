@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Admin Interface: Grant Types & API Key Management (2025-12-11)**
+  - Grant Types field added to OAuth client edit form
+    - Checkbox UI for selecting `authorization_code`, `refresh_token`, and `implicit` grants
+    - Defaults to `authorization_code` if no grants selected
+  - Merchant API Key management section
+    - Generate new API key for OAuth-only clients
+    - Regenerate existing API key (invalidates old key)
+    - Revoke API key to disable API access
+    - API keys displayed in readonly field with copy-friendly format
+  - Auto-reload of OAuth clients when settings change via admin UI
+    - No container restart required after modifying client settings
+    - Uses `provider.Client.cacheClear()` to invalidate cached client data
+  - Modified files:
+    - `auth-server/src/views/admin/client-form.ejs` - Added grant types checkboxes and API key section
+    - `auth-server/src/routes/admin.ts` - Added grantTypes parsing, API key operations, cache clearing
+    - `auth-server/src/routes/admin.test.ts` - Added tests for grantTypes and API key operations
+    - `auth-server/src/index.ts` - Store provider on app for cache clearing from admin routes
+    - `auth-server/src/adapters/prisma.ts` - Added Client model handling for dynamic client loading
+
+### Fixed
+- **OAuth Client Scope Validation Error (2025-12-11)**
+  - Fixed "scope must only contain Authorization Server supported scope values" error
+  - Root cause: PrismaAdapter didn't handle `Client` model lookups when cache was cleared
+  - Added Client model handling to `PrismaAdapter.find()` to load from OAuthClient table
+  - Clients now reload correctly from database after cache invalidation
+
 - **Quick Pay Documentation (2025-12-09)**
   - Added Method 4: Quick Pay Integration to `MERCHANT_UI_INTEGRATION_GUIDE.md`
   - Quick Pay enables returning users to complete payments without popup/iframe

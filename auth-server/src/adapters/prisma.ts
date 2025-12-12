@@ -38,6 +38,27 @@ export class PrismaAdapter {
   }
 
   async find(id: string): Promise<object | undefined> {
+    // Handle Client model specially - load from OAuthClient table
+    if (this.model === 'Client') {
+      const client = await prisma.oAuthClient.findUnique({
+        where: { clientId: id },
+      });
+
+      if (!client) return undefined;
+
+      // Return in oidc-provider's expected format
+      return {
+        client_id: client.clientId,
+        client_secret: client.clientSecret,
+        client_name: client.clientName,
+        redirect_uris: client.redirectUris,
+        post_logout_redirect_uris: client.postLogoutRedirectUris,
+        grant_types: client.grantTypes,
+        scope: client.scope,
+        logo_uri: client.logoUri || undefined,
+      };
+    }
+
     const doc = await prisma.oidcPayload.findUnique({
       where: { id: this.key(id) },
     });
