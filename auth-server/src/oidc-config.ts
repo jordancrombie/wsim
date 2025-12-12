@@ -250,10 +250,11 @@ export async function createOidcProvider(): Promise<Provider> {
 
   const provider = new Provider(env.ISSUER, configuration);
 
-  // Allow HTTP in development
-  if (env.NODE_ENV === 'development') {
-    provider.proxy = true;
-  }
+  // Enable proxy mode when behind a reverse proxy (nginx) that terminates SSL.
+  // This makes oidc-provider trust X-Forwarded-Proto headers and generate
+  // correct HTTPS URLs in the discovery document and redirects.
+  // Required in both dev and production when running behind nginx.
+  provider.proxy = true;
 
   return provider;
 }
