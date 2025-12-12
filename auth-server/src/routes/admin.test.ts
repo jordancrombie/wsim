@@ -133,6 +133,7 @@ describe('Admin Routes', () => {
         scope: 'openid profile',
         logoUri: '',
         trusted: '',
+        grantTypes: ['authorization_code', 'refresh_token'], // Explicit grant types
       };
 
       (prisma.oAuthClient.create as any).mockResolvedValue({
@@ -271,6 +272,99 @@ describe('Admin Routes', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             clientSecret: expect.any(String),
+          }),
+        })
+      );
+    });
+
+    it('should generate API key when requested', async () => {
+      (prisma.oAuthClient.update as any).mockResolvedValue({ id: 'client-123' });
+
+      const response = await request(app)
+        .post('/administration/clients/client-123')
+        .send({
+          clientName: 'Updated Name',
+          redirectUris: 'https://new.com/callback',
+          scope: 'openid',
+          generateApiKey: 'on',
+        });
+
+      expect(response.status).toBe(302);
+      expect(decodeURIComponent(response.headers.location)).toContain('New API key:');
+      expect(prisma.oAuthClient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            apiKey: expect.stringMatching(/^wsim_api_/),
+          }),
+        })
+      );
+    });
+
+    it('should regenerate API key when requested', async () => {
+      (prisma.oAuthClient.update as any).mockResolvedValue({ id: 'client-123' });
+
+      const response = await request(app)
+        .post('/administration/clients/client-123')
+        .send({
+          clientName: 'Updated Name',
+          redirectUris: 'https://new.com/callback',
+          scope: 'openid',
+          regenerateApiKey: 'on',
+        });
+
+      expect(response.status).toBe(302);
+      expect(decodeURIComponent(response.headers.location)).toContain('New API key:');
+      expect(prisma.oAuthClient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            apiKey: expect.stringMatching(/^wsim_api_/),
+          }),
+        })
+      );
+    });
+
+    it('should revoke API key when requested', async () => {
+      (prisma.oAuthClient.update as any).mockResolvedValue({ id: 'client-123' });
+
+      const response = await request(app)
+        .post('/administration/clients/client-123')
+        .send({
+          clientName: 'Updated Name',
+          redirectUris: 'https://new.com/callback',
+          scope: 'openid',
+          revokeApiKey: 'on',
+        });
+
+      expect(response.status).toBe(302);
+      expect(decodeURIComponent(response.headers.location)).toContain('API key revoked');
+      expect(prisma.oAuthClient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            apiKey: null,
+          }),
+        })
+      );
+    });
+
+    it('should prioritize revoke over regenerate for API key', async () => {
+      (prisma.oAuthClient.update as any).mockResolvedValue({ id: 'client-123' });
+
+      const response = await request(app)
+        .post('/administration/clients/client-123')
+        .send({
+          clientName: 'Updated Name',
+          redirectUris: 'https://new.com/callback',
+          scope: 'openid',
+          revokeApiKey: 'on',
+          regenerateApiKey: 'on', // Both checked - revoke should win
+        });
+
+      expect(response.status).toBe(302);
+      expect(decodeURIComponent(response.headers.location)).toContain('API key revoked');
+      expect(prisma.oAuthClient.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            apiKey: null,
           }),
         })
       );
