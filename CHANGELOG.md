@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **In-Bank Enrollment with Cross-Origin Passkey Registration (2025-12-12)**
+  - New enrollment flow allowing users to enroll in WSIM wallet directly from partner bank websites
+  - Embedded enrollment UI (`/enroll/embed`) that can be loaded in an iframe on partner sites
+  - Cross-origin WebAuthn passkey registration using Related Origin Requests (WebAuthn Level 3)
+  - Server-to-server partner authentication via signed JWT tokens
+  - New files:
+    - `auth-server/src/routes/enroll-embed.ts` - Embedded enrollment routes and card fetching
+    - `auth-server/src/views/enroll-embed/enroll.ejs` - Enrollment UI with passkey registration
+    - `backend/src/routes/partner.ts` - Partner SSO token generation endpoint
+    - `docs/features/IN_BANK_ENROLLMENT.md` - Feature documentation and BRD
+    - `docs/BSIM_ENROLLMENT_INTEGRATION.md` - Integration guide for bank partners
+  - Environment variables:
+    - `PARTNER_JWT_SECRET` - Secret for signing partner SSO tokens
+    - `ALLOWED_ENROLL_EMBED_ORIGINS` - Whitelist for iframe embedding
+  - Unit tests for enroll-embed routes (20 tests)
+
+- **Partner SSO for Cross-Device Wallet Access (2025-12-11)**
+  - New `/api/partner/sso-token` endpoint for generating secure SSO tokens
+  - Enables partner banks to provide seamless wallet access to their users
+  - JWT-based token with configurable expiry (default 5 minutes)
+  - Validates partner API key and user wallet enrollment
+  - Unit tests for partner routes (8 tests)
+
 - **Admin Interface: Grant Types & API Key Management (2025-12-11)**
   - Grant Types field added to OAuth client edit form
     - Checkbox UI for selecting `authorization_code`, `refresh_token`, and `implicit` grants
@@ -28,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `auth-server/src/adapters/prisma.ts` - Added Client model handling for dynamic client loading
 
 ### Fixed
+- **OIDC Discovery Document HTTP URLs (2025-12-12)**
+  - Enabled `provider.proxy = true` in all environments (not just development)
+  - Fixes 301 redirect errors when OAuth clients call token endpoint
+  - Required for AWS ALB deployments where SSL is terminated at the load balancer
+  - oidc-provider now trusts `X-Forwarded-Proto` headers to generate correct HTTPS URLs
+
 - **OAuth Client Scope Validation Error (2025-12-11)**
   - Fixed "scope must only contain Authorization Server supported scope values" error
   - Root cause: PrismaAdapter didn't handle `Client` model lookups when cache was cleared
