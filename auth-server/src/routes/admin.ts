@@ -2,8 +2,28 @@ import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../adapters/prisma';
 import { env } from '../config/env';
+import Provider from 'oidc-provider';
 
 const router = Router();
+
+// Helper to clear OIDC client cache after changes
+// Note: cacheClear exists at runtime but isn't in oidc-provider's TypeScript types
+function clearClientCache(req: Request, clientId?: string) {
+  const provider = req.app.get('oidcProvider') as Provider | undefined;
+  if (provider) {
+    // Cast to any to access internal cache method not exposed in types
+    const Client = provider.Client as any;
+    if (clientId) {
+      // Clear specific client from cache
+      Client.cacheClear?.(clientId);
+      console.log(`[Admin] Cleared OIDC cache for client: ${clientId}`);
+    } else {
+      // Clear all clients from cache
+      Client.cacheClear?.();
+      console.log('[Admin] Cleared all OIDC client cache');
+    }
+  }
+}
 
 // Helper to check if current admin is SUPER_ADMIN
 function isSuperAdmin(req: Request): boolean {
@@ -73,6 +93,7 @@ router.post('/clients', async (req: Request, res: Response, next: NextFunction) 
       scope,
       logoUri,
       trusted,
+      grantTypes,
     } = req.body;
 
     // Generate a secure client secret
@@ -87,6 +108,13 @@ router.post('/clients', async (req: Request, res: Response, next: NextFunction) 
             .filter(Boolean)
         : [];
 
+    // Parse grant types from checkbox form input (can be string or array)
+    const parseGrantTypes = (input: string | string[] | undefined): string[] => {
+      if (!input) return ['authorization_code']; // Default
+      if (Array.isArray(input)) return input;
+      return [input]; // Single checkbox value
+    };
+
     await prisma.oAuthClient.create({
       data: {
         clientId: clientId.trim(),
@@ -94,12 +122,15 @@ router.post('/clients', async (req: Request, res: Response, next: NextFunction) 
         clientName: clientName.trim(),
         redirectUris: parseArray(redirectUris),
         postLogoutRedirectUris: parseArray(postLogoutRedirectUris),
-        grantTypes: ['authorization_code', 'refresh_token'],
+        grantTypes: parseGrantTypes(grantTypes),
         scope: scope.trim(),
         logoUri: logoUri?.trim() || null,
         trusted: trusted === 'on',
       },
     });
+
+    // Clear OIDC client cache so new client is immediately available
+    clearClientCache(req, clientId.trim());
 
     res.redirect(`/administration?message=Client "${clientName}" created successfully. Secret: ${clientSecret}`);
   } catch (err: any) {
@@ -153,6 +184,10 @@ router.post('/clients/:id', async (req: Request, res: Response, next: NextFuncti
       logoUri,
       trusted,
       regenerateSecret,
+      grantTypes,
+      generateApiKey,
+      regenerateApiKey,
+      revokeApiKey,
     } = req.body;
 
     // Parse arrays from form input (newline-separated)
@@ -164,10 +199,18 @@ router.post('/clients/:id', async (req: Request, res: Response, next: NextFuncti
             .filter(Boolean)
         : [];
 
+    // Parse grant types from checkbox form input (can be string or array)
+    const parseGrantTypes = (input: string | string[] | undefined): string[] => {
+      if (!input) return ['authorization_code']; // Default
+      if (Array.isArray(input)) return input;
+      return [input]; // Single checkbox value
+    };
+
     const updateData: any = {
       clientName: clientName.trim(),
       redirectUris: parseArray(redirectUris),
       postLogoutRedirectUris: parseArray(postLogoutRedirectUris),
+      grantTypes: parseGrantTypes(grantTypes),
       scope: scope.trim(),
       logoUri: logoUri?.trim() || null,
       trusted: trusted === 'on',
@@ -180,13 +223,43 @@ router.post('/clients/:id', async (req: Request, res: Response, next: NextFuncti
       updateData.clientSecret = newSecret;
     }
 
-    await prisma.oAuthClient.update({
+    // Handle API key operations
+    let newApiKey: string | null = null;
+    let apiKeyRevoked = false;
+
+    if (revokeApiKey === 'on') {
+      // Revoke (remove) API key
+      updateData.apiKey = null;
+      apiKeyRevoked = true;
+    } else if (generateApiKey === 'on' || regenerateApiKey === 'on') {
+      // Generate new API key (format: wsim_api_{random})
+      newApiKey = `wsim_api_${crypto.randomBytes(24).toString('base64url')}`;
+      updateData.apiKey = newApiKey;
+    }
+
+    const updatedClient = await prisma.oAuthClient.update({
       where: { id: req.params.id },
       data: updateData,
+      select: { clientId: true },
     });
 
-    const message = newSecret
-      ? `Client updated. New secret: ${newSecret}`
+    // Clear OIDC client cache so changes take effect immediately
+    clearClientCache(req, updatedClient.clientId);
+
+    // Build success message
+    const messages: string[] = [];
+    if (newSecret) {
+      messages.push(`New secret: ${newSecret}`);
+    }
+    if (newApiKey) {
+      messages.push(`New API key: ${newApiKey}`);
+    }
+    if (apiKeyRevoked) {
+      messages.push('API key revoked');
+    }
+
+    const message = messages.length > 0
+      ? `Client updated. ${messages.join('. ')}`
       : 'Client updated successfully';
 
     res.redirect(`/administration?message=${encodeURIComponent(message)}`);
@@ -202,7 +275,7 @@ router.post('/clients/:id/delete', async (req: Request, res: Response, next: Nex
   try {
     const client = await prisma.oAuthClient.findUnique({
       where: { id: req.params.id },
-      select: { clientName: true },
+      select: { clientId: true, clientName: true },
     });
 
     if (!client) {
@@ -212,6 +285,9 @@ router.post('/clients/:id/delete', async (req: Request, res: Response, next: Nex
     await prisma.oAuthClient.delete({
       where: { id: req.params.id },
     });
+
+    // Clear OIDC client cache so deleted client is no longer usable
+    clearClientCache(req, client.clientId);
 
     res.redirect(`/administration?message=Client "${client.clientName}" deleted`);
   } catch (err) {

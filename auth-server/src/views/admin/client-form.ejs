@@ -281,6 +281,33 @@
                      value="<%= client?.scope || 'openid profile email wallet:cards wallet:pay' %>"
                      placeholder="openid profile email wallet:cards wallet:pay">
             </div>
+
+            <div class="form-group">
+              <label>
+                Grant Types
+                <span class="label-hint">Select the OAuth grant types this client is allowed to use</span>
+              </label>
+              <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                <div class="checkbox-group">
+                  <input type="checkbox" id="grant_authorization_code" name="grantTypes" value="authorization_code"
+                         <%= !client?.grantTypes || client.grantTypes.includes('authorization_code') ? 'checked' : '' %>>
+                  <label for="grant_authorization_code">authorization_code (standard OAuth flow)</label>
+                </div>
+                <div class="checkbox-group">
+                  <input type="checkbox" id="grant_refresh_token" name="grantTypes" value="refresh_token"
+                         <%= client?.grantTypes?.includes('refresh_token') ? 'checked' : '' %>>
+                  <label for="grant_refresh_token">refresh_token (allow token refresh)</label>
+                </div>
+                <div class="checkbox-group">
+                  <input type="checkbox" id="grant_implicit" name="grantTypes" value="implicit"
+                         <%= client?.grantTypes?.includes('implicit') ? 'checked' : '' %>>
+                  <label for="grant_implicit">implicit (legacy, not recommended)</label>
+                </div>
+              </div>
+              <div class="warning-box" style="margin-top: 12px;">
+                Note: For wallet payment flows, only <code>authorization_code</code> is typically needed. Adding <code>refresh_token</code> may cause errors with some OIDC configurations.
+              </div>
+            </div>
           </div>
 
           <div class="form-section">
@@ -320,6 +347,47 @@
                 </div>
                 <div class="warning-box">
                   Warning: Regenerating the client secret will invalidate the existing secret. The application will need to be updated with the new secret.
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Merchant API Access</div>
+              <p class="label-hint" style="margin-bottom: 16px;">
+                API keys allow merchants to use the Popup/Inline card picker and direct API payment flows.
+              </p>
+
+              <div class="form-group">
+                <label>API Key</label>
+                <% if (client.apiKey) { %>
+                  <div class="readonly-field" style="font-family: monospace; word-break: break-all;">
+                    <%= client.apiKey %>
+                  </div>
+                  <div style="margin-top: 12px; display: flex; gap: 8px;">
+                    <div class="checkbox-group">
+                      <input type="checkbox" id="regenerateApiKey" name="regenerateApiKey">
+                      <label for="regenerateApiKey">Regenerate API Key</label>
+                    </div>
+                  </div>
+                  <div style="margin-top: 8px;">
+                    <div class="checkbox-group">
+                      <input type="checkbox" id="revokeApiKey" name="revokeApiKey">
+                      <label for="revokeApiKey" style="color: #dc2626;">Revoke API Key (disable API access)</label>
+                    </div>
+                  </div>
+                <% } else { %>
+                  <div class="readonly-field" style="color: #6b7280; font-style: italic;">
+                    No API key configured
+                  </div>
+                  <div style="margin-top: 12px;">
+                    <div class="checkbox-group">
+                      <input type="checkbox" id="generateApiKey" name="generateApiKey">
+                      <label for="generateApiKey">Generate API Key</label>
+                    </div>
+                  </div>
+                <% } %>
+                <div class="warning-box" style="margin-top: 12px;">
+                  Note: API keys are used for Merchant API access (Popup/Inline flows). The key is sent via <code>X-API-Key</code> header.
                 </div>
               </div>
             </div>
