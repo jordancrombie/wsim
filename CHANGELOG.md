@@ -50,6 +50,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `auth-server/src/index.ts` - Store provider on app for cache clearing from admin routes
     - `auth-server/src/adapters/prisma.ts` - Added Client model handling for dynamic client loading
 
+### Changed
+- **Redirect Flow Checkout UI Redesign (2025-12-12)**
+  - Complete visual redesign of redirect-based wallet checkout pages
+  - New WSIM Wallet branded header with logo and "Secure Checkout" subtitle
+  - Step progress indicator showing checkout flow (login → consent → card select)
+  - Payment summary panel displaying merchant name and amount
+  - Card picker with brand-specific styling (Visa blue, Mastercard red/gold, Amex blue)
+  - Checkmark indicator for selected card
+  - "Secured by WSIM" footer badge
+  - Modern button styling with gradient and hover effects
+  - All views now self-contained with embedded CSS (no layout dependency)
+  - Modified files:
+    - `auth-server/src/views/login.ejs` - Redesigned login page
+    - `auth-server/src/views/consent.ejs` - Redesigned consent page
+    - `auth-server/src/views/card-select.ejs` - Redesigned card selection page
+    - `auth-server/src/views/error.ejs` - Redesigned error page
+    - `auth-server/src/views/layout.ejs` - Updated base styles
+
 ### Fixed
 - **OIDC Discovery Document HTTP URLs (2025-12-12)**
   - Enabled `provider.proxy = true` in all environments (not just development)
