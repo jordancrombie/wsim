@@ -229,11 +229,25 @@ Access at: https://wsim-dev.banksim.ca
 - [x] Enrollment list and delete
 - [x] Card management (set default, remove)
 
-### Phase 3 (Future)
-- [ ] Biometric authentication (Face ID / Touch ID)
+### Phase 3 ✅ COMPLETE
+- [x] Mobile payment flow (merchant creates request, user approves in app)
+  - [x] `POST /api/mobile/payment/request` - Merchant creates payment request
+  - [x] `GET /api/mobile/payment/:requestId/status` - Merchant polls for approval
+  - [x] `POST /api/mobile/payment/:requestId/cancel` - Cancel payment
+  - [x] `POST /api/mobile/payment/:requestId/complete` - Exchange token for card tokens
+  - [x] `GET /api/mobile/payment/:requestId` - Get payment details (for app)
+  - [x] `POST /api/mobile/payment/:requestId/approve` - User approves with card
+  - [x] `GET /api/mobile/payment/pending` - List pending payments
+  - [x] `POST /api/mobile/payment/:requestId/test-approve` - E2E test helper
+- [x] Database schema (MobilePaymentRequest)
+- [x] Deep link support (`mwsim://payment/:requestId`)
+- [x] Standardized error codes (PAYMENT_NOT_FOUND, PAYMENT_EXPIRED, etc.)
+
+### Phase 4 (Future)
+- [ ] Biometric authentication (Face ID / Touch ID) with cryptographic signature
 - [ ] Push notification token storage
 - [ ] Multi-device management
-- [ ] Mobile payment flow (JWT auth for merchant endpoints)
+- [ ] QR code flow for desktop checkout
 
 ---
 

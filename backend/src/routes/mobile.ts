@@ -17,6 +17,23 @@
  * - GET /enrollment/banks - List available banks
  * - POST /enrollment/start/:bsimId - Start enrollment (returns auth URL)
  * - GET /enrollment/callback/:bsimId - Handle OAuth callback
+ * - GET /enrollment/list - List user's enrolled banks
+ * - DELETE /enrollment/:enrollmentId - Remove bank enrollment
+ *
+ * Phase 3 (Payment Flow - mwsim app approval):
+ * Merchant endpoints (x-api-key auth):
+ * - POST /payment/request - Create payment request
+ * - GET /payment/:requestId/status - Poll for approval status
+ * - POST /payment/:requestId/cancel - Cancel payment request
+ * - POST /payment/:requestId/complete - Exchange one-time token for card tokens
+ *
+ * Mobile app endpoints (JWT auth):
+ * - GET /payment/:requestId - Get payment details for approval screen
+ * - POST /payment/:requestId/approve - Approve with selected card
+ * - GET /payment/pending - List user's pending payments
+ *
+ * Test endpoints (dev only):
+ * - POST /payment/:requestId/test-approve - Simulate approval for E2E tests
  */
 
 import { Router, Request, Response } from 'express';
@@ -24,7 +41,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
-import { encrypt, generateWalletCardToken } from '../utils/crypto';
+import { encrypt, decrypt, generateWalletCardToken } from '../utils/crypto';
 import {
   BsimProviderConfig,
   buildAuthorizationUrl,
@@ -1353,5 +1370,791 @@ router.delete('/enrollment/:enrollmentId', requireMobileAuth, async (req: Authen
     });
   }
 });
+
+// =============================================================================
+// MOBILE PAYMENT FLOW (Phase 3)
+// =============================================================================
+// Payment flow for mobile app approval of merchant payments.
+// Flow:
+// 1. Merchant creates payment request via POST /api/mobile/payment/request
+// 2. User opens request in mwsim app via GET /api/mobile/payment/:requestId
+// 3. User approves via POST /api/mobile/payment/:requestId/approve
+// 4. Merchant polls status via GET /api/mobile/payment/:requestId/status
+// 5. Merchant completes via POST /api/mobile/payment/:requestId/complete
+
+const PAYMENT_REQUEST_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const APPROVAL_EXTENSION_MS = 60 * 1000; // 60 seconds added on approval
+
+// Standard error codes (agreed with mwsim/SSIM teams)
+const PaymentErrors = {
+  PAYMENT_NOT_FOUND: { code: 'PAYMENT_NOT_FOUND', status: 404, message: 'Payment request not found' },
+  PAYMENT_EXPIRED: { code: 'PAYMENT_EXPIRED', status: 410, message: 'Payment request has expired' },
+  PAYMENT_ALREADY_PROCESSED: { code: 'PAYMENT_ALREADY_PROCESSED', status: 409, message: 'Payment has already been processed' },
+  CARD_NOT_FOUND: { code: 'CARD_NOT_FOUND', status: 404, message: 'Card not found in user wallet' },
+  CARD_TOKEN_ERROR: { code: 'CARD_TOKEN_ERROR', status: 502, message: 'Failed to get card token from bank' },
+  UNAUTHORIZED: { code: 'UNAUTHORIZED', status: 401, message: 'Authentication required' },
+  FORBIDDEN: { code: 'FORBIDDEN', status: 403, message: 'Not authorized for this payment' },
+  INVALID_REQUEST: { code: 'INVALID_REQUEST', status: 400, message: 'Invalid request parameters' },
+  INVALID_API_KEY: { code: 'INVALID_API_KEY', status: 401, message: 'Invalid API key' },
+} as const;
+
+function paymentError(res: Response, error: typeof PaymentErrors[keyof typeof PaymentErrors], customMessage?: string) {
+  return res.status(error.status).json({
+    error: error.code,
+    message: customMessage || error.message,
+  });
+}
+
+/**
+ * Middleware to verify merchant API key for payment endpoints.
+ * Attaches merchant info to request.
+ */
+interface MerchantRequest extends Request {
+  merchant?: {
+    clientId: string;
+    clientName: string;
+    apiKey: string;
+  };
+}
+
+async function requireMerchantApiKey(req: MerchantRequest, res: Response, next: () => void) {
+  const apiKey = req.headers['x-api-key'] as string;
+
+  if (!apiKey) {
+    return paymentError(res, PaymentErrors.INVALID_API_KEY, 'x-api-key header is required');
+  }
+
+  const merchant = await prisma.oAuthClient.findFirst({
+    where: { apiKey },
+    select: {
+      clientId: true,
+      clientName: true,
+      apiKey: true,
+    },
+  });
+
+  if (!merchant || !merchant.apiKey) {
+    return paymentError(res, PaymentErrors.INVALID_API_KEY);
+  }
+
+  req.merchant = {
+    clientId: merchant.clientId,
+    clientName: merchant.clientName,
+    apiKey: merchant.apiKey,
+  };
+
+  next();
+}
+
+/**
+ * POST /api/mobile/payment/request
+ *
+ * Create a new mobile payment request.
+ * Called by merchant (SSIM) to initiate a payment that user will approve in mwsim.
+ *
+ * Requires: x-api-key header
+ */
+router.post('/payment/request', requireMerchantApiKey, async (req: MerchantRequest, res: Response) => {
+  try {
+    const { merchant } = req;
+    if (!merchant) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    const { amount, currency, orderId, orderDescription, returnUrl, merchantName, merchantLogoUrl } = req.body as {
+      amount: string | number;
+      currency?: string;
+      orderId: string;
+      orderDescription?: string;
+      returnUrl: string;
+      merchantName?: string;
+      merchantLogoUrl?: string;
+    };
+
+    // Validate required fields
+    if (!amount || !orderId || !returnUrl) {
+      return paymentError(res, PaymentErrors.INVALID_REQUEST, 'amount, orderId, and returnUrl are required');
+    }
+
+    const parsedAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return paymentError(res, PaymentErrors.INVALID_REQUEST, 'Invalid amount');
+    }
+
+    // Auto-cancel any previous pending requests for same merchant + orderId
+    await prisma.mobilePaymentRequest.updateMany({
+      where: {
+        merchantId: merchant.clientId,
+        orderId: orderId,
+        status: 'pending',
+      },
+      data: {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+      },
+    });
+
+    // Create new payment request
+    const expiresAt = new Date(Date.now() + PAYMENT_REQUEST_EXPIRY_MS);
+    const paymentRequest = await prisma.mobilePaymentRequest.create({
+      data: {
+        merchantId: merchant.clientId,
+        merchantName: merchantName || merchant.clientName,
+        merchantLogoUrl: merchantLogoUrl || null,
+        orderId,
+        orderDescription: orderDescription || null,
+        amount: parsedAmount,
+        currency: currency || 'CAD',
+        returnUrl,
+        status: 'pending',
+        expiresAt,
+      },
+    });
+
+    console.log(`[Mobile Payment] Created request ${paymentRequest.id} for merchant ${merchant.clientId}, order ${orderId}`);
+
+    // Build deep link URL for mobile app
+    const deepLinkUrl = `mwsim://payment/${paymentRequest.id}`;
+
+    res.status(201).json({
+      requestId: paymentRequest.id,
+      deepLinkUrl,
+      expiresAt: expiresAt.toISOString(),
+      status: 'pending',
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Create request error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to create payment request',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/payment/:requestId/status
+ *
+ * Get payment request status.
+ * Called by merchant (SSIM) to poll for approval status.
+ *
+ * Requires: x-api-key header
+ */
+router.get('/payment/:requestId/status', requireMerchantApiKey, async (req: MerchantRequest, res: Response) => {
+  try {
+    const { requestId } = req.params;
+    const { merchant } = req;
+
+    if (!merchant) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return paymentError(res, PaymentErrors.PAYMENT_NOT_FOUND);
+    }
+
+    // Verify merchant owns this request
+    if (paymentRequest.merchantId !== merchant.clientId) {
+      return paymentError(res, PaymentErrors.FORBIDDEN);
+    }
+
+    // Check if expired (and not already in a terminal state)
+    if (paymentRequest.status === 'pending' && new Date() > paymentRequest.expiresAt) {
+      // Mark as expired
+      await prisma.mobilePaymentRequest.update({
+        where: { id: requestId },
+        data: { status: 'expired' },
+      });
+
+      return res.json({
+        requestId,
+        status: 'expired',
+        expiresAt: paymentRequest.expiresAt.toISOString(),
+      });
+    }
+
+    // Build response based on status
+    const response: Record<string, unknown> = {
+      requestId,
+      status: paymentRequest.status,
+      expiresAt: paymentRequest.expiresAt.toISOString(),
+    };
+
+    // Include one-time token when approved
+    if (paymentRequest.status === 'approved' && paymentRequest.oneTimeToken) {
+      response.oneTimePaymentToken = paymentRequest.oneTimeToken;
+      response.approvedAt = paymentRequest.approvedAt?.toISOString();
+    }
+
+    res.json(response);
+  } catch (error) {
+    console.error('[Mobile Payment] Get status error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to get payment status',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/payment/:requestId/cancel
+ *
+ * Cancel a payment request.
+ * Can be called by merchant (with API key) or user (with JWT).
+ */
+router.post('/payment/:requestId/cancel', async (req: Request, res: Response) => {
+  try {
+    const { requestId } = req.params;
+
+    // Check for merchant API key or user JWT
+    const apiKey = req.headers['x-api-key'] as string;
+    const authHeader = req.headers.authorization;
+
+    let merchantId: string | null = null;
+    let userId: string | null = null;
+
+    if (apiKey) {
+      // Merchant cancellation
+      const merchant = await prisma.oAuthClient.findFirst({
+        where: { apiKey },
+        select: { clientId: true },
+      });
+      if (merchant) {
+        merchantId = merchant.clientId;
+      }
+    } else if (authHeader?.startsWith('Bearer ')) {
+      // User cancellation
+      const token = authHeader.slice(7);
+      const payload = verifyMobileToken(token);
+      if (payload && payload.type === 'access') {
+        userId = payload.sub;
+      }
+    }
+
+    if (!merchantId && !userId) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return paymentError(res, PaymentErrors.PAYMENT_NOT_FOUND);
+    }
+
+    // Authorization check
+    if (merchantId && paymentRequest.merchantId !== merchantId) {
+      return paymentError(res, PaymentErrors.FORBIDDEN);
+    }
+    if (userId && paymentRequest.userId && paymentRequest.userId !== userId) {
+      return paymentError(res, PaymentErrors.FORBIDDEN);
+    }
+
+    // Can only cancel pending requests
+    if (paymentRequest.status !== 'pending') {
+      return paymentError(res, PaymentErrors.PAYMENT_ALREADY_PROCESSED);
+    }
+
+    // Cancel the request
+    await prisma.mobilePaymentRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+      },
+    });
+
+    console.log(`[Mobile Payment] Cancelled request ${requestId} by ${merchantId ? 'merchant' : 'user'}`);
+
+    res.json({
+      success: true,
+      status: 'cancelled',
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Cancel error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to cancel payment request',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/payment/:requestId/complete
+ *
+ * Complete a payment by exchanging the one-time token for card tokens.
+ * Called by merchant (SSIM) after polling shows 'approved' status.
+ *
+ * Requires: x-api-key header, oneTimePaymentToken in body
+ */
+router.post('/payment/:requestId/complete', requireMerchantApiKey, async (req: MerchantRequest, res: Response) => {
+  try {
+    const { requestId } = req.params;
+    const { merchant } = req;
+    const { oneTimePaymentToken } = req.body as { oneTimePaymentToken: string };
+
+    if (!merchant) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    if (!oneTimePaymentToken) {
+      return paymentError(res, PaymentErrors.INVALID_REQUEST, 'oneTimePaymentToken is required');
+    }
+
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return paymentError(res, PaymentErrors.PAYMENT_NOT_FOUND);
+    }
+
+    // Verify merchant owns this request
+    if (paymentRequest.merchantId !== merchant.clientId) {
+      return paymentError(res, PaymentErrors.FORBIDDEN);
+    }
+
+    // Verify one-time token
+    if (paymentRequest.oneTimeToken !== oneTimePaymentToken) {
+      return paymentError(res, PaymentErrors.INVALID_REQUEST, 'Invalid one-time payment token');
+    }
+
+    // Must be in approved status
+    if (paymentRequest.status !== 'approved') {
+      return paymentError(res, PaymentErrors.PAYMENT_ALREADY_PROCESSED, `Payment is ${paymentRequest.status}`);
+    }
+
+    // Check expiry (should still be valid due to 60s extension)
+    if (new Date() > paymentRequest.expiresAt) {
+      return paymentError(res, PaymentErrors.PAYMENT_EXPIRED);
+    }
+
+    // Mark as completed
+    await prisma.mobilePaymentRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'completed',
+        completedAt: new Date(),
+        oneTimeToken: null, // Invalidate the one-time token
+      },
+    });
+
+    console.log(`[Mobile Payment] Completed request ${requestId}`);
+
+    // Return card tokens for NSIM
+    res.json({
+      success: true,
+      status: 'completed',
+      cardToken: paymentRequest.cardToken,
+      walletCardToken: paymentRequest.walletCardToken,
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Complete error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to complete payment',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/payment/:requestId
+ *
+ * Get payment request details for mobile app.
+ * Called by mwsim when user opens a payment deep link.
+ *
+ * Requires: JWT authorization (mobile access token)
+ */
+router.get('/payment/:requestId', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { requestId } = req.params;
+    const { userId } = req;
+
+    if (!userId) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return paymentError(res, PaymentErrors.PAYMENT_NOT_FOUND);
+    }
+
+    // Check if expired
+    if (paymentRequest.status === 'pending' && new Date() > paymentRequest.expiresAt) {
+      // Mark as expired
+      await prisma.mobilePaymentRequest.update({
+        where: { id: requestId },
+        data: { status: 'expired' },
+      });
+
+      return paymentError(res, PaymentErrors.PAYMENT_EXPIRED);
+    }
+
+    // Can only view pending requests
+    if (paymentRequest.status !== 'pending') {
+      return paymentError(res, PaymentErrors.PAYMENT_ALREADY_PROCESSED, `Payment is ${paymentRequest.status}`);
+    }
+
+    // Associate user with this request if not already
+    if (!paymentRequest.userId) {
+      await prisma.mobilePaymentRequest.update({
+        where: { id: requestId },
+        data: { userId },
+      });
+    } else if (paymentRequest.userId !== userId) {
+      // Different user trying to access - this shouldn't happen normally
+      return paymentError(res, PaymentErrors.FORBIDDEN, 'This payment is assigned to another user');
+    }
+
+    // Fetch user's cards for selection
+    const cards = await prisma.walletCard.findMany({
+      where: {
+        userId,
+        isActive: true,
+      },
+      include: {
+        enrollment: {
+          select: {
+            bsimId: true,
+          },
+        },
+      },
+      orderBy: [
+        { isDefault: 'desc' },
+        { createdAt: 'desc' },
+      ],
+    });
+
+    const providers = getBsimProviders();
+
+    res.json({
+      requestId: paymentRequest.id,
+      status: paymentRequest.status,
+      merchantName: paymentRequest.merchantName,
+      merchantLogoUrl: paymentRequest.merchantLogoUrl,
+      amount: Number(paymentRequest.amount),
+      currency: paymentRequest.currency,
+      orderId: paymentRequest.orderId,
+      orderDescription: paymentRequest.orderDescription,
+      returnUrl: paymentRequest.returnUrl,
+      createdAt: paymentRequest.createdAt.toISOString(),
+      expiresAt: paymentRequest.expiresAt.toISOString(),
+      cards: cards.map(card => {
+        const provider = providers.find(p => p.bsimId === card.enrollment.bsimId);
+        return {
+          id: card.id,
+          cardType: card.cardType,
+          lastFour: card.lastFour,
+          cardholderName: card.cardholderName,
+          expiryMonth: card.expiryMonth,
+          expiryYear: card.expiryYear,
+          bankName: provider?.name || card.enrollment.bsimId,
+          isDefault: card.isDefault,
+        };
+      }),
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Get request error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to get payment request',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/payment/:requestId/approve
+ *
+ * Approve a payment request with selected card.
+ * Called by mwsim after user confirms and biometric succeeds.
+ *
+ * Requires: JWT authorization (mobile access token)
+ */
+router.post('/payment/:requestId/approve', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { requestId } = req.params;
+    const { userId } = req;
+    const { cardId } = req.body as { cardId: string };
+
+    if (!userId) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    if (!cardId) {
+      return paymentError(res, PaymentErrors.INVALID_REQUEST, 'cardId is required');
+    }
+
+    // Get the payment request
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return paymentError(res, PaymentErrors.PAYMENT_NOT_FOUND);
+    }
+
+    // Verify user owns this request
+    if (paymentRequest.userId && paymentRequest.userId !== userId) {
+      return paymentError(res, PaymentErrors.FORBIDDEN);
+    }
+
+    // Check status
+    if (paymentRequest.status !== 'pending') {
+      return paymentError(res, PaymentErrors.PAYMENT_ALREADY_PROCESSED, `Payment is ${paymentRequest.status}`);
+    }
+
+    // Check expiry
+    if (new Date() > paymentRequest.expiresAt) {
+      await prisma.mobilePaymentRequest.update({
+        where: { id: requestId },
+        data: { status: 'expired' },
+      });
+      return paymentError(res, PaymentErrors.PAYMENT_EXPIRED);
+    }
+
+    // Get the selected card
+    const card = await prisma.walletCard.findFirst({
+      where: {
+        id: cardId,
+        userId,
+        isActive: true,
+      },
+      include: {
+        enrollment: true,
+      },
+    });
+
+    if (!card) {
+      return paymentError(res, PaymentErrors.CARD_NOT_FOUND);
+    }
+
+    // Request card token from BSIM
+    let cardToken: string | null = null;
+    try {
+      const providers = getBsimProviders();
+      const provider = providers.find(p => p.bsimId === card.enrollment.bsimId);
+
+      if (!provider) {
+        console.error(`[Mobile Payment] Provider not found for bsimId: ${card.enrollment.bsimId}`);
+        return paymentError(res, PaymentErrors.CARD_TOKEN_ERROR, 'Bank provider not configured');
+      }
+
+      // Derive BSIM API URL
+      const bsimApiUrl = provider.apiUrl || deriveApiUrlFromIssuer(provider.issuer);
+
+      // Request ephemeral card token
+      const tokenResponse = await fetch(`${bsimApiUrl}/api/wallet/request-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${decrypt(card.enrollment.walletCredential)}`,
+        },
+        body: JSON.stringify({
+          walletCardToken: card.walletCardToken,
+        }),
+      });
+
+      if (!tokenResponse.ok) {
+        const error = await tokenResponse.text();
+        console.error(`[Mobile Payment] BSIM token request failed: ${tokenResponse.status} ${error}`);
+        return paymentError(res, PaymentErrors.CARD_TOKEN_ERROR);
+      }
+
+      const tokenData = await tokenResponse.json() as { cardToken: string };
+      cardToken = tokenData.cardToken;
+    } catch (bsimError) {
+      console.error('[Mobile Payment] BSIM request error:', bsimError);
+      return paymentError(res, PaymentErrors.CARD_TOKEN_ERROR);
+    }
+
+    // Generate one-time token for merchant
+    const oneTimeToken = crypto.randomBytes(32).toString('hex');
+
+    // Extend expiry by 60 seconds and update status
+    const newExpiresAt = new Date(Date.now() + APPROVAL_EXTENSION_MS + (paymentRequest.expiresAt.getTime() - Date.now()));
+
+    await prisma.mobilePaymentRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'approved',
+        userId,
+        selectedCardId: cardId,
+        cardToken,
+        walletCardToken: card.walletCardToken,
+        oneTimeToken,
+        approvedAt: new Date(),
+        expiresAt: newExpiresAt,
+      },
+    });
+
+    console.log(`[Mobile Payment] Approved request ${requestId} by user ${userId} with card ${cardId}`);
+
+    res.json({
+      success: true,
+      status: 'approved',
+      returnUrl: paymentRequest.returnUrl,
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Approve error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to approve payment',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/payment/pending
+ *
+ * List all pending payment requests for the authenticated user.
+ * Used for "Pending Payments" section in wallet home screen.
+ *
+ * Requires: JWT authorization (mobile access token)
+ */
+router.get('/payment/pending', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+
+    if (!userId) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    const pendingRequests = await prisma.mobilePaymentRequest.findMany({
+      where: {
+        userId,
+        status: 'pending',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    res.json({
+      requests: pendingRequests.map(req => ({
+        requestId: req.id,
+        merchantName: req.merchantName,
+        merchantLogoUrl: req.merchantLogoUrl,
+        amount: Number(req.amount),
+        currency: req.currency,
+        orderId: req.orderId,
+        createdAt: req.createdAt.toISOString(),
+        expiresAt: req.expiresAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] List pending error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to list pending payments',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/payment/:requestId/test-approve
+ *
+ * Test endpoint for E2E testing. Simulates payment approval without biometric.
+ * ONLY available in non-production environments.
+ *
+ * Requires: x-test-key header with value 'wsim-e2e-test'
+ */
+router.post('/payment/:requestId/test-approve', async (req: Request, res: Response) => {
+  // Check environment
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'not_found', message: 'Endpoint not available' });
+  }
+
+  // Verify test header
+  const testKey = req.headers['x-test-key'];
+  if (testKey !== 'wsim-e2e-test') {
+    return res.status(401).json({ error: 'unauthorized', message: 'Invalid test key' });
+  }
+
+  try {
+    const { requestId } = req.params;
+    const { cardId, userId } = req.body as { cardId: string; userId: string };
+
+    if (!cardId || !userId) {
+      return res.status(400).json({ error: 'bad_request', message: 'cardId and userId are required' });
+    }
+
+    // Get the payment request
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return res.status(404).json({ error: 'PAYMENT_NOT_FOUND', message: 'Payment request not found' });
+    }
+
+    if (paymentRequest.status !== 'pending') {
+      return res.status(409).json({ error: 'PAYMENT_ALREADY_PROCESSED', message: `Payment is ${paymentRequest.status}` });
+    }
+
+    // Get the card
+    const card = await prisma.walletCard.findFirst({
+      where: {
+        id: cardId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!card) {
+      return res.status(404).json({ error: 'CARD_NOT_FOUND', message: 'Card not found' });
+    }
+
+    // Generate one-time token
+    const oneTimeToken = crypto.randomBytes(32).toString('hex');
+
+    // Update status (skip BSIM call in test mode)
+    await prisma.mobilePaymentRequest.update({
+      where: { id: requestId },
+      data: {
+        status: 'approved',
+        userId,
+        selectedCardId: cardId,
+        cardToken: 'test_card_token_' + crypto.randomBytes(8).toString('hex'),
+        walletCardToken: card.walletCardToken,
+        oneTimeToken,
+        approvedAt: new Date(),
+        expiresAt: new Date(Date.now() + APPROVAL_EXTENSION_MS + PAYMENT_REQUEST_EXPIRY_MS),
+      },
+    });
+
+    console.log(`[Mobile Payment] TEST approved request ${requestId}`);
+
+    res.json({
+      success: true,
+      status: 'approved',
+      oneTimeToken,
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Test approve error:', error);
+    res.status(500).json({ error: 'server_error', message: 'Failed to test approve' });
+  }
+});
+
+// Helper function to derive API URL from issuer
+function deriveApiUrlFromIssuer(issuer: string): string {
+  const url = new URL(issuer);
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.port = '3001';
+    return url.origin;
+  }
+  if (url.hostname.startsWith('auth-')) {
+    url.hostname = url.hostname.replace('auth-', '');
+  } else if (url.hostname.startsWith('auth.')) {
+    url.hostname = url.hostname.replace('auth.', '');
+  }
+  return url.origin;
+}
 
 export default router;
