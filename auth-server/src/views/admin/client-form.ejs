@@ -352,6 +352,28 @@
             </div>
 
             <div class="form-section">
+              <div class="form-section-title">Quick Pay (Cross-Domain Passkey)</div>
+              <p class="label-hint" style="margin-bottom: 16px;">
+                Enable Quick Pay for this merchant by allowing their domain to use WSIM passkeys for authentication.
+                This uses WebAuthn Related Origin Requests (ROR) to allow cross-domain passkey authentication.
+              </p>
+
+              <div class="form-group">
+                <label for="webauthnRelatedOrigin">
+                  WebAuthn Related Origin
+                  <span class="label-hint">The merchant's origin (e.g., https://store.regalmoose.ca) that can use WSIM passkeys</span>
+                </label>
+                <input type="url" id="webauthnRelatedOrigin" name="webauthnRelatedOrigin"
+                       value="<%= client?.webauthnRelatedOrigin || '' %>"
+                       placeholder="https://merchant.example.com">
+                <div class="warning-box" style="margin-top: 8px;">
+                  <strong>Security Note:</strong> Only add origins you trust. This origin will be able to authenticate users with passkeys registered at WSIM.
+                  The origin will be added to <code>/.well-known/webauthn</code> and takes effect immediately.
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
               <div class="form-section-title">Merchant API Access</div>
               <p class="label-hint" style="margin-bottom: 16px;">
                 API keys allow merchants to use the Popup/Inline card picker and direct API payment flows.

@@ -197,6 +197,11 @@ model OAuthClient {
   // Merchant API key for direct API access (Phase 3)
   apiKey String? @unique // Format: wsim_api_{random}, nullable for OAuth-only clients
 
+  // WebAuthn Related Origin for Quick Pay cross-domain passkey authentication
+  // If set, this origin will be included in /.well-known/webauthn
+  // Allows passkeys registered with WSIM to be used on the merchant's domain
+  webauthnRelatedOrigin String? // e.g., "https://store.regalmoose.ca"
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

@@ -740,6 +740,26 @@ Success codes:         200
 
 ---
 
+## TODO: Admin-Configurable Popup/Embed Origins
+
+### Current State
+The `ALLOWED_POPUP_ORIGINS` and `ALLOWED_EMBED_ORIGINS` environment variables control which merchant domains can use the popup and iframe integration methods. These are set at deployment time.
+
+### Future Enhancement
+Add admin UI to configure allowed origins per OAuth client, similar to how `webauthnRelatedOrigin` is now configured for Quick Pay cross-domain passkey authentication.
+
+### Why This Matters
+- **Self-Service**: Merchants could configure their own origins through the admin UI
+- **Dynamic Updates**: No deployment required to add new merchant domains
+- **Per-Client Control**: Different security policies per merchant
+
+### Implementation Notes
+- Could add `allowedPopupOrigins` and `allowedEmbedOrigins` fields to OAuthClient
+- Would need to update CSP headers and postMessage validation dynamically
+- Consider caching strategy for performance
+
+---
+
 ## Notes
 
 - All future work should maintain backward compatibility
