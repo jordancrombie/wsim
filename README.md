@@ -50,6 +50,8 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
+- JWT bearer token authentication for SSIM API Direct integration
+- Schema sync validation script for shared database safety
 - Admin-configurable WebAuthn Related Origins for Quick Pay
 - Cross-domain passkey authentication on merchant domains
 - In-Bank Enrollment with cross-origin passkey registration

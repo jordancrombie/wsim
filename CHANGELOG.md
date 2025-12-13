@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Schema Sync Validation Script (2025-12-12)**
+  - New `scripts/check-schema-sync.sh` to verify backend and auth-server Prisma schemas are identical
+  - Prevents accidental table drops when services share a single PostgreSQL database
+  - Should be added to CI/CD pipeline before deployments
+  - Updated DEPLOYMENT_GUIDE.md with validation instructions
+
+- **JWT Bearer Token Authentication for SSIM API Direct Integration (2025-12-12)**
+  - Added `sessionToken` to popup auth responses (login/verify, passkey/verify, select-card-simple)
+  - Backend `requireUserSession` middleware now accepts JWT bearer tokens as fallback to session cookies
+  - Enables SSIM to store tokens for "Wallet SSO" experience across merchants (30-day expiry)
+  - Modified files:
+    - `auth-server/src/routes/popup.ts` - Generate and return sessionToken
+    - `backend/src/routes/wallet-api.ts` - Accept JWT bearer tokens in middleware
+    - `auth-server/src/config/env.ts` - Added JWT_SECRET config
+  - Added 7 new tests for JWT authentication flow
+  - Documentation: `LOCAL_DEPLOYMENT_PLANS/SSIM_JWT_API_INTEGRATION.md` (gitignored)
+
 - **Admin-Configurable WebAuthn Related Origins for Quick Pay (2025-12-12)**
   - Added `webauthnRelatedOrigin` field to OAuth clients for per-merchant Quick Pay support
   - Merchants can now use passkeys registered with WSIM on their own domains
@@ -25,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `auth-server/src/index.ts` - Dynamic origins loading from database
 
 ### Fixed
+- **TypeScript Strict Type Errors in Test Files (2025-12-12)**
+  - Fixed implicit `any` type errors in `passkey.test.ts` (lines 150, 302, 309, 314)
+  - Fixed `null` vs `undefined` type error in `mockPrisma.ts` (line 540)
+  - These were pre-existing issues that blocked TypeScript compilation in strict mode
+
 - **Quick Pay Cross-Domain Passkey Verification (2025-12-12)**
   - Server-side passkey verification now includes merchant's `webauthnRelatedOrigin` in expected origins
   - Previously, `verifyAuthenticationResponse` only accepted WSIM origins, causing 400 errors when
