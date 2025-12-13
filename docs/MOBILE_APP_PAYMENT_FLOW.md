@@ -1575,3 +1575,606 @@ router.post('/payment/mobile/complete', async (req, res) => {
 
 *Document created: 2025-12-13*
 *Status: Design Draft - Awaiting Team Review*
+
+---
+
+# Team Review Comments
+
+## WSIM Team Responses (2025-12-13)
+
+This section contains WSIM team responses to mwsim and SSIM team questions, plus our own questions for clarification.
+
+### Key Decisions Made
+
+| Topic | Decision | Rationale |
+|-------|----------|-----------|
+| **Bundle ID** | `com.banksim.wsim` | Agreed with mwsim proposal - app is the mobile interface for WSIM |
+| **Return URL UX** | Polling is PRIMARY, return URL is OPTIMIZATION | See detailed explanation below |
+| **Biometric Phase 1** | Success/failure is sufficient | True biometric-bound keys deferred to Phase 2 |
+| **Error Codes** | Standardize across all endpoints | Adopting mwsim's proposed format |
+| **Fallback Timeout** | Increase to 2.5 seconds | Address slower device concerns |
+| **Expiration Handling** | Extend by 60s on approval | Prevents race condition |
+
+### Responses to mwsim Team Questions
+
+#### 1. Authentication State on Cold Start
+**Agreed with mwsim's proposal.** The flow should be:
+1. Deep link opens app with `requestId` stored
+2. If no valid token, show login screen (preserve `requestId` in app state)
+3. After successful auth, auto-navigate to payment approval with the stored `requestId`
+4. If login fails/cancelled, show error and option to go to home screen
+
+**Implementation note:** The `requestId` should be stored in React state (or SecureStore) immediately on deep link, before any auth check.
+
+#### 2. Multiple Payment Requests
+**Decision:** Show only the most recent request when opening via deep link. If user has multiple pending requests:
+- Deep link always opens the specific `requestId` from the link
+- Add a "Pending Payments" section to wallet home screen (Phase 2 enhancement)
+- For Phase 1: One request at a time is sufficient
+
+**API Addition:** We'll add `GET /api/mobile/payment/pending` to list all pending requests for the user.
+
+#### 3. Return URL Handling (CRITICAL CLARIFICATION)
+**This is the most important clarification.** The flow works as follows:
+
+```
+ORIGINAL BROWSER TAB                    MOBILE APP
+─────────────────────                   ──────────
+1. User clicks "Pay with Wallet"
+2. Initiates deep link attempt
+3. Browser detects app opened ─────────► 4. App opens at payment screen
+   (via visibilitychange event)
+5. Starts POLLING /status every 2s      6. User reviews payment
+   (shows "Waiting for approval...")     7. User approves with biometric
+                                         8. App calls POST /approve
+                                         9. WSIM updates status to 'approved'
+10. Polling receives {status: 'approved'}
+11. Browser completes payment flow ◄──── (optional: returnUrl opens)
+12. Shows success, updates order
+```
+
+**Key Points:**
+- **Polling is PRIMARY**: The original browser tab polls and detects approval
+- **Return URL is OPTIMIZATION**: Opening `returnUrl` brings user back to browser, but the browser already detected approval via polling
+- User does NOT need to tap return URL for payment to complete
+- Return URL is primarily for UX (bringing user back to where they started)
+
+**Updated implementation:** We'll make return URL handling optional:
+- `returnUrl` in response tells app where to redirect IF user taps a "Return to Store" button
+- App should show: "Payment approved! ✓" with a "Return to Store" button
+- Even if user stays in app, the browser completes the payment via polling
+
+#### 4. Biometric Signature
+**Confirmed: Phase 1 = success/failure only.**
+
+For Phase 1:
+- `expo-local-authentication.authenticateAsync()` returns `success: true/false`
+- We simply require biometric success before allowing approve API call
+- No cryptographic signature
+
+For Phase 2 (future):
+- True biometric-bound keys using `expo-crypto` or native Keychain/Keystore
+- Will require native module integration
+- Adds actual cryptographic proof of biometric
+
+#### 5. Deep Link Scheme Conflict
+**Confirmed: Path-based routing handles both.** The URL structure is:
+- `mwsim://payment/:requestId` → Payment approval
+- `mwsim://enrollment/callback?...` → Enrollment callback
+
+Implementation in app's linking config:
+```javascript
+const linking = {
+  prefixes: ['mwsim://'],
+  config: {
+    screens: {
+      PaymentApproval: 'payment/:requestId',
+      EnrollmentCallback: 'enrollment/callback',
+    }
+  }
+};
+```
+
+**No conflict** - Expo's linking handles path-based routing correctly.
+
+#### 6. Card Token Request to BSIM
+**Clarification on token types:**
+
+| Token | Issuer | Lifetime | Purpose |
+|-------|--------|----------|---------|
+| `walletCardToken` | BSIM | Long-lived | Stored in WSIM, identifies card for routing |
+| `cardToken` | BSIM | Short-lived (~5 min) | Transaction-specific, sent to NSIM for auth |
+
+**Flow:**
+1. During enrollment, BSIM issues `walletCardToken` → WSIM stores it
+2. During payment, WSIM calls `POST /api/wallet/request-token` on BSIM
+3. BSIM returns ephemeral `cardToken` for this transaction
+4. WSIM returns both tokens to merchant → merchant sends to NSIM
+
+**BSIM already has this endpoint** - see [BANK_INTEGRATION_API.md](./BANK_INTEGRATION_API.md).
+
+#### 7. Payment Request Expiry UX
+**Agreed.** When payment request has expired:
+1. Show error: "This payment request has expired"
+2. Show buttons:
+   - "Return to Store" (opens `returnUrl` if available)
+   - "Go to Wallet" (navigate to home screen)
+3. Auto-cleanup: Remove from pending payments list
+
+**Error screen wireframe:**
+```
+┌─────────────────────────────────┐
+│                                 │
+│      ⚠️ Payment Expired         │
+│                                 │
+│  This payment request has       │
+│  expired. Please return to      │
+│  the store to try again.        │
+│                                 │
+│  ┌─────────────────────────┐    │
+│  │   Return to Store       │    │
+│  └─────────────────────────┘    │
+│                                 │
+│  ┌─────────────────────────┐    │
+│  │   Go to Wallet          │    │
+│  └─────────────────────────┘    │
+│                                 │
+└─────────────────────────────────┘
+```
+
+#### 8. Offline/Network Error Handling
+**Decision:** Do NOT queue approvals. Payment requests are time-sensitive.
+
+If network error during approval:
+1. Show error: "Network error. Please check your connection."
+2. Show "Retry" button (retries the approve call)
+3. If still failing after 3 retries, show "Return to Store" option
+4. Do NOT approve offline and sync later (security risk)
+
+**Rationale:** Card tokens have short validity. Queuing would create stale tokens that fail at NSIM.
+
+### Responses to mwsim Implementation Notes
+
+#### Navigation Architecture
+Acknowledged. We'll update the sample code in this doc to use state-based navigation pattern matching mwsim's current architecture. The React Navigation samples are illustrative only.
+
+#### app.json Config
+**Confirmed:** Use `com.banksim.wsim` as the bundle identifier. Updating doc to reflect this.
+
+#### Estimated Work
+Looks accurate. We'll coordinate via Slack on implementation timing.
+
+### Responses to mwsim Suggested API Additions
+
+#### 1. GET /api/mobile/payment/:requestId Response
+**Accepted.** Updated response schema:
+```typescript
+{
+  requestId: string;
+  status: 'pending' | 'approved' | 'cancelled' | 'expired' | 'completed';
+  merchantName: string;
+  merchantLogo?: string;
+  amount: number;
+  currency: string;
+  orderId: string;
+  orderDescription?: string;
+  cards: Array<{...}>;
+  createdAt: string;     // ISO 8601 timestamp
+  expiresAt: string;     // ISO 8601 timestamp
+}
+```
+
+#### 2. Error Codes
+**Accepted.** Standardized error format across all payment endpoints:
+
+```typescript
+{
+  error: 'ERROR_CODE',
+  message: 'Human-readable message'
+}
+```
+
+Error codes:
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `PAYMENT_NOT_FOUND` | 404 | Request ID doesn't exist |
+| `PAYMENT_EXPIRED` | 410 | Request past expiration |
+| `PAYMENT_ALREADY_PROCESSED` | 409 | Already approved/cancelled/completed |
+| `CARD_NOT_FOUND` | 404 | Selected card not in user's wallet |
+| `CARD_TOKEN_ERROR` | 502 | Failed to get token from BSIM |
+| `UNAUTHORIZED` | 401 | Invalid/expired JWT |
+| `FORBIDDEN` | 403 | User doesn't own this payment request |
+| `INVALID_REQUEST` | 400 | Malformed request body |
+
+---
+
+### Responses to SSIM Team Questions
+
+#### 1. Return URL Token Handling
+**See mwsim response #3 above.** To summarize:
+- **Polling is PRIMARY** - original browser tab detects approval
+- **Return URL is OPTIMIZATION** - brings user back to browser for better UX
+- The `paymentToken` on return URL is a backup; browser already has `requestId` and polls for status
+
+**Important:** When status becomes `approved`, the polling response includes `oneTimePaymentToken`. SSIM doesn't need to parse the return URL.
+
+#### 2. Session State After App Handoff
+**Good suggestion.** Recommend SSIM store in both session AND localStorage:
+
+```javascript
+// When initiating mobile payment
+sessionStorage.setItem('wsim_pending_payment', JSON.stringify({
+  requestId,
+  orderId,
+  amount,
+  initiatedAt: Date.now()
+}));
+
+// On page load, check for interrupted payments
+const pending = sessionStorage.getItem('wsim_pending_payment');
+if (pending) {
+  const { requestId, initiatedAt } = JSON.parse(pending);
+  const elapsed = Date.now() - initiatedAt;
+  if (elapsed < 5 * 60 * 1000) { // Within 5 min
+    resumePolling(requestId);
+  } else {
+    sessionStorage.removeItem('wsim_pending_payment');
+  }
+}
+```
+
+Note: Use `sessionStorage` (not `localStorage`) to avoid cross-tab conflicts.
+
+#### 3. Polling Endpoint Authentication
+**Confirmed:** SSIM proxies through its backend which adds `X-API-Key`.
+
+**Caching:** Yes, SSIM MAY cache polling responses for 1-2 seconds. Recommended implementation:
+- Cache `pending` status for 1 second
+- Do NOT cache `approved`/`completed` status (user needs immediate feedback)
+- Invalidate cache on any non-pending status
+
+#### 4. Expiration Race Condition
+**Accepted.** We'll implement:
+- On successful approval, extend `expiresAt` by 60 seconds
+- Token exchange checks `approvedAt` timestamp, not just `expiresAt`
+- This gives merchant adequate time to complete the flow
+
+**Schema update:**
+```prisma
+model PaymentRequest {
+  // ... existing fields
+  approvedAt    DateTime?  // Set when user approves
+  expiresAt     DateTime   // Extended by 60s on approval
+}
+```
+
+#### 5. Fallback Timeout Tuning
+**Accepted.** Increasing to 2.5 seconds with visual feedback:
+- Show spinner immediately: "Opening wallet app..."
+- After 1 second: "Connecting to wallet..."
+- After 2.5 seconds: Show fallback UI
+
+#### 6. Card Token Validity Window
+**Clarification:** BSIM card tokens are valid for **5 minutes** (configurable per BSIM).
+
+Timeline buffer:
+- Payment request: 5 min expiry
+- Card token: 5 min validity
+- On approval: Request extended 60s, card token just generated = 5 min remaining
+- Merchant has ~4-5 minutes to complete after approval
+
+This should be adequate. If timing becomes an issue, we can request longer-lived tokens from BSIM.
+
+#### 7. Multiple Concurrent Requests
+**Decision:** Auto-cancel previous pending requests for same `merchantId + orderId`.
+
+When creating new request:
+```sql
+UPDATE "PaymentRequest"
+SET status = 'cancelled', cancelledAt = NOW()
+WHERE "merchantId" = $1
+  AND "orderId" = $2
+  AND status = 'pending';
+```
+
+This prevents orphaned requests and simplifies the flow.
+
+---
+
+### Responses to SSIM Suggestions
+
+#### 1. Request Cancellation from SSIM
+**Accepted.** Adding `POST /api/merchant/payment/:requestId/cancel` endpoint.
+
+```typescript
+// Request
+POST /api/merchant/payment/:requestId/cancel
+Headers: X-API-Key: <merchantApiKey>
+
+// Response
+{ success: true, status: 'cancelled' }
+```
+
+SSIM can call this on `beforeunload` as suggested.
+
+#### 2. UI Feedback During Polling
+**Agreed.** SSIM should implement:
+- Countdown timer (seconds remaining)
+- Pulsing/spinner animation
+- Cancel button
+- Status messages
+
+**Suggested UX:**
+```
+┌─────────────────────────────────────┐
+│                                     │
+│  🔄 Waiting for wallet approval...  │
+│                                     │
+│        4:32 remaining               │
+│                                     │
+│    [Cancel and use another card]    │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+#### 3. WebSocket for Scale
+**Deferred to Phase 2.** For Phase 1:
+- Polling every 2 seconds is acceptable for our current scale
+- Will monitor WSIM load
+- Can implement adaptive polling (2s → 5s after 30 seconds) as quick optimization
+
+Phase 2 consideration:
+- WebSocket with polling fallback
+- Or: Server-Sent Events (simpler than WebSocket)
+
+#### 4. E2E Test Strategy
+**Accepted.** Adding test-only endpoint (dev environment only):
+
+```typescript
+// Only available when NODE_ENV !== 'production'
+POST /api/mobile/payment/:requestId/test-approve
+Body: { cardId: string }
+
+// Simulates full approval flow without biometric
+```
+
+**Important:** This endpoint will be behind environment check AND require special test header.
+
+#### 5. Consistent Error Response Format
+**Already addressed** in mwsim response #2 above. All endpoints will use:
+```typescript
+{ error: 'ERROR_CODE', message: 'Human readable message' }
+```
+
+---
+
+### WSIM Team Questions for Other Teams
+
+#### For mwsim Team
+
+1. **State Persistence Across App Restarts**
+   - If user force-closes the app mid-payment-approval, how do we handle?
+   - Suggestion: Store `pendingPaymentRequestId` in SecureStore, check on app launch
+
+2. **Biometric Prompt Timing**
+   - Should biometric prompt appear immediately when payment screen opens, or after user taps "Approve"?
+   - Recommendation: After tapping "Approve" (more intuitive UX)
+
+3. **Card Display Order**
+   - How should cards be ordered on the payment approval screen?
+   - Options: (a) Default card first, (b) Most recently used, (c) By card type
+   - Currently thinking: Default card pre-selected, others in enrollment order
+
+#### For SSIM Team
+
+1. **Desktop vs Mobile Detection**
+   - How will SSIM detect if user is on mobile vs desktop?
+   - Need to decide: Show "Pay with Mobile Wallet" button on mobile only, or both?
+   - Desktop use case: Show QR code (Phase 2) or always show button?
+
+2. **Order State Management**
+   - When mobile payment is initiated, should order status change to "payment_pending"?
+   - What happens if user tries to pay again via card while mobile payment is pending?
+
+3. **Merchant Logo URL**
+   - Can SSIM provide a logo URL when calling `/api/merchant/payment/request`?
+   - This would display in the mwsim approval screen
+   - Format: HTTPS URL, recommended 256x256 PNG
+
+---
+
+*WSIM Team Review Complete: 2025-12-13*
+*Status: Ready for Implementation Sync Meeting*
+
+---
+
+## mwsim Team Comments (2024-12-13)
+
+### General Feedback
+
+The design is well-structured and Option 3 (Web-to-App Bridge) is a good starting point. We're aligned on the implementation priority.
+
+### Questions & Clarifications Needed
+
+1. **Authentication State on Cold Start**
+   - When the app is opened via deep link (`mwsim://payment/{requestId}`), the user may not be logged in. What's the expected UX?
+   - Proposal: If no valid access token exists, prompt user to login first, then auto-navigate to the payment approval screen once authenticated. The `requestId` should be preserved across the login flow.
+
+2. **Multiple Payment Requests**
+   - If a user has multiple pending payment requests (e.g., opened links from two different merchants), how should we handle this?
+   - Should we show a list, or just handle the most recent?
+
+3. **Return URL Handling**
+   - After approval, the doc shows opening `returnUrl` via `Linking.openURL()`. This will open Safari/Chrome. Is that the expected behavior?
+   - Alternative: Use `expo-web-browser` with `openBrowserAsync()` which provides better control and can optionally dismiss automatically.
+   - **Concern**: User ends up in browser, not back in the merchant's web page context where they started. Need to confirm this UX with SSIM team.
+
+4. **Biometric Signature**
+   - The approve endpoint includes a comment `// Future: biometricSignature for additional security`. What's the plan here?
+   - Currently `expo-local-authentication` only returns success/failure, not a signature. For true biometric-bound keys, we'd need `expo-crypto` or native keychain integration.
+   - For Phase 1, is just confirming biometric success sufficient?
+
+5. **Deep Link Scheme Conflict**
+   - We already use `mwsim://enrollment/callback` for OAuth enrollment. Need to ensure the URL routing handles both:
+     - `mwsim://payment/{requestId}` → Payment approval screen
+     - `mwsim://enrollment/callback?success=true|false` → Enrollment callback
+   - This should be fine with path-based routing but want to confirm.
+
+6. **Card Token Request to BSIM**
+   - The approve flow shows `requestCardToken()` to BSIM. What's the contract for this? Does BSIM already have this endpoint?
+   - Need clarity on what `walletCardToken` vs `cardToken` represents:
+     - `walletCardToken` = our internal reference (from enrollment)
+     - `cardToken` = BSIM-issued token for this specific transaction?
+
+7. **Payment Request Expiry UX**
+   - If user opens app and the payment request has expired, we show an error. Should we also allow them to navigate to their wallet home screen from there?
+   - The `ErrorScreen` component shown doesn't exist yet - we'll need to create this.
+
+8. **Offline/Network Error Handling**
+   - What happens if the user loses network connectivity during approval?
+   - Should we queue the approval and retry?
+
+### Implementation Notes
+
+1. **Current Navigation Architecture**
+   - We're using state-based navigation (not React Navigation) due to `react-native-safe-area-context` iOS 26.1 compatibility issues.
+   - The sample code uses React Navigation (`useRoute`, `useNavigation`). We'll adapt to our current pattern.
+   - Consider this a tech debt item - we'll migrate to React Navigation when the safe-area-context issue is resolved.
+
+2. **app.json Config**
+   - We already have `scheme: "mwsim"` and `bundleIdentifier: "com.mwsim.wallet"` configured.
+   - **Proposal**: Change to `com.banksim.wsim`. The mobile app is just the mobile interface for wsim, not a separate product. This keeps it simple and aligned with the wsim identity.
+   - Note: Doc currently shows `com.banksim.mwsim` - we suggest `com.banksim.wsim` instead.
+   - Universal Links (`associatedDomains`) will need to be added for Phase 3.
+
+3. **Estimated mwsim Work**
+   - Deep link handler for `mwsim://payment/:requestId`
+   - New `PaymentApproval` screen (adapted to our state-based navigation)
+   - API methods: `getPaymentDetails()`, `approvePayment()`, `cancelPayment()`
+   - Handle cold-start authentication flow
+
+### Suggested API Additions
+
+1. **GET /api/mobile/payment/:requestId** response should include:
+   - `status` field so we can check if already approved/cancelled/expired
+   - `createdAt` timestamp for display purposes
+
+2. **Error codes** - Can we standardize error codes across endpoints? e.g.:
+   - `PAYMENT_EXPIRED`
+   - `PAYMENT_NOT_FOUND`
+   - `PAYMENT_ALREADY_PROCESSED`
+   - `CARD_NOT_FOUND`
+   - `UNAUTHORIZED`
+
+### Ready to Implement
+
+Once the above questions are clarified, we're ready to start implementation. Suggest a sync meeting to align on:
+- Bundle ID standardization
+- Return URL UX flow
+- BSIM card token integration details
+
+---
+
+## SSIM Team Comments (2025-12-13)
+
+Overall the design is solid and well-documented. We have the following questions and comments:
+
+### Questions
+
+1. **Return URL Token Handling (Option 3, Step 11)** *(echoing mwsim's concern)*
+   When the mwsim app opens the `returnUrl?paymentToken=xxx`, how does the browser receive this?
+   - On iOS, does `Linking.openURL()` open Safari or return to the in-app browser that was previously showing the checkout page?
+   - If it opens a *new* Safari tab, the original checkout page won't receive the token directly - it's still polling.
+   - **Clarify**: Is the return URL redirect the *primary* way SSIM gets the token, or is polling the primary path and return URL is a backup/optimization?
+
+2. **Session State After App Handoff**
+   The SSIM backend stores `pendingMobilePayment` in session. When the user returns from the app:
+   - If the browser tab was killed by iOS memory pressure, the session cookie may still exist but the page JS state is lost
+   - Should we also store `pendingMobilePayment.requestId` in `localStorage` on the frontend as a backup?
+
+3. **Polling Endpoint Authentication**
+   The polling endpoint `GET /api/merchant/payment/:requestId/status` uses `X-API-Key`. But the SSIM frontend JS calls `/api/payment/mobile/:requestId/status`.
+   - Confirm: SSIM proxies this through its backend which adds the API key, correct?
+   - Should the SSIM proxy cache responses briefly (e.g., 1-2s TTL) to reduce load on WSIM?
+
+4. **Expiration Race Condition**
+   Payment requests expire after 5 minutes. What happens if:
+   - User opens app, takes 4+ minutes to authenticate, then approves
+   - Between approval and the merchant polling/completing, the request expires
+   - **Suggest**: Extend expiration by 60s upon successful approval, OR check `approvedAt` instead of `expiresAt` for token exchange.
+
+5. **Fallback Timeout Tuning**
+   The 2-second fallback timeout in `attemptMobileAppPayment()`:
+   - Is this tested on slower Android devices? Some older phones take 3-4 seconds to launch apps.
+   - Consider increasing to 2.5-3 seconds with user feedback ("Opening wallet app...")
+
+6. **Card Token Validity Window**
+   In the approve flow, WSIM calls BSIM for a card token *before* returning to the merchant. But the merchant may take several seconds to poll and complete.
+   - How long are BSIM card tokens valid?
+   - Could the token expire before SSIM calls NSIM to authorize?
+
+7. **Multiple Concurrent Requests**
+   If a user starts a mobile payment, abandons it, starts another:
+   - Can there be multiple `pending` PaymentRequests for the same merchant + order?
+   - Should creating a new request auto-cancel pending ones for the same `orderId`?
+
+### Suggestions
+
+1. **Add Request Cancellation from SSIM**
+   If the user navigates away from checkout, SSIM should cancel the pending request:
+   ```javascript
+   window.addEventListener('beforeunload', () => {
+     if (pendingRequestId) {
+       navigator.sendBeacon(`/api/payment/mobile/${pendingRequestId}/cancel`);
+     }
+   });
+   ```
+
+2. **UI Feedback During Polling**
+   The polling status should also show:
+   - Time remaining (countdown from 5 minutes)
+   - "Cancel" button to stop waiting and revert to other payment methods
+   - Visual indicator (spinner, pulsing animation)
+
+3. **Consider WebSocket for Scale**
+   Polling every 2s for 5 minutes = 150 requests per payment attempt. At scale, this could strain WSIM.
+   - Consider: WebSocket as primary, polling as fallback
+   - Alternative: Increase poll interval after 30 seconds (2s → 5s)
+
+4. **E2E Test Strategy**
+   For SSIM E2E tests (Playwright), we'll need to simulate the mobile app flow:
+   - Mock deep link response (app installed vs not)
+   - Inject approved payment status during polling
+   - Consider: Test endpoint `POST /api/mobile/payment/:requestId/test-approve` (dev only)
+
+5. **Consistent Error Response Format**
+   Suggest standardizing on `{ error: 'ERROR_CODE', message: 'Human readable message' }` across all endpoints.
+
+### Implementation Notes for SSIM
+
+We're ready to implement once WSIM endpoints are available:
+
+**Phase 1a: Backend Proxy Routes (1-2 days)**
+- `POST /api/payment/mobile/request` → proxy to WSIM
+- `GET /api/payment/mobile/:id/status` → proxy to WSIM (with caching)
+- `POST /api/payment/mobile/complete` → exchange token via WSIM, authorize via NSIM
+
+**Phase 1b: Frontend Integration (1-2 days)**
+- "Pay with Mobile Wallet" button (mobile only)
+- Deep link attempt with fallback logic
+- Polling UI with status feedback and cancel button
+
+**Phase 1c: E2E Tests (1 day)**
+- Mock-based tests for fallback behavior
+- Integration tests against dev environment
+
+**Dependency**: Please notify us when `/api/merchant/payment/*` endpoints are available on `wsim-dev.banksim.ca`.
+
+### Agreement with mwsim Team
+
+We share mwsim's concerns on:
+- **Return URL UX** (Question 3) - Critical to clarify before implementation
+- **Bundle ID alignment** - Need to verify against actual mwsim bundle ID
+- **Standardized error codes** - Fully support this suggestion
+
+---
