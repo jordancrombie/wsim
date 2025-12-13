@@ -901,13 +901,17 @@ router.post('/enrollment/start/:bsimId', requireMobileAuth, async (req: Authenti
  *
  * Handle OAuth callback from bank. This endpoint is called by the bank
  * after the user authenticates. It processes the OAuth code and redirects
- * to a mobile-friendly result page.
+ * to the mobile app via deep link.
  *
  * Query params:
  * - code: OAuth authorization code
  * - state: CSRF state token
  * - error: Error code if authentication failed
  * - error_description: Error description
+ *
+ * Redirects to:
+ * - Success: mwsim://enrollment/callback?success=true&bsimId=...&bankName=...&cardCount=...
+ * - Error: mwsim://enrollment/callback?success=false&error=...
  *
  * The enrollment state is looked up using the state parameter which maps
  * to our stored enrollmentId -> state mapping.
@@ -916,22 +920,34 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
   const { bsimId } = req.params;
   const { code, state, error, error_description } = req.query;
 
-  // Base URL for redirects (mobile app should intercept these)
-  const mobileRedirectBase = `${env.FRONTEND_URL}/mobile/enrollment`;
+  // Deep link base URL for mobile app (expo-web-browser pattern)
+  const mobileDeepLink = 'mwsim://enrollment/callback';
+
+  // Helper to build error redirect
+  const errorRedirect = (errorCode: string, message?: string) => {
+    const params = new URLSearchParams({
+      success: 'false',
+      error: errorCode,
+    });
+    if (message) {
+      params.set('message', message);
+    }
+    return res.redirect(`${mobileDeepLink}?${params.toString()}`);
+  };
 
   // Handle error from BSIM
   if (error) {
     console.error(`[Mobile] Enrollment error from BSIM: ${error} - ${error_description}`);
-    return res.redirect(`${mobileRedirectBase}/error?error=${error}&message=${encodeURIComponent(String(error_description || ''))}`);
+    return errorRedirect(String(error), String(error_description || ''));
   }
 
   // Validate we have code and state
   if (!code || typeof code !== 'string') {
-    return res.redirect(`${mobileRedirectBase}/error?error=missing_code`);
+    return errorRedirect('missing_code');
   }
 
   if (!state || typeof state !== 'string') {
-    return res.redirect(`${mobileRedirectBase}/error?error=missing_state`);
+    return errorRedirect('missing_state');
   }
 
   // Find enrollment state by matching the state parameter
@@ -948,13 +964,13 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
 
   if (!enrollmentState || !enrollmentId) {
     console.error('[Mobile] No enrollment state found for state:', state);
-    return res.redirect(`${mobileRedirectBase}/error?error=invalid_state`);
+    return errorRedirect('invalid_state');
   }
 
   // Check expiry
   if (new Date() > enrollmentState.expiresAt) {
     enrollmentStates.delete(enrollmentId);
-    return res.redirect(`${mobileRedirectBase}/error?error=expired`);
+    return errorRedirect('expired', 'Enrollment session expired');
   }
 
   // Get provider config
@@ -962,7 +978,7 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
   const provider = providers.find(p => p.bsimId === bsimId);
 
   if (!provider) {
-    return res.redirect(`${mobileRedirectBase}/error?error=provider_not_found`);
+    return errorRedirect('provider_not_found');
   }
 
   try {
@@ -988,7 +1004,7 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
 
     if (!user) {
       console.error('[Mobile] User not found:', enrollmentState.userId);
-      return res.redirect(`${mobileRedirectBase}/error?error=user_not_found`);
+      return errorRedirect('user_not_found');
     }
 
     // Check if already enrolled with this BSIM
@@ -1090,9 +1106,14 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
 
     console.log(`[Mobile] Enrollment complete for user ${user.email}`);
 
-    // Redirect to success page with enrollment info
-    // Mobile app should intercept this URL
-    res.redirect(`${mobileRedirectBase}/success?bsimId=${bsimId}&bankName=${encodeURIComponent(provider.name || bsimId)}&cardCount=${cardCount}`);
+    // Redirect to mobile app via deep link with enrollment info
+    const successParams = new URLSearchParams({
+      success: 'true',
+      bsimId: bsimId,
+      bankName: provider.name || bsimId,
+      cardCount: String(cardCount),
+    });
+    res.redirect(`${mobileDeepLink}?${successParams.toString()}`);
 
   } catch (error) {
     console.error('[Mobile] Enrollment callback error:', error);
@@ -1100,7 +1121,7 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
     if (enrollmentId) {
       enrollmentStates.delete(enrollmentId);
     }
-    res.redirect(`${mobileRedirectBase}/error?error=callback_failed&message=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`);
+    return errorRedirect('callback_failed', error instanceof Error ? error.message : 'Unknown error');
   }
 });
 
