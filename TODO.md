@@ -1,29 +1,24 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-11
+> **Last Updated**: 2025-12-12
 
-## Current Status: 🟢 WSIM Flow Complete - Pending NSIM Merchant Fix
+## Current Status: 🟢 Production Ready
 
-**WSIM integration is fully working!** JWT tokens with payment claims are being issued correctly. The current blocker is a **"Merchant mismatch"** error from NSIM - this is a configuration issue on the SSIM/NSIM side.
+**WSIM is deployed to production** with all major features working:
+- Full OIDC payment flow (Popup, Inline, Redirect)
+- Quick Pay with cross-domain passkey authentication
+- In-Bank Enrollment for partner banks
+- Admin dashboard with passkey-only authentication
 
-### What's Working (WSIM Side) ✅
+### What's Working ✅
 - ✅ SSIM shows "Pay with Wallet" button
 - ✅ WSIM OIDC flow (login → card selection → fresh consent per payment)
 - ✅ WSIM requests card tokens from BSIM
 - ✅ JWT access tokens with `wallet_card_token` and `card_token` claims
-- ✅ SSIM extracts tokens from WSIM JWT
-- ✅ SSIM calls NSIM with tokens
 - ✅ **Admin Interface** - OAuth client management with passkey authentication
-
-### Current Blocker: Merchant ID Mismatch (NSIM Side)
-
-**Error:** `"Merchant mismatch"` from NSIM
-
-**Root Cause:**
-- BSIM card token contains: `merchantId: "ssim-merchant"` (WSIM's OAuth client_id for SSIM)
-- SSIM sends in claims: `merchantId: "ssim-client"` (SSIM's BSIM client_id)
-
-**Status:** Resolved - see CHANGELOG.md for fix details
+- ✅ **Quick Pay** - Cross-domain passkey auth on merchant domains
+- ✅ **In-Bank Enrollment** - Users enroll from partner bank websites
+- ✅ **WebAuthn ROR** - Related Origin Requests for cross-domain passkey support
 
 ---
 
@@ -141,11 +136,11 @@
 
 ## Phase 4: Integration Testing (Week 5)
 
-### All Teams 🟡 IN PROGRESS
-- [ ] **E2E Scenario: First-time wallet user**
-- [ ] **E2E Scenario: Returning wallet user**
-- [ ] **E2E Scenario: Multi-bsim user**
-- [ ] **E2E Scenario: Error handling**
+### All Teams ✅ COMPLETE
+- [x] **E2E Scenario: First-time wallet user**
+- [x] **E2E Scenario: Returning wallet user** (Quick Pay)
+- [x] **E2E Scenario: Multi-bsim user**
+- [x] **E2E Scenario: Error handling**
 
 ---
 
@@ -189,8 +184,9 @@ Access at: https://wsim-dev.banksim.ca
 | Checkpoint 1.5 | Week 1 | WSIM | Docker containers ready | ✅ Done |
 | Checkpoint 2 | Week 2 | WSIM, BSIM | Enrollment flow working | ✅ Done |
 | Checkpoint 3 | Week 3 | All | Token format validation | ✅ Done |
-| Checkpoint 4 | Week 4 | All | First E2E wallet payment | 🟡 Testing |
-| Final Demo | Week 5 | All | Complete flow, all scenarios | 🟡 In Progress |
+| Checkpoint 4 | Week 4 | All | First E2E wallet payment | ✅ Done |
+| Final Demo | Week 5 | All | Complete flow, all scenarios | ✅ Done |
+| Production | Dec 2025 | All | Production deployment | ✅ Deployed |
 
 ---
 
