@@ -116,10 +116,11 @@ async function verifyMerchantApiKey(req: Request, res: Response, next: NextFunct
     });
   }
 
-  // Attach merchant info to request
-  (req as Request & { merchant: { id: string; name: string } }).merchant = {
+  // Attach merchant info to request (including webauthnRelatedOrigin for cross-domain passkey verification)
+  (req as Request & { merchant: { id: string; name: string; webauthnRelatedOrigin?: string } }).merchant = {
     id: merchant.clientId,
     name: merchant.clientName || merchant.clientId,
+    webauthnRelatedOrigin: merchant.webauthnRelatedOrigin || undefined,
   };
 
   next();
@@ -402,10 +403,19 @@ router.post('/payment/confirm', verifyMerchantApiKey, async (req: Request, res: 
     let verification: VerifiedAuthenticationResponse;
     try {
       const publicKeyBuffer = Buffer.from(credential.publicKey, 'base64url');
+
+      // Build list of allowed origins: standard WSIM origins + merchant's webauthnRelatedOrigin if configured
+      const merchant = (req as Request & { merchant?: { webauthnRelatedOrigin?: string } }).merchant;
+      const allowedOrigins = [...env.WEBAUTHN_ORIGINS];
+      if (merchant?.webauthnRelatedOrigin) {
+        allowedOrigins.push(merchant.webauthnRelatedOrigin);
+        console.log(`[WalletAPI] Including merchant origin for passkey verification: ${merchant.webauthnRelatedOrigin}`);
+      }
+
       verification = await verifyAuthenticationResponse({
         response: passkeyResponse,
         expectedChallenge: paymentContext.challenge,
-        expectedOrigin: env.WEBAUTHN_ORIGINS,
+        expectedOrigin: allowedOrigins,
         expectedRPID: env.WEBAUTHN_RP_ID,
         credential: {
           id: credential.credentialId,
