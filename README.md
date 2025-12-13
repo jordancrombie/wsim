@@ -50,6 +50,11 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
+- **Mobile Payment Flow** - Complete mobile app payment integration
+  - Merchant creates payment request, gets deep link URL
+  - User opens in mwsim app, selects card, approves with biometric
+  - One-time token exchange for secure card token retrieval
+  - Polling-based status updates for real-time merchant feedback
 - **Mobile API for mwsim** - JWT-based REST API for mobile wallet app integration
   - Device registration, auth, token refresh, wallet summary
   - Bank enrollment via OAuth (expo-web-browser deep link support)
@@ -183,6 +188,7 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 | [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing integration |
 | [docs/BSIM_ENROLLMENT_INTEGRATION.md](./docs/BSIM_ENROLLMENT_INTEGRATION.md) | In-bank enrollment integration for partners |
 | [docs/features/IN_BANK_ENROLLMENT.md](./docs/features/IN_BANK_ENROLLMENT.md) | In-bank enrollment feature documentation |
+| [docs/MOBILE_APP_PAYMENT_FLOW.md](./docs/MOBILE_APP_PAYMENT_FLOW.md) | Mobile app payment flow design (mwsim integration) |
 
 ## API Endpoints
 
@@ -217,6 +223,20 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 | GET | `/enrollment/callback/:bsimId` | OAuth callback (redirects to deep link) |
 | GET | `/enrollment/list` | List enrolled banks |
 | DELETE | `/enrollment/:enrollmentId` | Remove bank enrollment |
+
+#### Mobile Payment Flow (Merchant → User → Merchant)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/payment/request` | API Key | Create payment request, get deep link |
+| GET | `/payment/:requestId/status` | API Key | Poll for approval status |
+| POST | `/payment/:requestId/cancel` | API Key/JWT | Cancel payment request |
+| POST | `/payment/:requestId/complete` | API Key | Exchange one-time token for card tokens |
+| GET | `/payment/:requestId` | JWT | Get payment details (for mobile app) |
+| POST | `/payment/:requestId/approve` | JWT | Approve payment with biometric |
+| GET | `/payment/pending` | JWT | List user's pending payments |
+
+See [docs/MOBILE_APP_PAYMENT_FLOW.md](./docs/MOBILE_APP_PAYMENT_FLOW.md) for detailed flow documentation.
 
 ### Auth Server (OIDC)
 

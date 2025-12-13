@@ -25,12 +25,13 @@ model WalletUser {
   updatedAt    DateTime @updatedAt
 
   // Relationships
-  enrollments        BsimEnrollment[]
-  walletCards        WalletCard[]
-  paymentConsents    WalletPaymentConsent[]
-  passkeyCredentials PasskeyCredential[]
-  mobileDevices      MobileDevice[]
-  mobileRefreshTokens MobileRefreshToken[]
+  enrollments           BsimEnrollment[]
+  walletCards           WalletCard[]
+  paymentConsents       WalletPaymentConsent[]
+  passkeyCredentials    PasskeyCredential[]
+  mobileDevices         MobileDevice[]
+  mobileRefreshTokens   MobileRefreshToken[]
+  mobilePaymentRequests MobilePaymentRequest[]
 }
 
 // =============================================================================
@@ -343,4 +344,53 @@ model MobileRefreshToken {
   @@index([userId])
   @@index([deviceId])
   @@map("mobile_refresh_tokens")
+}
+
+// =============================================================================
+// MOBILE PAYMENT REQUESTS
+// =============================================================================
+// Payment requests created by merchants (SSIM) for mobile app approval (mwsim)
+// Flow: SSIM creates request -> User opens in mwsim -> User approves -> SSIM completes
+
+model MobilePaymentRequest {
+  id              String    @id @default(cuid())
+
+  // Merchant info (from OAuth client)
+  merchantId      String    // OAuth client_id of the merchant
+  merchantName    String    // Display name for the app
+  merchantLogoUrl String?   // Logo URL for display in app
+
+  // User (set when user opens request in app)
+  userId          String?
+  user            WalletUser? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Order details
+  orderId         String    // Merchant's order reference
+  orderDescription String?  // Description shown to user
+  amount          Decimal   @db.Decimal(15, 2)
+  currency        String    @default("CAD")
+  returnUrl       String    // Where to redirect user after approval
+
+  // Payment state
+  status          String    @default("pending") // pending, approved, cancelled, expired, completed
+  selectedCardId  String?   // Card user selected for payment
+
+  // Tokens (set on approval)
+  cardToken       String?   // Ephemeral card token from BSIM
+  walletCardToken String?   // WSIM token for NSIM routing
+  oneTimeToken    String?   @unique // One-time token for merchant to exchange for card tokens
+
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime  // 5 minutes from creation, extended 60s on approval
+  approvedAt      DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+
+  @@unique([merchantId, orderId, status], name: "unique_pending_request")
+  @@index([merchantId, orderId])
+  @@index([status])
+  @@index([oneTimeToken])
+  @@index([userId])
+  @@map("mobile_payment_requests")
 }
