@@ -29,6 +29,8 @@ model WalletUser {
   walletCards        WalletCard[]
   paymentConsents    WalletPaymentConsent[]
   passkeyCredentials PasskeyCredential[]
+  mobileDevices      MobileDevice[]
+  mobileRefreshTokens MobileRefreshToken[]
 }
 
 // =============================================================================
@@ -291,4 +293,54 @@ model AdminInvite {
   createdAt   DateTime          @default(now())
 
   @@map("admin_invites")
+}
+
+// =============================================================================
+// MOBILE DEVICE REGISTRATION
+// =============================================================================
+
+model MobileDevice {
+  id               String   @id @default(uuid())
+  userId           String
+  user             WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deviceId         String   @unique  // Client-generated UUID
+  platform         String   // "ios" or "android"
+  deviceName       String
+  pushToken        String?  // APNS or FCM token (future use)
+
+  // Device credential for authentication
+  deviceCredential String   // Encrypted server-issued token
+  credentialExpiry DateTime
+
+  // Biometric info
+  biometricEnabled Boolean  @default(false)
+  biometricType    String?  // "face" or "fingerprint"
+  biometricPublicKey String? // SPKI base64 for signature verification
+
+  lastUsedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  refreshTokens    MobileRefreshToken[]
+
+  @@index([userId])
+  @@map("mobile_devices")
+}
+
+model MobileRefreshToken {
+  id           String   @id @default(uuid())
+  token        String   @unique
+  userId       String
+  user         WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId     String
+  device       MobileDevice @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([deviceId])
+  @@map("mobile_refresh_tokens")
 }
