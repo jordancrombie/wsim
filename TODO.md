@@ -19,6 +19,8 @@
 - ✅ **Quick Pay** - Cross-domain passkey auth on merchant domains
 - ✅ **In-Bank Enrollment** - Users enroll from partner bank websites
 - ✅ **WebAuthn ROR** - Related Origin Requests for cross-domain passkey support
+- ✅ **API Direct Integration** - JWT bearer token auth for SSIM API calls
+- ✅ **Schema Sync Validation** - Script to verify Prisma schemas before deployment
 
 ---
 
@@ -207,21 +209,15 @@ Access at: https://wsim-dev.banksim.ca
 
 ## Future Enhancements
 
-### Admin-Configurable Allowed Origins
-- [ ] **Add Popup/Embed Origins to Admin Panel**
-  - Currently, `ALLOWED_POPUP_ORIGINS` and `ALLOWED_EMBED_ORIGINS` are environment variables
-  - This requires container restarts to add new merchant domains (e.g., regalmoose.ca)
-  - **Proposed Enhancement:**
-    - Add `AllowedOrigin` model to Prisma schema with `type` (popup/embed) and `origin` fields
-    - Add admin UI page to manage allowed origins (list, add, remove)
-    - Update `auth-server/src/routes/popup.ts` and `embed.ts` to check database instead of env vars
-    - Keep env vars as fallback/override for deployment flexibility
-  - **Files to modify:**
-    - `auth-server/prisma/schema.prisma` - Add AllowedOrigin model
-    - `auth-server/src/config/env.ts` - Keep as fallback
-    - `auth-server/src/routes/popup.ts` - Check DB + env
-    - `auth-server/src/routes/embed.ts` - Check DB + env
-    - `auth-server/src/views/administration/` - Add origins management page
+### Admin-Configurable Allowed Origins ✅ PARTIALLY COMPLETE
+- [x] **WebAuthn Related Origins** - Implemented via `OAuthClient.webauthnRelatedOrigin` field
+  - Per-merchant Quick Pay cross-domain passkey support
+  - Configurable in Admin UI under "Quick Pay (Cross-Domain Passkey)"
+  - `/.well-known/webauthn` dynamically loads from database + env vars
+- [ ] **Popup/Embed Origins** - Still environment variable based
+  - `ALLOWED_POPUP_ORIGINS` and `ALLOWED_EMBED_ORIGINS` require container restarts
+  - Lower priority now that Quick Pay origins are admin-configurable
+  - Could add similar per-client `popupOrigin` and `embedOrigin` fields if needed
 
 ### Merchant-Scoped Session JWTs
 - [ ] **Add audience (aud) claim to session JWTs to make them store-specific**
