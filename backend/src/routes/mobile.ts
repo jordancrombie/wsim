@@ -12,6 +12,11 @@
  * - POST /auth/token/refresh - Refresh access token
  * - GET /wallet/summary - Get wallet overview
  * - POST /auth/logout - Logout and revoke tokens
+ *
+ * Phase 2 (Enrollment):
+ * - GET /enrollment/banks - List available banks
+ * - POST /enrollment/start/:bsimId - Start enrollment (returns auth URL)
+ * - GET /enrollment/callback/:bsimId - Handle OAuth callback
  */
 
 import { Router, Request, Response } from 'express';
@@ -19,7 +24,16 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
-import { encrypt } from '../utils/crypto';
+import { encrypt, generateWalletCardToken } from '../utils/crypto';
+import {
+  BsimProviderConfig,
+  buildAuthorizationUrl,
+  exchangeCode,
+  fetchCards,
+  generatePkce,
+  generateState,
+  generateNonce,
+} from '../services/bsim-oidc';
 
 const router = Router();
 
@@ -738,6 +752,447 @@ router.get('/wallet/summary', requireMobileAuth, async (req: AuthenticatedReques
     return res.status(500).json({
       error: 'server_error',
       message: 'Failed to get wallet summary',
+    });
+  }
+});
+
+// =============================================================================
+// BANK ENROLLMENT (Phase 2)
+// =============================================================================
+
+// Parse BSIM providers from environment
+function getBsimProviders(): BsimProviderConfig[] {
+  try {
+    return JSON.parse(env.BSIM_PROVIDERS);
+  } catch {
+    console.warn('[Mobile] Failed to parse BSIM_PROVIDERS');
+    return [];
+  }
+}
+
+// In-memory store for enrollment state (in production, use Redis or database)
+// Key is a unique enrollment ID, value contains PKCE params and user context
+interface EnrollmentState {
+  bsimId: string;
+  state: string;
+  nonce: string;
+  codeVerifier: string;
+  userId: string;
+  deviceId: string;
+  expiresAt: Date;
+}
+const enrollmentStates = new Map<string, EnrollmentState>();
+
+// Clean up expired enrollment states periodically
+setInterval(() => {
+  const now = new Date();
+  for (const [key, state] of enrollmentStates.entries()) {
+    if (now > state.expiresAt) {
+      enrollmentStates.delete(key);
+    }
+  }
+}, 60000); // Every minute
+
+/**
+ * GET /api/mobile/enrollment/banks
+ *
+ * List available banks for enrollment.
+ */
+router.get('/enrollment/banks', (req: Request, res: Response) => {
+  const providers = getBsimProviders();
+
+  res.json({
+    banks: providers.map(p => ({
+      bsimId: p.bsimId,
+      name: p.name || p.bsimId,
+      logoUrl: p.logoUrl,
+    })),
+  });
+});
+
+/**
+ * POST /api/mobile/enrollment/start/:bsimId
+ *
+ * Start bank enrollment. Returns an authorization URL for WebView.
+ * Requires JWT authentication.
+ *
+ * The mobile app should:
+ * 1. Call this endpoint to get the authUrl
+ * 2. Open a WebView with the authUrl
+ * 3. Intercept the callback URL when the bank redirects back
+ * 4. The callback will redirect to a success/error page that WebView can detect
+ */
+router.post('/enrollment/start/:bsimId', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { bsimId } = req.params;
+  const { userId, deviceId } = req;
+
+  if (!userId || !deviceId) {
+    return res.status(401).json({
+      error: 'unauthorized',
+      message: 'User authentication required',
+    });
+  }
+
+  const providers = getBsimProviders();
+  const provider = providers.find(p => p.bsimId === bsimId);
+
+  if (!provider) {
+    return res.status(404).json({
+      error: 'not_found',
+      message: 'Bank not found',
+    });
+  }
+
+  try {
+    // Generate PKCE, state, and nonce
+    const { codeVerifier, codeChallenge } = await generatePkce();
+    const state = generateState();
+    const nonce = generateNonce();
+
+    // Generate unique enrollment ID
+    const enrollmentId = crypto.randomUUID();
+
+    // Build redirect URI - uses mobile-specific callback endpoint
+    const redirectUri = `${env.APP_URL}/api/mobile/enrollment/callback/${bsimId}`;
+
+    // Build authorization URL
+    const authUrl = await buildAuthorizationUrl(
+      provider,
+      redirectUri,
+      state,
+      nonce,
+      codeChallenge
+    );
+
+    // Store enrollment state (10 minute expiry)
+    enrollmentStates.set(enrollmentId, {
+      bsimId,
+      state,
+      nonce,
+      codeVerifier,
+      userId,
+      deviceId,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    console.log(`[Mobile] Starting enrollment for ${bsimId}, user ${userId}`);
+
+    // Return auth URL and enrollment ID
+    // Mobile app should append enrollmentId to the state or track it locally
+    res.json({
+      authUrl,
+      enrollmentId,
+      bsimId: provider.bsimId,
+      bankName: provider.name,
+      // The callback URL pattern for the mobile app to detect
+      callbackUrlPattern: `${env.APP_URL}/api/mobile/enrollment/callback/${bsimId}`,
+    });
+  } catch (error) {
+    console.error('[Mobile] Enrollment start error:', error);
+    res.status(500).json({
+      error: 'enrollment_failed',
+      message: error instanceof Error ? error.message : 'Failed to start enrollment',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/enrollment/callback/:bsimId
+ *
+ * Handle OAuth callback from bank. This endpoint is called by the bank
+ * after the user authenticates. It processes the OAuth code and redirects
+ * to a mobile-friendly result page.
+ *
+ * Query params:
+ * - code: OAuth authorization code
+ * - state: CSRF state token
+ * - error: Error code if authentication failed
+ * - error_description: Error description
+ *
+ * The enrollment state is looked up using the state parameter which maps
+ * to our stored enrollmentId -> state mapping.
+ */
+router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) => {
+  const { bsimId } = req.params;
+  const { code, state, error, error_description } = req.query;
+
+  // Base URL for redirects (mobile app should intercept these)
+  const mobileRedirectBase = `${env.FRONTEND_URL}/mobile/enrollment`;
+
+  // Handle error from BSIM
+  if (error) {
+    console.error(`[Mobile] Enrollment error from BSIM: ${error} - ${error_description}`);
+    return res.redirect(`${mobileRedirectBase}/error?error=${error}&message=${encodeURIComponent(String(error_description || ''))}`);
+  }
+
+  // Validate we have code and state
+  if (!code || typeof code !== 'string') {
+    return res.redirect(`${mobileRedirectBase}/error?error=missing_code`);
+  }
+
+  if (!state || typeof state !== 'string') {
+    return res.redirect(`${mobileRedirectBase}/error?error=missing_state`);
+  }
+
+  // Find enrollment state by matching the state parameter
+  let enrollmentId: string | null = null;
+  let enrollmentState: EnrollmentState | null = null;
+
+  for (const [id, stored] of enrollmentStates.entries()) {
+    if (stored.state === state && stored.bsimId === bsimId) {
+      enrollmentId = id;
+      enrollmentState = stored;
+      break;
+    }
+  }
+
+  if (!enrollmentState || !enrollmentId) {
+    console.error('[Mobile] No enrollment state found for state:', state);
+    return res.redirect(`${mobileRedirectBase}/error?error=invalid_state`);
+  }
+
+  // Check expiry
+  if (new Date() > enrollmentState.expiresAt) {
+    enrollmentStates.delete(enrollmentId);
+    return res.redirect(`${mobileRedirectBase}/error?error=expired`);
+  }
+
+  // Get provider config
+  const providers = getBsimProviders();
+  const provider = providers.find(p => p.bsimId === bsimId);
+
+  if (!provider) {
+    return res.redirect(`${mobileRedirectBase}/error?error=provider_not_found`);
+  }
+
+  try {
+    const redirectUri = `${env.APP_URL}/api/mobile/enrollment/callback/${bsimId}`;
+
+    // Exchange code for tokens
+    console.log(`[Mobile] Exchanging code for tokens...`);
+    const tokenResponse = await exchangeCode(
+      provider,
+      redirectUri,
+      code,
+      enrollmentState.codeVerifier,
+      enrollmentState.state,
+      enrollmentState.nonce
+    );
+
+    console.log(`[Mobile] Got tokens for enrollment`);
+
+    // Get the user
+    const user = await prisma.walletUser.findUnique({
+      where: { id: enrollmentState.userId },
+    });
+
+    if (!user) {
+      console.error('[Mobile] User not found:', enrollmentState.userId);
+      return res.redirect(`${mobileRedirectBase}/error?error=user_not_found`);
+    }
+
+    // Check if already enrolled with this BSIM
+    let enrollment = await prisma.bsimEnrollment.findUnique({
+      where: {
+        userId_bsimId: {
+          userId: user.id,
+          bsimId: bsimId,
+        },
+      },
+    });
+
+    if (enrollment) {
+      // Update existing enrollment
+      console.log(`[Mobile] Updating existing enrollment for ${bsimId}`);
+      enrollment = await prisma.bsimEnrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
+          credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
+        },
+      });
+    } else {
+      // Create new enrollment
+      console.log(`[Mobile] Creating new enrollment for ${bsimId}`);
+      enrollment = await prisma.bsimEnrollment.create({
+        data: {
+          userId: user.id,
+          bsimId: bsimId,
+          bsimIssuer: provider.issuer,
+          fiUserRef: tokenResponse.fiUserRef,
+          walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
+          credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
+        },
+      });
+    }
+
+    // Fetch and store cards
+    let cardCount = 0;
+    console.log(`[Mobile] Fetching cards from ${bsimId}...`);
+    if (!tokenResponse.walletCredential) {
+      console.error('[Mobile] No wallet_credential in token response');
+    }
+    try {
+      const credentialToUse = tokenResponse.walletCredential || tokenResponse.accessToken;
+      const cards = await fetchCards(provider, credentialToUse);
+      console.log(`[Mobile] Got ${cards.length} cards from ${bsimId}`);
+      cardCount = cards.length;
+
+      // Store cards
+      for (const card of cards) {
+        const existingCard = await prisma.walletCard.findUnique({
+          where: {
+            enrollmentId_bsimCardRef: {
+              enrollmentId: enrollment.id,
+              bsimCardRef: card.cardRef,
+            },
+          },
+        });
+
+        if (existingCard) {
+          await prisma.walletCard.update({
+            where: { id: existingCard.id },
+            data: {
+              cardType: card.cardType,
+              lastFour: card.lastFour,
+              cardholderName: card.cardholderName,
+              expiryMonth: card.expiryMonth,
+              expiryYear: card.expiryYear,
+              isActive: card.isActive,
+            },
+          });
+        } else {
+          await prisma.walletCard.create({
+            data: {
+              userId: user.id,
+              enrollmentId: enrollment.id,
+              cardType: card.cardType,
+              lastFour: card.lastFour,
+              cardholderName: card.cardholderName,
+              expiryMonth: card.expiryMonth,
+              expiryYear: card.expiryYear,
+              bsimCardRef: card.cardRef,
+              walletCardToken: generateWalletCardToken(bsimId),
+              isActive: card.isActive,
+            },
+          });
+        }
+      }
+    } catch (cardError) {
+      console.error('[Mobile] Failed to fetch cards:', cardError);
+      // Don't fail enrollment if card fetch fails
+    }
+
+    // Clean up enrollment state
+    enrollmentStates.delete(enrollmentId);
+
+    console.log(`[Mobile] Enrollment complete for user ${user.email}`);
+
+    // Redirect to success page with enrollment info
+    // Mobile app should intercept this URL
+    res.redirect(`${mobileRedirectBase}/success?bsimId=${bsimId}&bankName=${encodeURIComponent(provider.name || bsimId)}&cardCount=${cardCount}`);
+
+  } catch (error) {
+    console.error('[Mobile] Enrollment callback error:', error);
+    // Clean up on error
+    if (enrollmentId) {
+      enrollmentStates.delete(enrollmentId);
+    }
+    res.redirect(`${mobileRedirectBase}/error?error=callback_failed&message=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`);
+  }
+});
+
+/**
+ * GET /api/mobile/enrollment/list
+ *
+ * List user's enrolled banks.
+ */
+router.get('/enrollment/list', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+
+    const enrollments = await prisma.bsimEnrollment.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        bsimId: true,
+        createdAt: true,
+        credentialExpiry: true,
+        _count: {
+          select: { cards: true },
+        },
+      },
+    });
+
+    const providers = getBsimProviders();
+
+    res.json({
+      enrollments: enrollments.map(e => {
+        const provider = providers.find(p => p.bsimId === e.bsimId);
+        return {
+          id: e.id,
+          bsimId: e.bsimId,
+          bankName: provider?.name || e.bsimId,
+          logoUrl: provider?.logoUrl,
+          cardCount: e._count.cards,
+          enrolledAt: e.createdAt.toISOString(),
+          credentialExpiry: e.credentialExpiry?.toISOString(),
+        };
+      }),
+    });
+  } catch (error) {
+    console.error('[Mobile] Enrollment list error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to get enrollments',
+    });
+  }
+});
+
+/**
+ * DELETE /api/mobile/enrollment/:enrollmentId
+ *
+ * Remove a bank enrollment and all associated cards.
+ */
+router.delete('/enrollment/:enrollmentId', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { enrollmentId } = req.params;
+    const { userId } = req;
+
+    // Find enrollment and verify ownership
+    const enrollment = await prisma.bsimEnrollment.findUnique({
+      where: { id: enrollmentId },
+    });
+
+    if (!enrollment) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Enrollment not found',
+      });
+    }
+
+    if (enrollment.userId !== userId) {
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Not authorized to delete this enrollment',
+      });
+    }
+
+    // Delete enrollment (cascades to cards)
+    await prisma.bsimEnrollment.delete({
+      where: { id: enrollmentId },
+    });
+
+    console.log(`[Mobile] Deleted enrollment ${enrollmentId} for user ${userId}`);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Mobile] Delete enrollment error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to delete enrollment',
     });
   }
 });
