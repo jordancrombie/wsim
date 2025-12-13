@@ -772,6 +772,127 @@ router.get('/wallet/summary', requireMobileAuth, async (req: AuthenticatedReques
 });
 
 // =============================================================================
+// CARD MANAGEMENT
+// =============================================================================
+
+/**
+ * POST /api/mobile/wallet/cards/:cardId/default
+ *
+ * Set a card as the default payment card.
+ */
+router.post('/wallet/cards/:cardId/default', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { userId } = req;
+
+    // Find the card and verify ownership
+    const card = await prisma.walletCard.findFirst({
+      where: {
+        id: cardId,
+        userId,
+        isActive: true,
+      },
+    });
+
+    if (!card) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Card not found',
+      });
+    }
+
+    // Clear existing default and set new one in a transaction
+    await prisma.$transaction([
+      prisma.walletCard.updateMany({
+        where: { userId },
+        data: { isDefault: false },
+      }),
+      prisma.walletCard.update({
+        where: { id: cardId },
+        data: { isDefault: true },
+      }),
+    ]);
+
+    console.log(`[Mobile] Card ${cardId} set as default for user ${userId}`);
+
+    return res.json({
+      success: true,
+      cardId,
+    });
+  } catch (error) {
+    console.error('[Mobile] Set default card error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to set default card',
+    });
+  }
+});
+
+/**
+ * DELETE /api/mobile/wallet/cards/:cardId
+ *
+ * Remove a card from the wallet (soft delete).
+ */
+router.delete('/wallet/cards/:cardId', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { userId } = req;
+
+    // Find the card and verify ownership
+    const card = await prisma.walletCard.findFirst({
+      where: {
+        id: cardId,
+        userId,
+      },
+    });
+
+    if (!card) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Card not found',
+      });
+    }
+
+    // Soft delete the card
+    await prisma.walletCard.update({
+      where: { id: cardId },
+      data: { isActive: false },
+    });
+
+    // If this was the default card, set another card as default
+    if (card.isDefault) {
+      const nextCard = await prisma.walletCard.findFirst({
+        where: {
+          userId,
+          isActive: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (nextCard) {
+        await prisma.walletCard.update({
+          where: { id: nextCard.id },
+          data: { isDefault: true },
+        });
+      }
+    }
+
+    console.log(`[Mobile] Card ${cardId} removed for user ${userId}`);
+
+    return res.json({
+      success: true,
+      cardId,
+    });
+  } catch (error) {
+    console.error('[Mobile] Remove card error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to remove card',
+    });
+  }
+});
+
+// =============================================================================
 // BANK ENROLLMENT (Phase 2)
 // =============================================================================
 
