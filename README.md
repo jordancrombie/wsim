@@ -50,11 +50,12 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
+- Admin-configurable WebAuthn Related Origins for Quick Pay
+- Cross-domain passkey authentication on merchant domains
 - In-Bank Enrollment with cross-origin passkey registration
 - Redirect flow checkout UI redesign with branded wallet experience
 - Partner SSO for cross-device wallet access
-- Admin UI enhancements (grant types, API key management)
-- Quick Pay integration for returning users
+- Admin UI enhancements (grant types, API key management, Quick Pay origins)
 
 See [TODO.md](./TODO.md) for detailed progress and [CHANGELOG.md](./CHANGELOG.md) for history.
 

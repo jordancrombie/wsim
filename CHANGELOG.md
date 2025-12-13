@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `auth-server/src/routes/admin.ts` - Handle webauthnRelatedOrigin in client updates
     - `auth-server/src/index.ts` - Dynamic origins loading from database
 
+### Fixed
+- **Quick Pay Cross-Domain Passkey Verification (2025-12-12)**
+  - Server-side passkey verification now includes merchant's `webauthnRelatedOrigin` in expected origins
+  - Previously, `verifyAuthenticationResponse` only accepted WSIM origins, causing 400 errors when
+    passkey authentication occurred on merchant domains (e.g., `store.regalmoose.ca`)
+  - `verifyMerchantApiKey` middleware now attaches `webauthnRelatedOrigin` to request
+  - `/payment/confirm` endpoint builds `allowedOrigins` array including merchant origin
+  - Modified files:
+    - `backend/src/routes/wallet-api.ts` - Include merchant origin in passkey verification
+
 - **In-Bank Enrollment with Cross-Origin Passkey Registration (2025-12-12)**
   - New enrollment flow allowing users to enroll in WSIM wallet directly from partner bank websites
   - Embedded enrollment UI (`/enroll/embed`) that can be loaded in an iframe on partner sites
