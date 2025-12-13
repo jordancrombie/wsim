@@ -105,12 +105,42 @@ async function main() {
   });
 
   // WebAuthn Related Origin Requests (Level 3)
-  // Allows cross-origin passkey registration from listed origins
+  // Allows cross-origin passkey registration AND authentication from listed origins
   // See: https://w3c.github.io/webauthn/#sctn-related-origins
-  app.get('/.well-known/webauthn', (req, res) => {
-    res.json({
-      origins: env.WEBAUTHN_RELATED_ORIGINS,
-    });
+  // Origins are loaded from:
+  // 1. WEBAUTHN_RELATED_ORIGINS env var (for static/partner origins like BSIM)
+  // 2. OAuthClient.webauthnRelatedOrigin (for merchant Quick Pay)
+  app.get('/.well-known/webauthn', async (req, res) => {
+    try {
+      // Start with static origins from environment
+      const origins = new Set<string>(env.WEBAUTHN_RELATED_ORIGINS);
+
+      // Add origins from OAuth clients (merchants with Quick Pay enabled)
+      const clientOrigins = await prisma.oAuthClient.findMany({
+        where: {
+          webauthnRelatedOrigin: { not: null },
+        },
+        select: {
+          webauthnRelatedOrigin: true,
+        },
+      });
+
+      for (const client of clientOrigins) {
+        if (client.webauthnRelatedOrigin) {
+          origins.add(client.webauthnRelatedOrigin);
+        }
+      }
+
+      res.json({
+        origins: Array.from(origins),
+      });
+    } catch (error) {
+      console.error('[WebAuthn] Error fetching related origins:', error);
+      // Fallback to static origins on error
+      res.json({
+        origins: env.WEBAUTHN_RELATED_ORIGINS,
+      });
+    }
   });
 
   // Home page

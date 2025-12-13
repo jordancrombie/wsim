@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Admin-Configurable WebAuthn Related Origins for Quick Pay (2025-12-12)**
+  - Added `webauthnRelatedOrigin` field to OAuth clients for per-merchant Quick Pay support
+  - Merchants can now use passkeys registered with WSIM on their own domains
+  - New admin UI section "Quick Pay (Cross-Domain Passkey)" in client edit form
+  - `/.well-known/webauthn` endpoint now dynamically loads origins from:
+    - Static `WEBAUTHN_RELATED_ORIGINS` env var (for partner origins like BSIM)
+    - `OAuthClient.webauthnRelatedOrigin` database field (for merchant domains)
+  - HTTPS validation ensures only secure origins can be configured
+  - Uses WebAuthn Level 3 Related Origin Requests (ROR) specification
+  - Modified files:
+    - `backend/prisma/schema.prisma` - Added webauthnRelatedOrigin field to OAuthClient
+    - `auth-server/prisma/schema.prisma` - Added webauthnRelatedOrigin field to OAuthClient
+    - `auth-server/src/views/admin/client-form.ejs` - Added Quick Pay configuration section
+    - `auth-server/src/routes/admin.ts` - Handle webauthnRelatedOrigin in client updates
+    - `auth-server/src/index.ts` - Dynamic origins loading from database
+
 - **In-Bank Enrollment with Cross-Origin Passkey Registration (2025-12-12)**
   - New enrollment flow allowing users to enroll in WSIM wallet directly from partner bank websites
   - Embedded enrollment UI (`/enroll/embed`) that can be loaded in an iframe on partner sites

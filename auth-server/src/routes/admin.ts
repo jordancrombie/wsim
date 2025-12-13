@@ -188,6 +188,7 @@ router.post('/clients/:id', async (req: Request, res: Response, next: NextFuncti
       generateApiKey,
       regenerateApiKey,
       revokeApiKey,
+      webauthnRelatedOrigin,
     } = req.body;
 
     // Parse arrays from form input (newline-separated)
@@ -206,6 +207,27 @@ router.post('/clients/:id', async (req: Request, res: Response, next: NextFuncti
       return [input]; // Single checkbox value
     };
 
+    // Validate WebAuthn related origin (must be a valid HTTPS URL if provided)
+    let validatedWebauthnOrigin: string | null = null;
+    if (webauthnRelatedOrigin?.trim()) {
+      const origin = webauthnRelatedOrigin.trim();
+      try {
+        const url = new URL(origin);
+        if (url.protocol !== 'https:') {
+          throw new Error('Must be HTTPS');
+        }
+        // Store just the origin (protocol + host, no path)
+        validatedWebauthnOrigin = url.origin;
+      } catch {
+        return res.render('admin/client-form', {
+          client: { ...req.body, id: req.params.id },
+          admin: (req as any).admin,
+          isNew: false,
+          error: 'WebAuthn Related Origin must be a valid HTTPS URL (e.g., https://store.example.com)',
+        });
+      }
+    }
+
     const updateData: any = {
       clientName: clientName.trim(),
       redirectUris: parseArray(redirectUris),
@@ -214,6 +236,7 @@ router.post('/clients/:id', async (req: Request, res: Response, next: NextFuncti
       scope: scope.trim(),
       logoUri: logoUri?.trim() || null,
       trusted: trusted === 'on',
+      webauthnRelatedOrigin: validatedWebauthnOrigin,
     };
 
     // Optionally regenerate secret
