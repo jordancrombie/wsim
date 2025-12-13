@@ -263,35 +263,50 @@ router.post('/auth/register', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if device already exists (linked to another user)
+    const existingDevice = await prisma.mobileDevice.findUnique({
+      where: { deviceId },
+    });
+
+    if (existingDevice) {
+      return res.status(409).json({
+        error: 'device_conflict',
+        message: 'This device is already registered. Use login instead.',
+      });
+    }
+
     // Parse name into firstName/lastName
     const nameParts = name.trim().split(/\s+/);
     const firstName = nameParts[0] || '';
     const lastName = nameParts.slice(1).join(' ') || '';
-
-    // Create user
-    const user = await prisma.walletUser.create({
-      data: {
-        email: email.toLowerCase(),
-        firstName,
-        lastName,
-      },
-    });
 
     // Generate device credential
     const rawCredential = crypto.randomBytes(32).toString('hex');
     const deviceCredential = encrypt(rawCredential);
     const credentialExpiry = new Date(Date.now() + env.MOBILE_DEVICE_CREDENTIAL_EXPIRY * 1000);
 
-    // Create device linked to user
-    await prisma.mobileDevice.create({
-      data: {
-        userId: user.id,
-        deviceId,
-        platform,
-        deviceName,
-        deviceCredential,
-        credentialExpiry,
-      },
+    // Create user and device in a transaction to ensure atomicity
+    const { user, device } = await prisma.$transaction(async (tx) => {
+      const user = await tx.walletUser.create({
+        data: {
+          email: email.toLowerCase(),
+          firstName,
+          lastName,
+        },
+      });
+
+      const device = await tx.mobileDevice.create({
+        data: {
+          userId: user.id,
+          deviceId,
+          platform,
+          deviceName,
+          deviceCredential,
+          credentialExpiry,
+        },
+      });
+
+      return { user, device };
     });
 
     // Generate tokens
