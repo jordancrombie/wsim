@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mobile API for mwsim Integration (2025-12-13)**
+  - Complete REST API for mobile wallet app with JWT-based authentication
+  - Separate `MOBILE_JWT_SECRET` for mobile tokens (1hr access, 30-day refresh)
+  - New Prisma models: `MobileDevice`, `MobileRefreshToken`
+  - **Phase 1 (Authentication & Wallet):**
+    - `POST /api/mobile/device/register` - Register mobile device with credentials
+    - `POST /api/mobile/auth/register` - Create new wallet account (with transaction safety)
+    - `POST /api/mobile/auth/login` - Start login with email verification code
+    - `POST /api/mobile/auth/login/verify` - Verify code and get tokens
+    - `POST /api/mobile/auth/token/refresh` - Refresh access token (with rotation)
+    - `POST /api/mobile/auth/logout` - Logout and revoke all device tokens
+    - `GET /api/mobile/wallet/summary` - Get wallet overview with cards and enrollments
+  - **Phase 2 (Bank Enrollment):**
+    - `GET /api/mobile/enrollment/banks` - List available banks
+    - `POST /api/mobile/enrollment/start/:bsimId` - Start OAuth enrollment flow
+    - `GET /api/mobile/enrollment/callback/:bsimId` - Handle OAuth callback with deep link redirect
+    - `GET /api/mobile/enrollment/list` - List user's enrolled banks
+    - `DELETE /api/mobile/enrollment/:enrollmentId` - Remove bank enrollment
+  - **Card Management:**
+    - `POST /api/mobile/wallet/cards/:cardId/default` - Set card as default
+    - `DELETE /api/mobile/wallet/cards/:cardId` - Soft delete card
+  - Deep link support for expo-web-browser: `mwsim://enrollment/callback?success=...`
+  - In-memory PKCE state storage with 10-minute TTL for mobile OAuth flows
+  - Environment variables: `MOBILE_JWT_SECRET`, `MOBILE_ACCESS_TOKEN_EXPIRY`, `MOBILE_REFRESH_TOKEN_EXPIRY`
+  - Feature branch: `feature/mobile-api`
+
 - **Schema Sync Validation Script (2025-12-12)**
   - New `scripts/check-schema-sync.sh` to verify backend and auth-server Prisma schemas are identical
   - Prevents accidental table drops when services share a single PostgreSQL database

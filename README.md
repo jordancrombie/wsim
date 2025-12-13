@@ -50,6 +50,10 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
+- **Mobile API for mwsim** - JWT-based REST API for mobile wallet app integration
+  - Device registration, auth, token refresh, wallet summary
+  - Bank enrollment via OAuth (expo-web-browser deep link support)
+  - Card management (set default, remove cards)
 - JWT bearer token authentication for SSIM API Direct integration
 - Schema sync validation script for shared database safety
 - Admin-configurable WebAuthn Related Origins for Quick Pay
@@ -194,6 +198,25 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 | DELETE | `/enrollment/:enrollmentId` | Remove bank enrollment |
 | GET | `/wallet/cards` | List user's cards |
 | DELETE | `/wallet/cards/:cardId` | Remove a card |
+
+### Mobile API (`/api/mobile`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/device/register` | Register mobile device |
+| POST | `/auth/register` | Create wallet account |
+| POST | `/auth/login` | Start login (sends email code) |
+| POST | `/auth/login/verify` | Verify login code |
+| POST | `/auth/token/refresh` | Refresh access token |
+| POST | `/auth/logout` | Logout and revoke tokens |
+| GET | `/wallet/summary` | Get wallet overview with cards |
+| POST | `/wallet/cards/:cardId/default` | Set card as default |
+| DELETE | `/wallet/cards/:cardId` | Remove card (soft delete) |
+| GET | `/enrollment/banks` | List available banks |
+| POST | `/enrollment/start/:bsimId` | Start bank OAuth enrollment |
+| GET | `/enrollment/callback/:bsimId` | OAuth callback (redirects to deep link) |
+| GET | `/enrollment/list` | List enrolled banks |
+| DELETE | `/enrollment/:enrollmentId` | Remove bank enrollment |
 
 ### Auth Server (OIDC)
 
