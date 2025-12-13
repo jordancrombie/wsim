@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-12
+> **Last Updated**: 2025-12-13
 
 ## Current Status: 🟢 Production Ready
 
@@ -9,6 +9,7 @@
 - Quick Pay with cross-domain passkey authentication
 - In-Bank Enrollment for partner banks
 - Admin dashboard with passkey-only authentication
+- **Mobile API for mwsim integration** (feature branch)
 
 ### What's Working ✅
 - ✅ SSIM shows "Pay with Wallet" button
@@ -21,6 +22,7 @@
 - ✅ **WebAuthn ROR** - Related Origin Requests for cross-domain passkey support
 - ✅ **API Direct Integration** - JWT bearer token auth for SSIM API calls
 - ✅ **Schema Sync Validation** - Script to verify Prisma schemas before deployment
+- ✅ **Mobile API** - JWT-based REST API for mwsim mobile wallet app
 
 ---
 
@@ -204,6 +206,34 @@ Access at: https://wsim-dev.banksim.ca
 | [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing |
 | [docs/EMBEDDED_WALLET_PLAN.md](./docs/EMBEDDED_WALLET_PLAN.md) | Embedded wallet implementation status |
 | [docs/FUTURE_CONSIDERATIONS.md](./docs/FUTURE_CONSIDERATIONS.md) | Post-MVP features |
+
+---
+
+## Mobile API (mwsim Integration)
+
+> Branch: `feature/mobile-api`
+> Proposal: `/Users/jcrombie/ai/mwsim/docs/WSIM_API_PROPOSAL.md`
+
+### Phase 1 ✅ COMPLETE
+- [x] Device registration endpoint
+- [x] Account registration (new users)
+- [x] Account login (existing users with email code)
+- [x] Token refresh with rotation
+- [x] Logout and token revocation
+- [x] Wallet summary endpoint
+- [x] Database schema (MobileDevice, MobileRefreshToken)
+
+### Phase 2 ✅ COMPLETE
+- [x] Bank enrollment via OAuth (JWT-based, not session)
+- [x] Deep link callback for expo-web-browser (`mwsim://enrollment/callback`)
+- [x] Enrollment list and delete
+- [x] Card management (set default, remove)
+
+### Phase 3 (Future)
+- [ ] Biometric authentication (Face ID / Touch ID)
+- [ ] Push notification token storage
+- [ ] Multi-device management
+- [ ] Mobile payment flow (JWT auth for merchant endpoints)
 
 ---
 
