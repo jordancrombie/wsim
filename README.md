@@ -40,7 +40,7 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Key Features
 
-- **Multiple Integration Methods**: Popup, Inline (iframe), Redirect, and Quick Pay flows
+- **Multiple Integration Methods**: Popup, Inline (iframe), Redirect, Quick Pay, and Mobile App flows
 - **In-Bank Enrollment**: Users can enroll directly from partner bank websites via embedded iframe
 - **Cross-Origin Passkey Registration**: WebAuthn Level 3 Related Origin Requests support
 - **Partner SSO**: Server-to-server JWT-based authentication for seamless cross-device access
@@ -50,15 +50,19 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
-- **Mobile Payment Flow** - Complete mobile app payment integration
-  - Merchant creates payment request, gets deep link URL
-  - User opens in mwsim app, selects card, approves with biometric
+- **Mobile Payment Flow (Tested & Working)** - Complete mobile app payment integration
+  - Merchant (SSIM) creates payment request via `POST /api/mobile/payment/request`
+  - Deep link opens mwsim app: `mwsim://payment/{requestId}`
+  - User selects card and approves with biometric authentication
+  - WSIM fetches ephemeral card token from BSIM via `/api/wallet/request-token`
   - One-time token exchange for secure card token retrieval
-  - Polling-based status updates for real-time merchant feedback
+  - SSIM polls for status and completes payment via NSIM
+  - Browser visibility change detection for reliable status updates on app return
 - **Mobile API for mwsim** - JWT-based REST API for mobile wallet app integration
-  - Device registration, auth, token refresh, wallet summary
-  - Bank enrollment via OAuth (expo-web-browser deep link support)
-  - Card management (set default, remove cards)
+  - Device registration, auth (email code + password login), token refresh
+  - Bank enrollment via OAuth with deep link callbacks
+  - Wallet summary, card management (set default, remove)
+  - 1-hour access tokens, 30-day refresh tokens with rotation
 - JWT bearer token authentication for SSIM API Direct integration
 - Schema sync validation script for shared database safety
 - Admin-configurable WebAuthn Related Origins for Quick Pay
@@ -145,9 +149,16 @@ BSIM_PROVIDERS='[{"bsimId":"bsim","name":"Bank Simulator","issuer":"https://auth
    - WSIM → BSIM OAuth with `wallet:enroll` scope
    - Cards fetched and stored with `walletCardToken` for NSIM routing
 
-2. **Payment Flow**: User pays at SSIM using wallet
+2. **Web Payment Flow**: User pays at SSIM using wallet (browser)
    - SSIM → WSIM OAuth with `payment:authorize` scope
    - WSIM fetches ephemeral `cardToken` from BSIM
+   - SSIM → NSIM with both `walletCardToken` and `cardToken`
+
+3. **Mobile Payment Flow**: User pays at SSIM using mwsim app
+   - SSIM → WSIM `POST /api/mobile/payment/request` (creates deep link)
+   - mwsim opens via `mwsim://payment/{requestId}` deep link
+   - User approves → WSIM fetches `cardToken` from BSIM
+   - SSIM polls status, exchanges one-time token for card tokens
    - SSIM → NSIM with both `walletCardToken` and `cardToken`
 
 ## Docker

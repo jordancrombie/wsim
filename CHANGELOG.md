@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Mobile API for mwsim Integration (2025-12-13)**
+- **Mobile API for mwsim Integration (2025-12-13, Tested 2025-12-14)**
   - Complete REST API for mobile wallet app with JWT-based authentication
+  - **Status: Tested and working in development environment**
   - Separate `MOBILE_JWT_SECRET` for mobile tokens (1hr access, 30-day refresh)
   - New Prisma models: `MobileDevice`, `MobileRefreshToken`, `MobilePaymentRequest`
   - **Phase 1 (Authentication & Wallet):**
@@ -86,6 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `auth-server/src/index.ts` - Dynamic origins loading from database
 
 ### Fixed
+- **Mobile Payment BSIM Token Request (2025-12-14)**
+  - Fixed `/api/mobile/payment/:id/approve` endpoint to send `cardId` (bsimCardRef) instead of `walletCardToken` when requesting ephemeral card token from BSIM
+  - BSIM's `/api/wallet/request-token` endpoint expects the BSIM card ID, not WSIM's internal wallet token
+  - This aligns with the existing pattern in `wallet-api.ts` for the OIDC payment flow
+  - Modified file: `backend/src/routes/mobile.ts` (line ~2079)
+
 - **TypeScript Strict Type Errors in Test Files (2025-12-12)**
   - Fixed implicit `any` type errors in `passkey.test.ts` (lines 150, 302, 309, 314)
   - Fixed `null` vs `undefined` type error in `mockPrisma.ts` (line 540)

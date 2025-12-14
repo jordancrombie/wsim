@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-13
+> **Last Updated**: 2025-12-14
 
 ## Current Status: 🟢 Production Ready
 
@@ -9,7 +9,7 @@
 - Quick Pay with cross-domain passkey authentication
 - In-Bank Enrollment for partner banks
 - Admin dashboard with passkey-only authentication
-- **Mobile API for mwsim integration** (feature branch)
+- **Mobile API for mwsim integration** ✅ Tested and working
 
 ### What's Working ✅
 - ✅ SSIM shows "Pay with Wallet" button
@@ -22,7 +22,8 @@
 - ✅ **WebAuthn ROR** - Related Origin Requests for cross-domain passkey support
 - ✅ **API Direct Integration** - JWT bearer token auth for SSIM API calls
 - ✅ **Schema Sync Validation** - Script to verify Prisma schemas before deployment
-- ✅ **Mobile API** - JWT-based REST API for mwsim mobile wallet app
+- ✅ **Mobile API** - JWT-based REST API for mwsim mobile wallet app (tested 2025-12-14)
+- ✅ **Mobile Payment Flow** - Deep link payment approval with biometric auth
 
 ---
 
@@ -205,12 +206,14 @@ Access at: https://wsim-dev.banksim.ca
 | [docs/BANK_INTEGRATION_API.md](./docs/BANK_INTEGRATION_API.md) | Bank provider integration |
 | [docs/PAYMENT_NETWORK_INTEGRATION.md](./docs/PAYMENT_NETWORK_INTEGRATION.md) | Payment network routing |
 | [docs/EMBEDDED_WALLET_PLAN.md](./docs/EMBEDDED_WALLET_PLAN.md) | Embedded wallet implementation status |
+| [docs/MOBILE_APP_PAYMENT_FLOW.md](./docs/MOBILE_APP_PAYMENT_FLOW.md) | Mobile app payment flow design |
 | [docs/FUTURE_CONSIDERATIONS.md](./docs/FUTURE_CONSIDERATIONS.md) | Post-MVP features |
 
 ---
 
 ## Mobile API (mwsim Integration)
 
+> **Status:** ✅ Tested and working in dev (2025-12-14)
 > Branch: `feature/mobile-api`
 > Proposal: `/Users/jcrombie/ai/mwsim/docs/WSIM_API_PROPOSAL.md`
 
@@ -229,7 +232,7 @@ Access at: https://wsim-dev.banksim.ca
 - [x] Enrollment list and delete
 - [x] Card management (set default, remove)
 
-### Phase 3 ✅ COMPLETE
+### Phase 3 ✅ COMPLETE & TESTED (2025-12-14)
 - [x] Mobile payment flow (merchant creates request, user approves in app)
   - [x] `POST /api/mobile/payment/request` - Merchant creates payment request
   - [x] `GET /api/mobile/payment/:requestId/status` - Merchant polls for approval
@@ -242,6 +245,8 @@ Access at: https://wsim-dev.banksim.ca
 - [x] Database schema (MobilePaymentRequest)
 - [x] Deep link support (`mwsim://payment/:requestId`)
 - [x] Standardized error codes (PAYMENT_NOT_FOUND, PAYMENT_EXPIRED, etc.)
+- [x] BSIM token request integration (sends `bsimCardRef` for ephemeral card token)
+- [x] End-to-end flow tested: SSIM → mwsim deep link → approve → return to merchant
 
 ### Phase 4 (Future)
 - [ ] Biometric authentication (Face ID / Touch ID) with cryptographic signature
