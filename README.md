@@ -213,6 +213,7 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 | POST | `/auth/register` | Create wallet account |
 | POST | `/auth/login` | Start login (sends email code) |
 | POST | `/auth/login/verify` | Verify login code |
+| POST | `/auth/login/password` | Login with email/password |
 | POST | `/auth/token/refresh` | Refresh access token |
 | POST | `/auth/logout` | Logout and revoke tokens |
 | GET | `/wallet/summary` | Get wallet overview with cards |
