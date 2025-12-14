@@ -2067,6 +2067,8 @@ router.post('/payment/:requestId/approve', requireMobileAuth, async (req: Authen
       const bsimApiUrl = provider.apiUrl || deriveApiUrlFromIssuer(provider.issuer);
 
       // Request ephemeral card token
+      // Note: Send bsimCardRef (BSIM's card ID) not walletCardToken (WSIM's internal token)
+      // This matches the pattern in wallet-api.ts for OIDC payment flow
       const tokenResponse = await fetch(`${bsimApiUrl}/api/wallet/request-token`, {
         method: 'POST',
         headers: {
@@ -2074,7 +2076,7 @@ router.post('/payment/:requestId/approve', requireMobileAuth, async (req: Authen
           'Authorization': `Bearer ${decrypt(card.enrollment.walletCredential)}`,
         },
         body: JSON.stringify({
-          walletCardToken: card.walletCardToken,
+          cardId: card.bsimCardRef,
         }),
       });
 
