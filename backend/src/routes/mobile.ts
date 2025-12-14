@@ -39,6 +39,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
 import { encrypt, decrypt, generateWalletCardToken } from '../utils/crypto';
@@ -557,6 +558,122 @@ router.post('/auth/login/verify', async (req: Request, res: Response) => {
     return res.status(500).json({
       error: 'server_error',
       message: 'Failed to verify login',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/auth/login/password
+ *
+ * Login with email and password (for development/testing).
+ * Uses the same password as the web wallet.
+ */
+router.post('/auth/login/password', async (req: Request, res: Response) => {
+  try {
+    const { email, password, deviceId, deviceName, platform } = req.body as {
+      email: string;
+      password: string;
+      deviceId: string;
+      deviceName: string;
+      platform: 'ios' | 'android';
+    };
+
+    if (!email || !password || !deviceId || !deviceName || !platform) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'email, password, deviceId, deviceName, and platform are required',
+      });
+    }
+
+    // Find user
+    const user = await prisma.walletUser.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        error: 'invalid_credentials',
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Check if user has a password set
+    if (!user.passwordHash) {
+      return res.status(401).json({
+        error: 'no_password',
+        message: 'No password set for this account. Please set a password via the web wallet first.',
+      });
+    }
+
+    // Verify password
+    const passwordValid = await bcrypt.compare(password, user.passwordHash);
+
+    if (!passwordValid) {
+      return res.status(401).json({
+        error: 'invalid_credentials',
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Generate device credential
+    const rawCredential = crypto.randomBytes(32).toString('hex');
+    const deviceCredential = encrypt(rawCredential);
+    const credentialExpiry = new Date(Date.now() + env.MOBILE_DEVICE_CREDENTIAL_EXPIRY * 1000);
+
+    // Register/update device
+    await prisma.mobileDevice.upsert({
+      where: { deviceId },
+      update: {
+        userId: user.id,
+        deviceName,
+        deviceCredential,
+        credentialExpiry,
+        lastUsedAt: new Date(),
+      },
+      create: {
+        userId: user.id,
+        deviceId,
+        platform,
+        deviceName,
+        deviceCredential,
+        credentialExpiry,
+      },
+    });
+
+    // Generate tokens
+    const accessToken = generateAccessToken(user.id, deviceId);
+    const { token: refreshToken, jti } = generateRefreshToken(user.id, deviceId);
+
+    // Store refresh token
+    await prisma.mobileRefreshToken.create({
+      data: {
+        token: jti,
+        userId: user.id,
+        deviceId,
+        expiresAt: new Date(Date.now() + env.MOBILE_REFRESH_TOKEN_EXPIRY * 1000),
+      },
+    });
+
+    console.log(`[Mobile] Password login successful: ${user.email} from device ${deviceId}`);
+
+    return res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+        walletId: user.walletId,
+      },
+      tokens: {
+        accessToken,
+        refreshToken,
+        expiresIn: env.MOBILE_ACCESS_TOKEN_EXPIRY,
+      },
+    });
+  } catch (error) {
+    console.error('[Mobile] Password login error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to login',
     });
   }
 });

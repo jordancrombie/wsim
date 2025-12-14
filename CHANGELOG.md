@@ -11,12 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mobile API for mwsim Integration (2025-12-13)**
   - Complete REST API for mobile wallet app with JWT-based authentication
   - Separate `MOBILE_JWT_SECRET` for mobile tokens (1hr access, 30-day refresh)
-  - New Prisma models: `MobileDevice`, `MobileRefreshToken`
+  - New Prisma models: `MobileDevice`, `MobileRefreshToken`, `MobilePaymentRequest`
   - **Phase 1 (Authentication & Wallet):**
     - `POST /api/mobile/device/register` - Register mobile device with credentials
     - `POST /api/mobile/auth/register` - Create new wallet account (with transaction safety)
     - `POST /api/mobile/auth/login` - Start login with email verification code
     - `POST /api/mobile/auth/login/verify` - Verify code and get tokens
+    - `POST /api/mobile/auth/login/password` - Login with email/password (uses web wallet password)
     - `POST /api/mobile/auth/token/refresh` - Refresh access token (with rotation)
     - `POST /api/mobile/auth/logout` - Logout and revoke all device tokens
     - `GET /api/mobile/wallet/summary` - Get wallet overview with cards and enrollments
@@ -26,6 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `GET /api/mobile/enrollment/callback/:bsimId` - Handle OAuth callback with deep link redirect
     - `GET /api/mobile/enrollment/list` - List user's enrolled banks
     - `DELETE /api/mobile/enrollment/:enrollmentId` - Remove bank enrollment
+  - **Phase 3 (Mobile Payment Flow):**
+    - Deep link-based payment approval: `mwsim://payment/{requestId}`
+    - **Merchant endpoints** (require `x-api-key` header):
+      - `POST /api/mobile/payment/request` - Create payment request, get deep link URL
+      - `GET /api/mobile/payment/:id/status` - Poll for approval status
+      - `POST /api/mobile/payment/:id/cancel` - Cancel payment request
+      - `POST /api/mobile/payment/:id/complete` - Exchange one-time token for card tokens
+    - **Mobile app endpoints** (require JWT auth):
+      - `GET /api/mobile/payment/:id` - Get payment details for approval screen
+      - `POST /api/mobile/payment/:id/approve` - Approve payment with selected card
+      - `GET /api/mobile/payment/pending` - List user's pending payments
+    - 5-minute request expiry with 60-second extension on approval
+    - One-time payment token for secure merchant token exchange
+    - Auto-cancel duplicate pending requests for same merchant+orderId
+    - Standardized error codes: `PAYMENT_NOT_FOUND`, `PAYMENT_EXPIRED`, `INVALID_TOKEN`, etc.
+    - Test endpoint for development: `POST /api/mobile/payment/:id/test-approve`
   - **Card Management:**
     - `POST /api/mobile/wallet/cards/:cardId/default` - Set card as default
     - `DELETE /api/mobile/wallet/cards/:cardId` - Soft delete card
@@ -33,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - In-memory PKCE state storage with 10-minute TTL for mobile OAuth flows
   - Environment variables: `MOBILE_JWT_SECRET`, `MOBILE_ACCESS_TOKEN_EXPIRY`, `MOBILE_REFRESH_TOKEN_EXPIRY`
   - Feature branch: `feature/mobile-api`
+  - Design documentation: `docs/MOBILE_APP_PAYMENT_FLOW.md`
 
 - **Schema Sync Validation Script (2025-12-12)**
   - New `scripts/check-schema-sync.sh` to verify backend and auth-server Prisma schemas are identical
