@@ -22,6 +22,12 @@ export const env = {
   SESSION_SECRET: process.env.SESSION_SECRET || 'dev-session-secret-change-in-production',
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef', // 32 bytes for AES-256
 
+  // Mobile API
+  MOBILE_JWT_SECRET: process.env.MOBILE_JWT_SECRET || 'dev-mobile-jwt-secret-change-in-production',
+  MOBILE_ACCESS_TOKEN_EXPIRY: parseInt(process.env.MOBILE_ACCESS_TOKEN_EXPIRY || '3600', 10), // 1 hour
+  MOBILE_REFRESH_TOKEN_EXPIRY: parseInt(process.env.MOBILE_REFRESH_TOKEN_EXPIRY || '2592000', 10), // 30 days
+  MOBILE_DEVICE_CREDENTIAL_EXPIRY: parseInt(process.env.MOBILE_DEVICE_CREDENTIAL_EXPIRY || '7776000', 10), // 90 days
+
   // BSIM Providers (JSON array)
   BSIM_PROVIDERS: process.env.BSIM_PROVIDERS || '[]',
 
@@ -50,6 +56,7 @@ export function validateEnv(): void {
       'JWT_SECRET',
       'SESSION_SECRET',
       'ENCRYPTION_KEY',
+      'MOBILE_JWT_SECRET',
     ];
 
     const missing = required.filter(key => !process.env[key]);
