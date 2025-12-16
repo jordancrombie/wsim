@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-14
+> **Last Updated**: 2025-12-15
 
 ## Current Status: 🟢 Production Ready
 
@@ -213,7 +213,7 @@ Access at: https://wsim-dev.banksim.ca
 
 ## Mobile API (mwsim Integration)
 
-> **Status:** ✅ Tested and working in dev (2025-12-14)
+> **Status:** ✅ Tested and working on iOS Safari + Chrome (2025-12-15)
 > Branch: `feature/mobile-api`
 > Proposal: `/Users/jcrombie/ai/mwsim/docs/WSIM_API_PROPOSAL.md`
 
@@ -232,7 +232,7 @@ Access at: https://wsim-dev.banksim.ca
 - [x] Enrollment list and delete
 - [x] Card management (set default, remove)
 
-### Phase 3 ✅ COMPLETE & TESTED (2025-12-14)
+### Phase 3 ✅ COMPLETE & TESTED (iOS Safari + Chrome, 2025-12-15)
 - [x] Mobile payment flow (merchant creates request, user approves in app)
   - [x] `POST /api/mobile/payment/request` - Merchant creates payment request
   - [x] `GET /api/mobile/payment/:requestId/status` - Merchant polls for approval
@@ -247,6 +247,8 @@ Access at: https://wsim-dev.banksim.ca
 - [x] Standardized error codes (PAYMENT_NOT_FOUND, PAYMENT_EXPIRED, etc.)
 - [x] BSIM token request integration (sends `bsimCardRef` for ephemeral card token)
 - [x] End-to-end flow tested: SSIM → mwsim deep link → approve → return to merchant
+- [x] Browser visibility change detection for reliable status updates on app return
+- [x] Tested on iOS Safari and Chrome browsers
 
 ### Phase 4 (Future)
 - [ ] Biometric authentication (Face ID / Touch ID) with cryptographic signature
