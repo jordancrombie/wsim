@@ -50,7 +50,7 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
-- **Mobile Payment Flow (Tested & Working)** - Complete mobile app payment integration
+- **Mobile Payment Flow (Tested & Working on iOS Safari + Chrome)** - Complete mobile app payment integration
   - Merchant (SSIM) creates payment request via `POST /api/mobile/payment/request`
   - Deep link opens mwsim app: `mwsim://payment/{requestId}`
   - User selects card and approves with biometric authentication

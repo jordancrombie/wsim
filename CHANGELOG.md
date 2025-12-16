@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Mobile API for mwsim Integration (2025-12-13, Tested 2025-12-14)**
+- **Mobile API for mwsim Integration (2025-12-13, Tested 2025-12-14/15)**
   - Complete REST API for mobile wallet app with JWT-based authentication
-  - **Status: Tested and working in development environment**
+  - **Status: ✅ Tested and working on iOS Safari and Chrome**
   - Separate `MOBILE_JWT_SECRET` for mobile tokens (1hr access, 30-day refresh)
   - New Prisma models: `MobileDevice`, `MobileRefreshToken`, `MobilePaymentRequest`
   - **Phase 1 (Authentication & Wallet):**
