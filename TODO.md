@@ -398,3 +398,30 @@ Access at: https://wsim-dev.banksim.ca
 - SSIM integration is last in sequence - needs working WSIM OIDC provider
 - WSIM uses Prisma 5.x (not 7.x) for compatibility
 - All Docker images use `node:20-alpine` base with multi-stage builds
+
+---
+
+## Documentation Security Review (2025-12-15)
+
+The following documentation was reviewed for AWS-specific or sensitive information that should not be in a public repository.
+
+### Moved to LOCAL_DEPLOYMENT_PLANS (Not Public)
+
+| File | Reason | Action Needed |
+|------|--------|---------------|
+| `PRODUCTION_DEPLOYMENT_BSIM_ENROLLMENT.md` | Contains AWS account ID, subnet/SG IDs, actual secret values | Consider creating sanitized public version |
+
+### Safe for Public (Uses Placeholder Values)
+
+- `docs/DEPLOYMENT_GUIDE.md` - Uses `${VAR}` placeholders
+- `docs/BSIM_ENROLLMENT_INTEGRATION.md` - Uses dev placeholder secrets
+- `docs/API_PAYMENT_INTEGRATION_FLOWS.md` - Uses `xxx` placeholders
+- `docs/MERCHANT_UI_INTEGRATION_GUIDE.md` - Uses `your-client-secret` examples
+- `docs/MOBILE_APP_PAYMENT_FLOW.md` - Uses dev URLs (acceptable)
+- `README.md` - Uses dev URLs (acceptable)
+- All scripts and e2e configs - No sensitive data
+
+### Future Documentation Tasks
+
+- [ ] Create public-safe version of production deployment guide (generic AWS patterns, no account-specific values)
+- [ ] Review any new deployment docs before committing to ensure no secrets are included
