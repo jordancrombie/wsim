@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **QR Code Payment for Desktop Checkout (2025-12-17)**
+  - Universal link landing page for QR code scans at `/pay/[requestId]`
+  - **Status: Phase 1 Complete - Awaiting deployment for end-to-end testing**
+  - Cross-team feature: SSIM displays QR, mwsim scans, WSIM hosts landing page
+  - **New API endpoint:**
+    - `GET /api/mobile/payment/:requestId/public` - Public payment details for landing page (no auth required)
+  - **New frontend route:**
+    - `/pay/[requestId]` - Universal link landing page with device detection
+    - Mobile: Attempts deep link redirect to `mwsim://payment/{requestId}`, shows app store fallback
+    - Desktop: Displays QR code for scanning with phone
+    - Handles: loading, expired, not_found, already_used, error states
+  - **Updated API response:**
+    - `POST /api/mobile/payment/request` now returns `qrCodeUrl` field (`https://wsim.banksim.ca/pay/{requestId}`)
+  - **Universal Links configuration:**
+    - `/.well-known/apple-app-site-association` - iOS Universal Links (App ID: `ZJHD6JAC94.com.banksim.wsim`)
+    - `/.well-known/assetlinks.json` - Android App Links (awaiting SHA256 fingerprint from mwsim)
+  - Feature branch: `feature/qr-payment`
+  - Project tracker: `../nsim/LOCAL_DEPLOYMENT_PLANS/QR_PAYMENT_PROJECT_TRACKER.md`
+  - Proposal: `../nsim/LOCAL_DEPLOYMENT_PLANS/QR_CODE_PAYMENT_PROPOSAL.md`
+
 - **Mobile API for mwsim Integration (2025-12-13, Tested 2025-12-14/15)**
   - Complete REST API for mobile wallet app with JWT-based authentication
   - **Status: ✅ Tested and working on iOS Safari and Chrome**
