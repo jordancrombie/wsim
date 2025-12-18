@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Auth Server Route Test Coverage (2025-12-18)**
+  - Added 97 new tests across 4 previously untested route files
+  - Auth-server test coverage improved from 21.8% to 59.11% (+37%)
+  - New test files:
+    - `popup.test.ts` - 26 tests for popup payment flow routes (61% coverage)
+    - `embed.test.ts` - 20 tests for iframe embed flow routes (51% coverage)
+    - `adminAuth.test.ts` - 33 tests for admin authentication routes (71% coverage)
+    - `interaction.test.ts` - 18 tests for OIDC interaction routes (92% coverage)
+  - Tests cover: origin validation, passkey authentication, grace period logic, card selection, admin setup/login/invite flows, OIDC consent/login interactions
+
 - **Mobile API Test Coverage (2025-12-18)**
   - Added 84 comprehensive tests for `/api/mobile/*` endpoints
   - Backend test coverage improved from 39.5% to 60.78% (+21%)
