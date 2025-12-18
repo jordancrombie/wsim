@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Mobile API Test Coverage (2025-12-18)**
+  - Added 84 comprehensive tests for `/api/mobile/*` endpoints
+  - Backend test coverage improved from 39.5% to 60.78% (+21%)
+  - `mobile.ts` coverage: 0% → 64.49% statements, 86.95% functions
+  - Extended mockPrisma with `MobileDevice`, `MobileRefreshToken`, `MobilePaymentRequest` models
+  - Tests cover: device registration, auth flows, token management, wallet/card operations, bank enrollment, payment flow
+
+### Fixed
+- **Route ordering bug in mobile.ts** - Moved `/payment/pending` before `/payment/:requestId` to prevent Express from matching "pending" as a requestId parameter
+
+### Added
 - **QR Code Payment for Desktop Checkout (2025-12-17)**
   - Universal link landing page for QR code scans at `/pay/[requestId]`
   - **Status: Phase 1 Complete - Awaiting deployment for end-to-end testing**

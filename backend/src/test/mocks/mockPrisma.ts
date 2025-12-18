@@ -99,6 +99,55 @@ export interface MockOAuthClientData {
   updatedAt: Date;
 }
 
+export interface MockMobileDeviceData {
+  id: string;
+  userId: string;
+  deviceId: string;
+  platform: 'ios' | 'android';
+  deviceName: string;
+  pushToken: string | null;
+  deviceCredential: string;
+  credentialExpiry: Date;
+  biometricEnabled: boolean;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MockMobileRefreshTokenData {
+  id: string;
+  token: string;
+  userId: string;
+  deviceId: string;
+  expiresAt: Date;
+  revokedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface MockMobilePaymentRequestData {
+  id: string;
+  merchantId: string;
+  merchantName: string;
+  merchantLogoUrl: string | null;
+  orderId: string;
+  orderDescription: string | null;
+  amount: { toString: () => string } | number;
+  currency: string;
+  returnUrl: string;
+  status: 'pending' | 'approved' | 'completed' | 'cancelled' | 'expired';
+  userId: string | null;
+  selectedCardId: string | null;
+  cardToken: string | null;
+  walletCardToken: string | null;
+  oneTimeToken: string | null;
+  approvedAt: Date | null;
+  completedAt: Date | null;
+  cancelledAt: Date | null;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // =============================================================================
 // Mock Factory
 // =============================================================================
@@ -111,6 +160,9 @@ export function createMockPrismaClient() {
   const walletCards: MockWalletCardData[] = [];
   const paymentContexts: MockPaymentContextData[] = [];
   const oAuthClients: MockOAuthClientData[] = [];
+  const mobileDevices: MockMobileDeviceData[] = [];
+  const mobileRefreshTokens: MockMobileRefreshTokenData[] = [];
+  const mobilePaymentRequests: MockMobilePaymentRequestData[] = [];
 
   const mockPrisma = {
     // =========================================================================
@@ -770,6 +822,224 @@ export function createMockPrismaClient() {
     },
 
     // =========================================================================
+    // MobileDevice
+    // =========================================================================
+    mobileDevice: {
+      findUnique: vi.fn().mockImplementation(async (args: any) => {
+        const { where } = args;
+        return mobileDevices.find((d) => {
+          if (where.id && d.id !== where.id) return false;
+          if (where.deviceId && d.deviceId !== where.deviceId) return false;
+          return true;
+        }) || null;
+      }),
+
+      findFirst: vi.fn().mockImplementation(async (args: any) => {
+        const { where } = args;
+        return mobileDevices.find((d) => {
+          if (where?.userId && d.userId !== where.userId) return false;
+          if (where?.deviceId && d.deviceId !== where.deviceId) return false;
+          return true;
+        }) || null;
+      }),
+
+      create: vi.fn().mockImplementation(async (args: any) => {
+        const { data } = args;
+        const newDevice: MockMobileDeviceData = {
+          id: data.id || `device-${Date.now()}`,
+          userId: data.userId,
+          deviceId: data.deviceId,
+          platform: data.platform,
+          deviceName: data.deviceName,
+          pushToken: data.pushToken || null,
+          deviceCredential: data.deviceCredential,
+          credentialExpiry: data.credentialExpiry,
+          biometricEnabled: data.biometricEnabled ?? false,
+          lastUsedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        mobileDevices.push(newDevice);
+        return newDevice;
+      }),
+
+      update: vi.fn().mockImplementation(async (args: any) => {
+        const { where, data } = args;
+        const index = mobileDevices.findIndex((d) => d.deviceId === where.deviceId);
+        if (index < 0) throw new Error('Not found');
+        mobileDevices[index] = { ...mobileDevices[index], ...data, updatedAt: new Date() };
+        return mobileDevices[index];
+      }),
+
+      upsert: vi.fn().mockImplementation(async (args: any) => {
+        const { where, update, create } = args;
+        const existingIndex = mobileDevices.findIndex((d) => d.deviceId === where.deviceId);
+
+        if (existingIndex >= 0) {
+          mobileDevices[existingIndex] = { ...mobileDevices[existingIndex], ...update, updatedAt: new Date() };
+          return mobileDevices[existingIndex];
+        } else {
+          const newDevice: MockMobileDeviceData = {
+            id: create.id || `device-${Date.now()}`,
+            ...create,
+            biometricEnabled: create.biometricEnabled ?? false,
+            lastUsedAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          mobileDevices.push(newDevice);
+          return newDevice;
+        }
+      }),
+    },
+
+    // =========================================================================
+    // MobileRefreshToken
+    // =========================================================================
+    mobileRefreshToken: {
+      findFirst: vi.fn().mockImplementation(async (args: any) => {
+        const { where } = args;
+        return mobileRefreshTokens.find((t) => {
+          if (where?.token && t.token !== where.token) return false;
+          if (where?.userId && t.userId !== where.userId) return false;
+          if (where?.deviceId && t.deviceId !== where.deviceId) return false;
+          if (where?.revokedAt === null && t.revokedAt !== null) return false;
+          if (where?.expiresAt?.gt && t.expiresAt <= where.expiresAt.gt) return false;
+          return true;
+        }) || null;
+      }),
+
+      create: vi.fn().mockImplementation(async (args: any) => {
+        const { data } = args;
+        const newToken: MockMobileRefreshTokenData = {
+          id: data.id || `token-${Date.now()}`,
+          token: data.token,
+          userId: data.userId,
+          deviceId: data.deviceId,
+          expiresAt: data.expiresAt,
+          revokedAt: null,
+          createdAt: new Date(),
+        };
+        mobileRefreshTokens.push(newToken);
+        return newToken;
+      }),
+
+      update: vi.fn().mockImplementation(async (args: any) => {
+        const { where, data } = args;
+        const index = mobileRefreshTokens.findIndex((t) => t.id === where.id);
+        if (index < 0) throw new Error('Not found');
+        mobileRefreshTokens[index] = { ...mobileRefreshTokens[index], ...data };
+        return mobileRefreshTokens[index];
+      }),
+
+      updateMany: vi.fn().mockImplementation(async (args: any) => {
+        const { where, data } = args;
+        let count = 0;
+        mobileRefreshTokens.forEach((token, index) => {
+          let matches = true;
+          if (where.userId && token.userId !== where.userId) matches = false;
+          if (where.deviceId && token.deviceId !== where.deviceId) matches = false;
+          if (matches) {
+            mobileRefreshTokens[index] = { ...token, ...data };
+            count++;
+          }
+        });
+        return { count };
+      }),
+    },
+
+    // =========================================================================
+    // MobilePaymentRequest
+    // =========================================================================
+    mobilePaymentRequest: {
+      findUnique: vi.fn().mockImplementation(async (args: any) => {
+        const { where } = args;
+        return mobilePaymentRequests.find((p) => {
+          if (where.id && p.id !== where.id) return false;
+          return true;
+        }) || null;
+      }),
+
+      findMany: vi.fn().mockImplementation(async (args?: any) => {
+        let result = [...mobilePaymentRequests];
+
+        if (args?.where) {
+          result = result.filter((p) => {
+            if (args.where.userId && p.userId !== args.where.userId) return false;
+            if (args.where.status && p.status !== args.where.status) return false;
+            if (args.where.merchantId && p.merchantId !== args.where.merchantId) return false;
+            if (args.where.orderId && p.orderId !== args.where.orderId) return false;
+            if (args.where.expiresAt?.gt && p.expiresAt <= args.where.expiresAt.gt) return false;
+            return true;
+          });
+        }
+
+        if (args?.orderBy?.createdAt === 'desc') {
+          result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        }
+
+        if (args?.take) {
+          result = result.slice(0, args.take);
+        }
+
+        return result;
+      }),
+
+      create: vi.fn().mockImplementation(async (args: any) => {
+        const { data } = args;
+        const newRequest: MockMobilePaymentRequestData = {
+          id: data.id || `payment-${Date.now()}`,
+          merchantId: data.merchantId,
+          merchantName: data.merchantName,
+          merchantLogoUrl: data.merchantLogoUrl || null,
+          orderId: data.orderId,
+          orderDescription: data.orderDescription || null,
+          amount: data.amount,
+          currency: data.currency || 'CAD',
+          returnUrl: data.returnUrl,
+          status: data.status || 'pending',
+          userId: data.userId || null,
+          selectedCardId: null,
+          cardToken: null,
+          walletCardToken: null,
+          oneTimeToken: null,
+          approvedAt: null,
+          completedAt: null,
+          cancelledAt: null,
+          expiresAt: data.expiresAt,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        mobilePaymentRequests.push(newRequest);
+        return newRequest;
+      }),
+
+      update: vi.fn().mockImplementation(async (args: any) => {
+        const { where, data } = args;
+        const index = mobilePaymentRequests.findIndex((p) => p.id === where.id);
+        if (index < 0) throw new Error('Not found');
+        mobilePaymentRequests[index] = { ...mobilePaymentRequests[index], ...data, updatedAt: new Date() };
+        return mobilePaymentRequests[index];
+      }),
+
+      updateMany: vi.fn().mockImplementation(async (args: any) => {
+        const { where, data } = args;
+        let count = 0;
+        mobilePaymentRequests.forEach((request, index) => {
+          let matches = true;
+          if (where.merchantId && request.merchantId !== where.merchantId) matches = false;
+          if (where.orderId && request.orderId !== where.orderId) matches = false;
+          if (where.status && request.status !== where.status) matches = false;
+          if (matches) {
+            mobilePaymentRequests[index] = { ...request, ...data, updatedAt: new Date() };
+            count++;
+          }
+        });
+        return { count };
+      }),
+    },
+
+    // =========================================================================
     // Helper methods for test setup
     // =========================================================================
     _addWalletUser: (user: MockWalletUserData) => {
@@ -790,6 +1060,15 @@ export function createMockPrismaClient() {
     _addOAuthClient: (client: MockOAuthClientData) => {
       oAuthClients.push(client);
     },
+    _addMobileDevice: (device: MockMobileDeviceData) => {
+      mobileDevices.push(device);
+    },
+    _addMobileRefreshToken: (token: MockMobileRefreshTokenData) => {
+      mobileRefreshTokens.push(token);
+    },
+    _addMobilePaymentRequest: (request: MockMobilePaymentRequestData) => {
+      mobilePaymentRequests.push(request);
+    },
     _clear: () => {
       walletUsers.length = 0;
       passkeyCredentials.length = 0;
@@ -797,6 +1076,9 @@ export function createMockPrismaClient() {
       walletCards.length = 0;
       paymentContexts.length = 0;
       oAuthClients.length = 0;
+      mobileDevices.length = 0;
+      mobileRefreshTokens.length = 0;
+      mobilePaymentRequests.length = 0;
     },
     _getWalletUsers: () => walletUsers,
     _getPasskeyCredentials: () => passkeyCredentials,
@@ -804,6 +1086,9 @@ export function createMockPrismaClient() {
     _getWalletCards: () => walletCards,
     _getPaymentContexts: () => paymentContexts,
     _getOAuthClients: () => oAuthClients,
+    _getMobileDevices: () => mobileDevices,
+    _getMobileRefreshTokens: () => mobileRefreshTokens,
+    _getMobilePaymentRequests: () => mobilePaymentRequests,
   };
 
   return mockPrisma;

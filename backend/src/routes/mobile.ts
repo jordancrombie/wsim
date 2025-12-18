@@ -1883,6 +1883,56 @@ router.post('/payment/:requestId/complete', requireMerchantApiKey, async (req: M
 });
 
 /**
+ * GET /api/mobile/payment/pending
+ *
+ * List all pending payment requests for the authenticated user.
+ * Used for "Pending Payments" section in wallet home screen.
+ *
+ * NOTE: This route MUST be defined BEFORE /payment/:requestId to avoid
+ * Express matching "pending" as a requestId parameter.
+ *
+ * Requires: JWT authorization (mobile access token)
+ */
+router.get('/payment/pending', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+
+    if (!userId) {
+      return paymentError(res, PaymentErrors.UNAUTHORIZED);
+    }
+
+    const pendingRequests = await prisma.mobilePaymentRequest.findMany({
+      where: {
+        userId,
+        status: 'pending',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    res.json({
+      requests: pendingRequests.map(req => ({
+        requestId: req.id,
+        merchantName: req.merchantName,
+        merchantLogoUrl: req.merchantLogoUrl,
+        amount: Number(req.amount),
+        currency: req.currency,
+        orderId: req.orderId,
+        createdAt: req.createdAt.toISOString(),
+        expiresAt: req.expiresAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] List pending error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to list pending payments',
+    });
+  }
+});
+
+/**
  * GET /api/mobile/payment/:requestId
  *
  * Get payment request details for mobile app.
@@ -2171,53 +2221,6 @@ router.post('/payment/:requestId/approve', requireMobileAuth, async (req: Authen
     res.status(500).json({
       error: 'server_error',
       message: 'Failed to approve payment',
-    });
-  }
-});
-
-/**
- * GET /api/mobile/payment/pending
- *
- * List all pending payment requests for the authenticated user.
- * Used for "Pending Payments" section in wallet home screen.
- *
- * Requires: JWT authorization (mobile access token)
- */
-router.get('/payment/pending', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { userId } = req;
-
-    if (!userId) {
-      return paymentError(res, PaymentErrors.UNAUTHORIZED);
-    }
-
-    const pendingRequests = await prisma.mobilePaymentRequest.findMany({
-      where: {
-        userId,
-        status: 'pending',
-        expiresAt: { gt: new Date() },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    });
-
-    res.json({
-      requests: pendingRequests.map(req => ({
-        requestId: req.id,
-        merchantName: req.merchantName,
-        merchantLogoUrl: req.merchantLogoUrl,
-        amount: Number(req.amount),
-        currency: req.currency,
-        orderId: req.orderId,
-        createdAt: req.createdAt.toISOString(),
-        expiresAt: req.expiresAt.toISOString(),
-      })),
-    });
-  } catch (error) {
-    console.error('[Mobile Payment] List pending error:', error);
-    res.status(500).json({
-      error: 'server_error',
-      message: 'Failed to list pending payments',
     });
   }
 });
