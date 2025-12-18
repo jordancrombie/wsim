@@ -50,7 +50,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=https://wsim.example.com/api
+      - NEXT_PUBLIC_API_URL=https://wsim.example.com  # Note: NO /api suffix - frontend adds it
       - NEXT_PUBLIC_AUTH_URL=https://wsim-auth.example.com
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
