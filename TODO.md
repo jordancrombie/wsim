@@ -266,6 +266,22 @@ Access at: https://wsim-dev.banksim.ca
 
 ## Future Enhancements
 
+### E2E Test Coverage for WebAuthn & OIDC
+- [ ] **Playwright E2E tests for passkey flows** (priority: high)
+  - WebAuthn registration and authentication using Playwright virtual authenticator
+  - Cross-domain passkey auth (Quick Pay flow)
+  - Reference: SSIM Playwright setup has patterns we can borrow
+  - Files to cover: `backend/passkey.ts` (currently 0% unit test coverage)
+- [ ] **Playwright E2E tests for OIDC flows**
+  - Authorization code flow (popup, redirect, inline)
+  - Token issuance and validation
+  - Session management and logout
+  - Files to cover: `auth-server/oidc-config.ts`, `auth-server/interaction.ts`
+- [ ] **Auth route E2E tests**
+  - Session-based login/logout
+  - Cookie handling and redirect chains
+  - Files to cover: `backend/auth.ts` routes (currently 0% unit test coverage)
+
 ### Admin-Configurable Allowed Origins ✅ PARTIALLY COMPLETE
 - [x] **WebAuthn Related Origins** - Implemented via `OAuthClient.webauthnRelatedOrigin` field
   - Per-merchant Quick Pay cross-domain passkey support
