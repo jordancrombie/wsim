@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-15
+> **Last Updated**: 2025-12-18
 
 ## Current Status: 🟢 Production Ready
 
@@ -24,6 +24,7 @@
 - ✅ **Schema Sync Validation** - Script to verify Prisma schemas before deployment
 - ✅ **Mobile API** - JWT-based REST API for mwsim mobile wallet app (tested 2025-12-14)
 - ✅ **Mobile Payment Flow** - Deep link payment approval with biometric auth
+- ✅ **QR Code Payment** - Desktop checkout via phone QR scan (2025-12-17)
 
 ---
 
@@ -250,11 +251,16 @@ Access at: https://wsim-dev.banksim.ca
 - [x] Browser visibility change detection for reliable status updates on app return
 - [x] Tested on iOS Safari and Chrome browsers
 
-### Phase 4 (Future)
+### Phase 4 ✅ QR Code Payment Complete
 - [ ] Biometric authentication (Face ID / Touch ID) with cryptographic signature
 - [ ] Push notification token storage
 - [ ] Multi-device management
-- [ ] QR code flow for desktop checkout
+- [x] **QR code flow for desktop checkout** (2025-12-17)
+  - Universal link landing page at `/pay/[requestId]`
+  - Device detection (mobile → deep link, desktop → show QR)
+  - `GET /api/mobile/payment/:requestId/public` endpoint
+  - iOS Universal Links + Android App Links configuration
+  - Cross-team feature: SSIM displays QR → mwsim scans → WSIM hosts landing page
 
 ---
 

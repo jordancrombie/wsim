@@ -1633,9 +1633,13 @@ router.post('/payment/request', requireMerchantApiKey, async (req: MerchantReque
     // Build deep link URL for mobile app
     const deepLinkUrl = `mwsim://payment/${paymentRequest.id}`;
 
+    // Build QR code URL for desktop checkout (universal link that opens mwsim or shows fallback page)
+    const qrCodeUrl = `${env.FRONTEND_URL}/pay/${paymentRequest.id}`;
+
     res.status(201).json({
       requestId: paymentRequest.id,
       deepLinkUrl,
+      qrCodeUrl,
       expiresAt: expiresAt.toISOString(),
       status: 'pending',
     });
@@ -1982,6 +1986,48 @@ router.get('/payment/:requestId', requireMobileAuth, async (req: AuthenticatedRe
     res.status(500).json({
       error: 'server_error',
       message: 'Failed to get payment request',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/payment/:requestId/public
+ *
+ * Get public payment request details for QR code landing page.
+ * Returns only basic info needed for display - no authentication required.
+ * This is called by the /pay/[requestId] universal link landing page.
+ */
+router.get('/payment/:requestId/public', async (req: Request, res: Response) => {
+  try {
+    const { requestId } = req.params;
+
+    const paymentRequest = await prisma.mobilePaymentRequest.findUnique({
+      where: { id: requestId },
+    });
+
+    if (!paymentRequest) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Payment request not found',
+      });
+    }
+
+    // Return only public/safe information for the landing page
+    res.json({
+      id: paymentRequest.id,
+      merchantName: paymentRequest.merchantName,
+      merchantLogoUrl: paymentRequest.merchantLogoUrl,
+      amount: Number(paymentRequest.amount),
+      currency: paymentRequest.currency,
+      orderDescription: paymentRequest.orderDescription,
+      status: paymentRequest.status,
+      expiresAt: paymentRequest.expiresAt.toISOString(),
+    });
+  } catch (error) {
+    console.error('[Mobile Payment] Get public request error:', error);
+    res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to get payment details',
     });
   }
 });

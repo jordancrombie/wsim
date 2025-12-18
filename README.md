@@ -40,7 +40,7 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Key Features
 
-- **Multiple Integration Methods**: Popup, Inline (iframe), Redirect, Quick Pay, and Mobile App flows
+- **Multiple Integration Methods**: Popup, Inline (iframe), Redirect, Quick Pay, Mobile App, and QR Code flows
 - **In-Bank Enrollment**: Users can enroll directly from partner bank websites via embedded iframe
 - **Cross-Origin Passkey Registration**: WebAuthn Level 3 Related Origin Requests support
 - **Partner SSO**: Server-to-server JWT-based authentication for seamless cross-device access
@@ -50,6 +50,12 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
+- **QR Code Payment for Desktop Checkout** - Scan QR code from desktop to pay via mobile app
+  - Universal link landing page at `/pay/[requestId]` with device detection
+  - Mobile: Deep link redirect to mwsim app with app store fallback
+  - Desktop: Displays QR code for phone scanning
+  - iOS Universal Links and Android App Links configuration
+  - New public endpoint: `GET /api/mobile/payment/:requestId/public`
 - **Mobile Payment Flow (Tested & Working on iOS Safari + Chrome)** - Complete mobile app payment integration
   - Merchant (SSIM) creates payment request via `POST /api/mobile/payment/request`
   - Deep link opens mwsim app: `mwsim://payment/{requestId}`
@@ -240,11 +246,12 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| POST | `/payment/request` | API Key | Create payment request, get deep link |
+| POST | `/payment/request` | API Key | Create payment request, get deep link + QR URL |
 | GET | `/payment/:requestId/status` | API Key | Poll for approval status |
 | POST | `/payment/:requestId/cancel` | API Key/JWT | Cancel payment request |
 | POST | `/payment/:requestId/complete` | API Key | Exchange one-time token for card tokens |
 | GET | `/payment/:requestId` | JWT | Get payment details (for mobile app) |
+| GET | `/payment/:requestId/public` | None | Get public payment details (for QR landing page) |
 | POST | `/payment/:requestId/approve` | JWT | Approve payment with biometric |
 | GET | `/payment/pending` | JWT | List user's pending payments |
 
