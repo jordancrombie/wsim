@@ -131,6 +131,7 @@ export interface MockMobilePaymentRequestData {
   merchantLogoUrl: string | null;
   orderId: string;
   orderDescription: string | null;
+  orderDetails: Record<string, unknown> | null;
   amount: { toString: () => string } | number;
   currency: string;
   returnUrl: string;
@@ -994,6 +995,7 @@ export function createMockPrismaClient() {
           merchantLogoUrl: data.merchantLogoUrl || null,
           orderId: data.orderId,
           orderDescription: data.orderDescription || null,
+          orderDetails: data.orderDetails || null,
           amount: data.amount,
           currency: data.currency || 'CAD',
           returnUrl: data.returnUrl,

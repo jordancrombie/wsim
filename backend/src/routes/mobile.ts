@@ -52,6 +52,11 @@ import {
   generateState,
   generateNonce,
 } from '../services/bsim-oidc';
+import {
+  OrderDetails,
+  validateOrderDetails,
+  checkOrderDetailsConsistency,
+} from '../types/orderDetails';
 
 const router = Router();
 
@@ -1578,11 +1583,12 @@ router.post('/payment/request', requireMerchantApiKey, async (req: MerchantReque
       return paymentError(res, PaymentErrors.UNAUTHORIZED);
     }
 
-    const { amount, currency, orderId, orderDescription, returnUrl, merchantName, merchantLogoUrl } = req.body as {
+    const { amount, currency, orderId, orderDescription, orderDetails, returnUrl, merchantName, merchantLogoUrl } = req.body as {
       amount: string | number;
       currency?: string;
       orderId: string;
       orderDescription?: string;
+      orderDetails?: OrderDetails;
       returnUrl: string;
       merchantName?: string;
       merchantLogoUrl?: string;
@@ -1596,6 +1602,17 @@ router.post('/payment/request', requireMerchantApiKey, async (req: MerchantReque
     const parsedAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       return paymentError(res, PaymentErrors.INVALID_REQUEST, 'Invalid amount');
+    }
+
+    // Validate orderDetails if provided
+    const orderDetailsError = validateOrderDetails(orderDetails);
+    if (orderDetailsError) {
+      return paymentError(res, PaymentErrors.INVALID_REQUEST, orderDetailsError);
+    }
+
+    // Check consistency between orderDetails and amount (logs warning only)
+    if (orderDetails) {
+      checkOrderDetailsConsistency(parsedAmount, orderDetails);
     }
 
     // Auto-cancel any previous pending requests for same merchant + orderId
@@ -1620,6 +1637,7 @@ router.post('/payment/request', requireMerchantApiKey, async (req: MerchantReque
         merchantLogoUrl: merchantLogoUrl || null,
         orderId,
         orderDescription: orderDescription || null,
+        orderDetails: orderDetails ? JSON.parse(JSON.stringify(orderDetails)) : undefined,
         amount: parsedAmount,
         currency: currency || 'CAD',
         returnUrl,
@@ -2014,6 +2032,7 @@ router.get('/payment/:requestId', requireMobileAuth, async (req: AuthenticatedRe
       currency: paymentRequest.currency,
       orderId: paymentRequest.orderId,
       orderDescription: paymentRequest.orderDescription,
+      orderDetails: paymentRequest.orderDetails as OrderDetails | null,
       returnUrl: paymentRequest.returnUrl,
       createdAt: paymentRequest.createdAt.toISOString(),
       expiresAt: paymentRequest.expiresAt.toISOString(),
@@ -2070,6 +2089,7 @@ router.get('/payment/:requestId/public', async (req: Request, res: Response) => 
       amount: Number(paymentRequest.amount),
       currency: paymentRequest.currency,
       orderDescription: paymentRequest.orderDescription,
+      orderDetails: paymentRequest.orderDetails as OrderDetails | null,
       status: paymentRequest.status,
       expiresAt: paymentRequest.expiresAt.toISOString(),
     });
