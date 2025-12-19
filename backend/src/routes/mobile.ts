@@ -1637,7 +1637,7 @@ router.post('/payment/request', requireMerchantApiKey, async (req: MerchantReque
         merchantLogoUrl: merchantLogoUrl || null,
         orderId,
         orderDescription: orderDescription || null,
-        orderDetails: orderDetails ?? undefined,
+        orderDetails: orderDetails ? JSON.parse(JSON.stringify(orderDetails)) : undefined,
         amount: parsedAmount,
         currency: currency || 'CAD',
         returnUrl,
