@@ -367,6 +367,7 @@ model MobilePaymentRequest {
   // Order details
   orderId         String    // Merchant's order reference
   orderDescription String?  // Description shown to user
+  orderDetails    Json?     // Enhanced purchase info (line items, tax, shipping, discounts)
   amount          Decimal   @db.Decimal(15, 2)
   currency        String    @default("CAD")
   returnUrl       String    // Where to redirect user after approval

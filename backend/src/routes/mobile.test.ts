@@ -1200,6 +1200,191 @@ describe('Mobile API Routes', () => {
       expect(response.body).toHaveProperty('expiresAt');
       expect(response.body.status).toBe('pending');
     });
+
+    it('should create payment request with orderDetails', async () => {
+      const app = createApp();
+      const orderDetails = {
+        version: 1,
+        items: [
+          { name: 'Widget Pro', quantity: 1, unitPrice: 89.99 },
+          { name: 'USB-C Cable', quantity: 2, unitPrice: 5.00 },
+        ],
+        subtotal: 99.99,
+        shipping: { method: 'Standard', amount: 5.00 },
+        tax: { amount: 13.65, rate: 0.13, label: 'HST' },
+        discounts: [{ code: 'SAVE10', amount: 10.00 }],
+      };
+
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 108.64,
+          currency: 'CAD',
+          orderId: 'order-456',
+          orderDescription: 'Widget Pro and accessories',
+          orderDetails,
+          returnUrl: 'https://merchant.example.com/return',
+          merchantName: 'Test Store',
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body).toHaveProperty('requestId');
+      expect(response.body.status).toBe('pending');
+
+      // Verify orderDetails was stored
+      const requests = mockPrismaInstance._getMobilePaymentRequests();
+      const created = requests.find((r) => r.orderId === 'order-456');
+      expect(created).toBeTruthy();
+      expect(created?.orderDetails).toEqual(orderDetails);
+    });
+
+    it('should create payment request without orderDetails (backward compat)', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 50.0,
+          orderId: 'order-nodetails',
+          returnUrl: 'https://merchant.example.com/return',
+        });
+
+      expect(response.status).toBe(201);
+
+      // Verify orderDetails is null
+      const requests = mockPrismaInstance._getMobilePaymentRequests();
+      const created = requests.find((r) => r.orderId === 'order-nodetails');
+      expect(created?.orderDetails).toBeNull();
+    });
+
+    it('should return 400 for invalid orderDetails structure', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 50.0,
+          orderId: 'order-bad',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: 'not-an-object', // Should be object
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('orderDetails must be an object');
+    });
+
+    it('should return 400 for invalid orderDetails.items', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 50.0,
+          orderId: 'order-bad-items',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: {
+            items: [{ name: 'Widget', quantity: -1, unitPrice: 10 }], // Invalid quantity
+          },
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('quantity must be greater than 0');
+    });
+
+    it('should return 400 for too many items', async () => {
+      const app = createApp();
+      const items = Array.from({ length: 51 }, (_, i) => ({
+        name: `Item ${i}`,
+        quantity: 1,
+        unitPrice: 10,
+      }));
+
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 510.0,
+          orderId: 'order-too-many',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: { items },
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('exceeds maximum of 50 items');
+    });
+
+    it('should return 400 for invalid tax rate', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 50.0,
+          orderId: 'order-bad-tax',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: {
+            tax: { amount: 5, rate: 1.5 }, // Rate > 1 is invalid
+          },
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.message).toContain('rate must be between 0 and 1');
+    });
+
+    it('should accept minimal orderDetails with only items', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 10.0,
+          orderId: 'order-minimal',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: {
+            items: [{ name: 'Widget', quantity: 1, unitPrice: 10 }],
+          },
+        });
+
+      expect(response.status).toBe(201);
+    });
+
+    it('should accept orderDetails with zero unitPrice (free items)', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 10.0,
+          orderId: 'order-free-item',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: {
+            items: [
+              { name: 'Paid Item', quantity: 1, unitPrice: 10 },
+              { name: 'Free Gift', quantity: 1, unitPrice: 0 },
+            ],
+          },
+        });
+
+      expect(response.status).toBe(201);
+    });
+
+    it('should accept orderDetails with decimal quantities', async () => {
+      const app = createApp();
+      const response = await request(app)
+        .post('/api/mobile/payment/request')
+        .set('x-api-key', 'test-api-key-123')
+        .send({
+          amount: 15.0,
+          orderId: 'order-decimal-qty',
+          returnUrl: 'https://merchant.example.com/return',
+          orderDetails: {
+            items: [{ name: 'Bulk Item', quantity: 1.5, unitPrice: 10 }],
+          },
+        });
+
+      expect(response.status).toBe(201);
+    });
   });
 
   describe('GET /api/mobile/payment/:requestId/status', () => {
@@ -1245,6 +1430,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://other.example.com/return',
@@ -1278,6 +1464,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1313,6 +1500,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1348,6 +1536,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1418,6 +1607,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1456,6 +1646,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1490,6 +1681,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1562,6 +1754,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1596,6 +1789,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1733,6 +1927,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1853,6 +2048,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1911,6 +2107,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
@@ -1974,6 +2171,7 @@ describe('Mobile API Routes', () => {
         merchantLogoUrl: null,
         orderId: 'order-123',
         orderDescription: null,
+        orderDetails: null,
         amount: 50,
         currency: 'CAD',
         returnUrl: 'https://merchant.example.com/return',
