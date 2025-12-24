@@ -10,20 +10,58 @@ interface Bank {
   logoUrl?: string;
 }
 
-function EnrollContent() {
+interface Enrollment {
+  bsimId: string;
+}
+
+function EnrollContent({ onAuthChange }: { onAuthChange: (isAuth: boolean | null) => void }) {
   const [banks, setBanks] = useState<Bank[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [step, setStep] = useState<"password" | "bank">("password");
+  const [step, setStep] = useState<"password" | "bank" | "checking">("checking");
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [enrolledBsimIds, setEnrolledBsimIds] = useState<string[]>([]);
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
   useEffect(() => {
-    fetchBanks();
+    checkAuthAndFetchBanks();
   }, []);
+
+  async function checkAuthAndFetchBanks() {
+    // Check if user is authenticated by trying to fetch their enrollments
+    try {
+      const authRes = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003"}/api/enrollment/list`,
+        { credentials: "include" }
+      );
+
+      if (authRes.ok) {
+        // User is authenticated - skip password step
+        setIsAuthenticated(true);
+        onAuthChange(true);
+        const authData = await authRes.json();
+        setEnrolledBsimIds(authData.enrollments?.map((e: Enrollment) => e.bsimId) || []);
+        setStep("bank");
+      } else {
+        // User is not authenticated - show password step
+        setIsAuthenticated(false);
+        onAuthChange(false);
+        setStep("password");
+      }
+    } catch {
+      // Error checking auth - assume not authenticated
+      setIsAuthenticated(false);
+      onAuthChange(false);
+      setStep("password");
+    }
+
+    // Fetch available banks
+    await fetchBanks();
+  }
 
   async function fetchBanks() {
     try {
@@ -195,20 +233,33 @@ function EnrollContent() {
               </button>
             </div>
           </div>
+        ) : step === "checking" ? (
+          /* Loading state while checking auth */
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="text-center py-8 text-gray-500">
+              Loading...
+            </div>
+          </div>
         ) : (
           /* Step 2: Bank Selection */
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-800">Select Your Bank</h2>
-              <button
-                onClick={() => setStep("password")}
-                className="text-indigo-600 hover:text-indigo-800 text-sm"
-              >
-                &larr; Back
-              </button>
+              <h2 className="text-lg font-semibold text-gray-800">
+                {isAuthenticated ? "Connect Another Bank" : "Select Your Bank"}
+              </h2>
+              {!isAuthenticated && (
+                <button
+                  onClick={() => setStep("password")}
+                  className="text-indigo-600 hover:text-indigo-800 text-sm"
+                >
+                  &larr; Back
+                </button>
+              )}
             </div>
             <p className="text-gray-600 mb-6">
-              Connect your bank to import your cards into your wallet.
+              {isAuthenticated
+                ? "Add another bank to import more cards into your wallet."
+                : "Connect your bank to import your cards into your wallet."}
             </p>
 
             {loading ? (
@@ -226,67 +277,115 @@ function EnrollContent() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3">
-                {banks.map((bank) => (
-                  <button
-                    key={bank.bsimId}
-                    onClick={() => enrollWithBank(bank.bsimId)}
-                    disabled={enrolling !== null}
-                    className={`w-full p-4 border-2 rounded-xl text-left transition-all flex items-center gap-4 ${
-                      enrolling === bank.bsimId
-                        ? "border-indigo-500 bg-indigo-50"
-                        : "border-gray-200 hover:border-indigo-500 hover:bg-indigo-50"
-                    } ${enrolling !== null && enrolling !== bank.bsimId ? "opacity-50" : ""}`}
-                  >
-                    <div className="text-3xl">🏦</div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-gray-800">
-                        {bank.name}
+              <>
+                <div className="space-y-3">
+                  {banks
+                    .filter(bank => !enrolledBsimIds.includes(bank.bsimId))
+                    .map((bank) => (
+                    <button
+                      key={bank.bsimId}
+                      onClick={() => enrollWithBank(bank.bsimId)}
+                      disabled={enrolling !== null}
+                      className={`w-full p-4 border-2 rounded-xl text-left transition-all flex items-center gap-4 ${
+                        enrolling === bank.bsimId
+                          ? "border-indigo-500 bg-indigo-50"
+                          : "border-gray-200 hover:border-indigo-500 hover:bg-indigo-50"
+                      } ${enrolling !== null && enrolling !== bank.bsimId ? "opacity-50" : ""}`}
+                    >
+                      <div className="text-3xl">🏦</div>
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800">
+                          {bank.name}
+                        </div>
+                        <div className="text-sm text-gray-500">{bank.bsimId}</div>
                       </div>
-                      <div className="text-sm text-gray-500">{bank.bsimId}</div>
-                    </div>
-                    {enrolling === bank.bsimId && (
-                      <div className="text-indigo-600">Connecting...</div>
-                    )}
-                  </button>
-                ))}
-              </div>
+                      {enrolling === bank.bsimId && (
+                        <div className="text-indigo-600">Connecting...</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {isAuthenticated && banks.filter(bank => !enrolledBsimIds.includes(bank.bsimId)).length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 mb-4">
+                      You&apos;ve already connected all available banks.
+                    </p>
+                    <Link
+                      href="/banks"
+                      className="text-indigo-600 hover:text-indigo-800"
+                    >
+                      View your connected banks
+                    </Link>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        <div className="mt-6 p-4 bg-indigo-50 rounded-xl">
-          <h3 className="font-semibold text-indigo-800 mb-2">
-            How it works
-          </h3>
-          <ol className="text-sm text-indigo-700 space-y-2">
-            <li>1. Create a wallet password (optional)</li>
-            <li>2. Select your bank from the list</li>
-            <li>3. Sign in to your bank account</li>
-            <li>4. Authorize WSIM to access your card information</li>
-            <li>5. Your cards will be imported to your wallet</li>
-          </ol>
-        </div>
+        {!isAuthenticated && (
+          <div className="mt-6 p-4 bg-indigo-50 rounded-xl">
+            <h3 className="font-semibold text-indigo-800 mb-2">
+              How it works
+            </h3>
+            <ol className="text-sm text-indigo-700 space-y-2">
+              <li>1. Create a wallet password (optional)</li>
+              <li>2. Select your bank from the list</li>
+              <li>3. Sign in to your bank account</li>
+              <li>4. Authorize WSIM to access your card information</li>
+              <li>5. Your cards will be imported to your wallet</li>
+            </ol>
+          </div>
+        )}
+        {isAuthenticated && (
+          <div className="mt-6 p-4 bg-indigo-50 rounded-xl">
+            <h3 className="font-semibold text-indigo-800 mb-2">
+              Adding another bank
+            </h3>
+            <ol className="text-sm text-indigo-700 space-y-2">
+              <li>1. Select a bank from the list above</li>
+              <li>2. Sign in to your bank account</li>
+              <li>3. Authorize WSIM to access your card information</li>
+              <li>4. Your new cards will be added to your wallet</li>
+            </ol>
+          </div>
+        )}
       </main>
     </>
   );
 }
 
+interface EnrollHeaderProps {
+  isAuthenticated: boolean | null;
+}
+
+function EnrollHeader({ isAuthenticated }: EnrollHeaderProps) {
+  return (
+    <header className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        <Link href={isAuthenticated ? "/banks" : "/wallet"} className="text-indigo-100 hover:text-white text-sm mb-2 inline-block">
+          &larr; {isAuthenticated ? "Back to Banks" : "Back to Wallet"}
+        </Link>
+        <h1 className="text-2xl font-bold">
+          {isAuthenticated ? "Connect Another Bank" : "Enroll in Wallet"}
+        </h1>
+        <p className="text-indigo-100 text-sm">
+          {isAuthenticated
+            ? "Add another bank to import more cards"
+            : "Connect your bank to create your wallet and import your cards"}
+        </p>
+      </div>
+    </header>
+  );
+}
+
 export default function EnrollPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
-        <div className="max-w-2xl mx-auto px-4 py-6">
-          <Link href="/wallet" className="text-indigo-100 hover:text-white text-sm mb-2 inline-block">
-            &larr; Back to Wallet
-          </Link>
-          <h1 className="text-2xl font-bold">Enroll in Wallet</h1>
-          <p className="text-indigo-100 text-sm">
-            Connect your bank to create your wallet and import your cards
-          </p>
-        </div>
-      </header>
+      <EnrollHeader isAuthenticated={isAuthenticated} />
 
       <Suspense fallback={
         <main className="max-w-2xl mx-auto px-4 py-8">
@@ -297,7 +396,7 @@ export default function EnrollPage() {
           </div>
         </main>
       }>
-        <EnrollContent />
+        <EnrollContent onAuthChange={setIsAuthenticated} />
       </Suspense>
 
       {/* Footer */}
