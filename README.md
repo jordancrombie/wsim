@@ -41,6 +41,7 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 ### Key Features
 
 - **Multiple Integration Methods**: Popup, Inline (iframe), Redirect, Quick Pay, Mobile App, and QR Code flows
+- **Multi-Bank Support**: Aggregate cards from multiple banks into a single wallet
 - **In-Bank Enrollment**: Users can enroll directly from partner bank websites via embedded iframe
 - **Cross-Origin Passkey Registration**: WebAuthn Level 3 Related Origin Requests support
 - **Partner SSO**: Server-to-server JWT-based authentication for seamless cross-device access
@@ -50,6 +51,13 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (December 2025)
 
+- **Multi-Bank Enrollment UX Improvements** - Authenticated users can add banks without password prompt
+  - Enrollment page detects auth state and skips password step
+  - Dynamic header: "Connect Another Bank" vs "Enroll in Wallet"
+  - Filters already-enrolled banks from selection
+- **P2P Transfer Network** - TransferSim deployed to production (`https://transfer.banksim.ca`)
+  - mwsim registered as P2P orchestrator
+  - WSIM provides OAuth/backend support (P2P flows through mwsim mobile app)
 - **QR Code Payment for Desktop Checkout** - Scan QR code from desktop to pay via mobile app
   - Universal link landing page at `/pay/[requestId]` with device detection
   - Mobile: Deep link redirect to mwsim app with app store fallback

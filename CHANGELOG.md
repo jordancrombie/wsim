@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Multi-Bank Enrollment Support (2025-12-28)**
+  - Authenticated users can now add additional banks without re-entering password
+  - Enrollment page detects auth state and skips password step for logged-in users
+  - Header dynamically shows "Connect Another Bank" vs "Enroll in Wallet"
+  - Already-enrolled banks are filtered from the selection list
+  - "How it works" section updates based on authentication state
+  - Branch: `feature/peer-to-peer-transfer` (merged via PR #8)
+
+- **P2P Transfer Network Integration Planning (2025-12-28)**
+  - TransferSim production deployed at `https://transfer.banksim.ca`
+  - mwsim registered as orchestrator for P2P transfers
+  - WSIM team reviewed: no configuration changes needed (P2P flows through mwsim)
+  - Documentation: `../transferSim/LOCAL_DEPLOYMENT_PLANS/PROJECT_TRACKER.md`
+
 - **Auth Server Route Test Coverage (2025-12-18)**
   - Added 97 new tests across 4 previously untested route files
   - Auth-server test coverage improved from 21.8% to 59.11% (+37%)
