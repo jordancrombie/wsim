@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-18
+> **Last Updated**: 2025-12-28
 
 ## Current Status: 🟢 Production Ready
 
@@ -25,6 +25,7 @@
 - ✅ **Mobile API** - JWT-based REST API for mwsim mobile wallet app (tested 2025-12-14)
 - ✅ **Mobile Payment Flow** - Deep link payment approval with biometric auth
 - ✅ **QR Code Payment** - Desktop checkout via phone QR scan (2025-12-17)
+- ✅ **Multi-Bank Enrollment** - Add banks without password for authenticated users (2025-12-28)
 
 ---
 
@@ -261,6 +262,34 @@ Access at: https://wsim-dev.banksim.ca
   - `GET /api/mobile/payment/:requestId/public` endpoint
   - iOS Universal Links + Android App Links configuration
   - Cross-team feature: SSIM displays QR → mwsim scans → WSIM hosts landing page
+
+---
+
+## P2P Transfer Network (TransferSim Integration)
+
+> **Status:** 🟢 Production Deployed | WSIM Role: Support Only
+> **Production URL:** https://transfer.banksim.ca
+> **Tracker:** `../transferSim/LOCAL_DEPLOYMENT_PLANS/PROJECT_TRACKER.md`
+
+### WSIM Team Role
+- ✅ Reviewed production deployment - **no WSIM configuration changes needed**
+- P2P transfers flow through mwsim (mobile app), not WSIM (web wallet)
+- WSIM provides OAuth/OIDC backend support for bank authentication
+- TransferSim orchestrator credentials are for mwsim, not WSIM
+
+### Phase 5 Status (mwsim Full Integration)
+- ✅ P2P tab structure + enrollment check
+- ✅ P2P enrollment flow
+- ✅ Alias management (register username)
+- ✅ Receive money (generate QR)
+- ⏳ Send money by alias (mwsim team)
+- ⏳ Send money by QR scan (mwsim team)
+- ⏳ Transfer history (mwsim team)
+
+### Production Credentials (for mwsim team)
+- **Orchestrator ID:** `orch_mwsim_prod`
+- **API Key:** See PROJECT_TRACKER.md (not stored here)
+- **URL:** `https://transfer.banksim.ca`
 
 ---
 
