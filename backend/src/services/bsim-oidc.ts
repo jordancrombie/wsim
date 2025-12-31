@@ -73,7 +73,7 @@ export async function buildAuthorizationUrl(
 
   const authUrl = client.buildAuthorizationUrl(config, {
     redirect_uri: redirectUri,
-    scope: 'openid profile email wallet:enroll',
+    scope: 'openid profile email wallet:enroll fdx:accountdetailed:read',
     state,
     nonce,
     code_challenge: codeChallenge,
@@ -227,6 +227,41 @@ function getBsimApiUrl(issuer: string): string {
 }
 
 /**
+ * Derive the BSIM Open Banking API base URL from the issuer URL
+ * Examples:
+ *   https://auth-dev.banksim.ca -> https://openbanking-dev.banksim.ca
+ *   https://auth.banksim.ca -> https://openbanking.banksim.ca
+ *   http://localhost:3002 -> http://localhost:3004
+ */
+function getBsimOpenBankingUrl(provider: BsimProviderConfig): string {
+  // If provider has explicit openbankingUrl, use it
+  if ((provider as any).openbankingUrl) {
+    return (provider as any).openbankingUrl;
+  }
+
+  // Derive from issuer (similar to getBsimApiUrl pattern)
+  const url = new URL(provider.issuer);
+
+  // Handle local development (port-based)
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    // Auth is on :3002, openbanking is on :3004
+    url.port = '3004';
+    return url.origin;
+  }
+
+  // Handle dev/prod environments (subdomain-based)
+  // auth-dev.banksim.ca → openbanking-dev.banksim.ca
+  // auth.banksim.ca → openbanking.banksim.ca
+  if (url.hostname.startsWith('auth-')) {
+    url.hostname = url.hostname.replace('auth-', 'openbanking-');
+  } else if (url.hostname.startsWith('auth.')) {
+    url.hostname = url.hostname.replace('auth.', 'openbanking.');
+  }
+
+  return url.origin;
+}
+
+/**
  * Fetch user's cards from BSIM using wallet credential
  * @param provider - BSIM provider configuration
  * @param walletCredential - The wallet credential token (wcred_xxx) from BSIM, NOT the access token
@@ -267,6 +302,132 @@ export async function fetchCards(
     expiryMonth: card.expiryMonth,
     expiryYear: card.expiryYear,
     isActive: true,             // BSIM doesn't have isActive, assume true
+  }));
+}
+
+/**
+ * Refresh BSIM OAuth tokens using refresh token
+ * @param provider - BSIM provider configuration
+ * @param refreshToken - The refresh token from BsimEnrollment (decrypted)
+ * @returns New tokens or null if refresh failed
+ */
+export async function refreshBsimToken(
+  provider: BsimProviderConfig,
+  refreshToken: string
+): Promise<{ accessToken: string; refreshToken: string; expiresIn: number } | null> {
+  try {
+    console.log(`[BSIM OIDC] Refreshing BSIM token for ${provider.bsimId}`);
+
+    const tokenUrl = `${provider.issuer}/token`;
+    const response = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+        client_id: provider.clientId,
+        client_secret: provider.clientSecret,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[BSIM OIDC] Token refresh failed: ${response.status} - ${errorText}`);
+      return null;
+    }
+
+    const tokens = await response.json() as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in: number;
+    };
+
+    console.log(`[BSIM OIDC] Token refreshed successfully for ${provider.bsimId}`);
+
+    return {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token || refreshToken, // Some servers don't rotate
+      expiresIn: tokens.expires_in,
+    };
+  } catch (error) {
+    console.error('[BSIM OIDC] Token refresh exception:', error);
+    return null;
+  }
+}
+
+/**
+ * BSIM Open Banking account response format
+ */
+interface BsimAccountResponse {
+  accountId: string;
+  accountNumber: string;
+  accountType: string;
+  status: string;
+  currency: { currencyCode: string };
+  balance: {
+    current: number;
+    available: number;
+    asOf: string;
+  };
+  accountHolder: { name: string };
+}
+
+/**
+ * Normalized account format for WSIM
+ */
+export interface BsimAccount {
+  accountId: string;
+  accountNumber: string;
+  accountType: string;
+  accountName: string;
+  balance: number;
+  availableBalance: number;
+  currency: string;
+  bsimId: string;
+}
+
+/**
+ * Fetch user's bank accounts from BSIM Open Banking API
+ * @param provider - BSIM provider configuration
+ * @param accessToken - The OAuth access token with fdx:accountdetailed:read scope
+ * @returns Array of accounts from this BSIM
+ */
+export async function fetchAccounts(
+  provider: BsimProviderConfig,
+  accessToken: string
+): Promise<BsimAccount[]> {
+  const baseUrl = getBsimOpenBankingUrl(provider);
+  const accountsUrl = `${baseUrl}/accounts`;
+
+  console.log(`[BSIM OIDC] Fetching accounts from ${accountsUrl} using access token`);
+
+  const response = await fetch(accountsUrl, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[BSIM OIDC] Failed to fetch accounts: ${response.status} - ${errorText}`);
+    throw new Error(`Failed to fetch accounts from BSIM: ${response.status}`);
+  }
+
+  const data = await response.json() as { accounts?: BsimAccountResponse[] };
+  const rawAccounts = data.accounts || [];
+
+  // Transform BSIM response format to our normalized format
+  return rawAccounts.map(account => ({
+    accountId: account.accountId,
+    accountNumber: account.accountNumber,
+    accountType: account.accountType,
+    accountName: `${account.accountType} ${account.accountNumber}`,
+    balance: account.balance.current,
+    availableBalance: account.balance.available,
+    currency: account.currency.currencyCode,
+    bsimId: provider.bsimId,
   }));
 }
 
