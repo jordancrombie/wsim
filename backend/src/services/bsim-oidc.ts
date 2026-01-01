@@ -373,16 +373,17 @@ interface BsimAccountResponse {
 }
 
 /**
- * Normalized account format for WSIM
+ * Normalized account format for mwsim mobile app
+ * Field names match mwsim API contract for P2P "From Account" selection
  */
 export interface BsimAccount {
   accountId: string;
-  accountNumber: string;
   accountType: string;
-  accountName: string;
+  displayName: string;
   balance: number;
-  availableBalance: number;
   currency: string;
+  bankName: string;
+  bankLogoUrl: string | null;
   bsimId: string;
 }
 
@@ -418,15 +419,15 @@ export async function fetchAccounts(
   const data = await response.json() as { accounts?: BsimAccountResponse[] };
   const rawAccounts = data.accounts || [];
 
-  // Transform BSIM response format to our normalized format
+  // Transform BSIM response format to mwsim expected format
   return rawAccounts.map(account => ({
     accountId: account.accountId,
-    accountNumber: account.accountNumber,
     accountType: account.accountType,
-    accountName: `${account.accountType} ${account.accountNumber}`,
+    displayName: `${account.accountType} ${account.accountNumber}`,
     balance: account.balance.current,
-    availableBalance: account.balance.available,
     currency: account.currency.currencyCode,
+    bankName: provider.name,
+    bankLogoUrl: provider.logoUrl || null,
     bsimId: provider.bsimId,
   }));
 }

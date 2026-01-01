@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Mobile Accounts API Response Format (2025-01-01)**
+  - Fixed `GET /api/mobile/accounts` response to match mwsim API contract
+  - Renamed `accountName` → `displayName` for P2P "From Account" selection
+  - Added `bankName` field (from provider config) for multi-bank display
+  - Added `bankLogoUrl` field (from provider config, nullable) for bank branding
+  - Removed unused fields: `accountNumber`, `availableBalance`
+  - Bug report: mwsim team - P2P account selection showed undefined values
+  - Branch: `feature/p2p-accounts-proxy`
+
 ### Added
 - **Multi-Bank Enrollment Support (2025-12-28)**
   - Authenticated users can now add additional banks without re-entering password
