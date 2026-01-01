@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enrollment now stores both:
     - `walletCredential`: wcred_xxx token for card operations (`/api/wallet/cards`)
     - `accessToken`: JWT for Open Banking API calls (`/accounts`)
+  - **Updated files:**
+    - `backend/src/routes/mobile.ts` - Mobile enrollment and token refresh
+    - `backend/src/routes/enrollment.ts` - Web enrollment callback
   - Accounts endpoint now uses `accessToken` field instead of `walletCredential`
   - Token refresh updates `accessToken` field correctly
   - Existing enrollments without `accessToken` will prompt for re-enrollment
