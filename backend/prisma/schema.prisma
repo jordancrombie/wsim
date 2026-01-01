@@ -48,11 +48,16 @@ model BsimEnrollment {
   bsimIssuer String // OIDC issuer URL
   fiUserRef  String // User's ID at this bsim (sub claim)
 
-  // Wallet credential (long-lived token from bsim)
+  // Wallet credential (wcred_xxx token from BSIM for card operations)
   walletCredential String // Encrypted credential
+
+  // OAuth access token (JWT for Open Banking API calls like /accounts)
+  accessToken String? // Encrypted JWT - nullable for backwards compatibility
+
+  // Token expiry (applies to accessToken, wallet credential may have longer expiry)
   credentialExpiry DateTime?
 
-  // Refresh token for re-enrollment
+  // Refresh token for token renewal
   refreshToken String? // Encrypted
 
   createdAt DateTime @default(now())

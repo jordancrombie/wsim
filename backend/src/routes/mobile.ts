@@ -937,7 +937,7 @@ router.get('/accounts', requireMobileAuth, async (req: AuthenticatedRequest, res
         id: true,
         bsimId: true,
         bsimIssuer: true,
-        walletCredential: true,
+        accessToken: true,  // JWT for Open Banking API
         refreshToken: true,
         credentialExpiry: true,
       },
@@ -967,8 +967,20 @@ router.get('/accounts', requireMobileAuth, async (req: AuthenticatedRequest, res
       }
 
       try {
-        // Decrypt the stored wallet credential (access token)
-        let accessToken = decrypt(enrollment.walletCredential);
+        // Check if we have an access token (JWT) for Open Banking API
+        if (!enrollment.accessToken) {
+          console.warn(`[Mobile] No accessToken for ${enrollment.bsimId} - user needs to re-enroll`);
+          errors.push({
+            bsimId: enrollment.bsimId,
+            error: 'missing_access_token',
+            message: `Re-enrollment required for ${provider.name || enrollment.bsimId} to access accounts`,
+            action: 'reenroll',
+          });
+          continue;
+        }
+
+        // Decrypt the stored access token (JWT for Open Banking API)
+        let accessToken = decrypt(enrollment.accessToken);
 
         // Attempt to fetch accounts
         let accounts: BsimAccount[];
@@ -991,9 +1003,11 @@ router.get('/accounts', requireMobileAuth, async (req: AuthenticatedRequest, res
               await prisma.bsimEnrollment.update({
                 where: { id: enrollment.id },
                 data: {
-                  walletCredential: encrypt(refreshResult.accessToken),
+                  // Update accessToken (JWT for Open Banking API)
+                  accessToken: encrypt(refreshResult.accessToken),
                   refreshToken: encrypt(refreshResult.refreshToken),
                   credentialExpiry: new Date(Date.now() + refreshResult.expiresIn * 1000),
+                  // Note: walletCredential (wcred_xxx) is not updated - refresh only returns JWT
                 },
               });
 
@@ -1451,7 +1465,10 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
       enrollment = await prisma.bsimEnrollment.update({
         where: { id: enrollment.id },
         data: {
+          // walletCredential: wcred_xxx token for card operations
           walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          // accessToken: JWT for Open Banking API calls (/accounts)
+          accessToken: encrypt(tokenResponse.accessToken),
           refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
           credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
         },
@@ -1465,7 +1482,10 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
           bsimId: bsimId,
           bsimIssuer: provider.issuer,
           fiUserRef: tokenResponse.fiUserRef,
+          // walletCredential: wcred_xxx token for card operations
           walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          // accessToken: JWT for Open Banking API calls (/accounts)
+          accessToken: encrypt(tokenResponse.accessToken),
           refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
           credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
         },

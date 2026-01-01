@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **BSIM Credential Storage Architecture (2025-01-01)**
+  - **Root cause**: Enrollment stored `walletCredential` (wcred_xxx) but used it for Open Banking API calls expecting JWT
+  - **Fix**: Added separate `accessToken` field to `BsimEnrollment` schema for JWT storage
+  - Schema change: `accessToken String?` added (nullable for backwards compatibility)
+  - Enrollment now stores both:
+    - `walletCredential`: wcred_xxx token for card operations (`/api/wallet/cards`)
+    - `accessToken`: JWT for Open Banking API calls (`/accounts`)
+  - Accounts endpoint now uses `accessToken` field instead of `walletCredential`
+  - Token refresh updates `accessToken` field correctly
+  - Existing enrollments without `accessToken` will prompt for re-enrollment
+  - **MIGRATION REQUIRED**: Run `npx prisma db push` or `npx prisma migrate dev`
+  - Bug report: BSIM team - "jwt malformed" error when calling Open Banking API
+  - Branch: `feature/p2p-accounts-proxy`
+
 - **Mobile Accounts API Response Format (2025-01-01)**
   - Fixed `GET /api/mobile/accounts` response to match mwsim API contract
   - Renamed `accountName` → `displayName` for P2P "From Account" selection
