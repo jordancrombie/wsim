@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Expose fiUserRef in Enrollment List API (2025-01-01)**
+  - Added `fiUserRef` field to `GET /api/mobile/enrollment/list` response
+  - `fiUserRef` is the BSIM internal user ID (sub claim from OIDC token)
+  - Required by mwsim for TransferSim P2P routing - identifies account owner at BSIM
+  - No database changes - field already exists in `BsimEnrollment` table
+  - Branch: `feature/p2p-accounts-proxy`
+
 ### Fixed
 - **BSIM Credential Storage Architecture (2025-01-01)**
   - **Root cause**: Enrollment stored `walletCredential` (wcred_xxx) but used it for Open Banking API calls expecting JWT

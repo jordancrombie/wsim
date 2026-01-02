@@ -1587,6 +1587,7 @@ router.get('/enrollment/list', requireMobileAuth, async (req: AuthenticatedReque
       select: {
         id: true,
         bsimId: true,
+        fiUserRef: true,  // BSIM internal user ID - needed for TransferSim P2P routing
         createdAt: true,
         credentialExpiry: true,
         _count: {
@@ -1603,6 +1604,7 @@ router.get('/enrollment/list', requireMobileAuth, async (req: AuthenticatedReque
         return {
           id: e.id,
           bsimId: e.bsimId,
+          fiUserRef: e.fiUserRef,  // BSIM internal user ID for P2P transfers
           bankName: provider?.name || e.bsimId,
           logoUrl: provider?.logoUrl,
           cardCount: e._count.cards,
