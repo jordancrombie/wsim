@@ -132,10 +132,12 @@ export async function exchangeCode(
     throw new Error('No claims in token response');
   }
 
-  // Extract wallet_credential from access token claims
-  // BSIM includes this as a custom claim when wallet:enroll scope is granted
+  // Extract wallet_credential and bsim_user_id from access token claims
+  // BSIM includes these as custom claims when wallet:enroll scope is granted
   let walletCredential: string | undefined;
-  let fiUserRef: string = claims.sub as string;
+  // fiUserRef will be set to bsim_user_id (internal BSIM user ID) for P2P transfer compatibility
+  // BSIM accounts are owned by this ID, so TransferSim/P2P needs this to validate account ownership
+  let fiUserRef: string = claims.sub as string; // Default to sub claim
 
   if (tokens.access_token) {
     // Decode the access token JWT to extract custom claims
@@ -150,8 +152,16 @@ export async function exchangeCode(
           walletCredential = payload.wallet_credential;
           console.log('[BSIM OIDC] Found wallet_credential in access token');
         }
-        if (payload.fi_user_ref) {
+        // IMPORTANT: Prefer bsim_user_id over fi_user_ref for P2P transfers
+        // bsim_user_id is the internal BSIM user ID that owns the accounts
+        // fi_user_ref is an external pseudonymous identifier (used for Open Banking privacy)
+        if (payload.bsim_user_id) {
+          fiUserRef = payload.bsim_user_id;
+          console.log('[BSIM OIDC] Using bsim_user_id for P2P:', payload.bsim_user_id);
+        } else if (payload.fi_user_ref) {
+          // Fallback to fi_user_ref if bsim_user_id not available (older BSIM versions)
           fiUserRef = payload.fi_user_ref;
+          console.warn('[BSIM OIDC] bsim_user_id not found, falling back to fi_user_ref (P2P may not work)');
         }
       }
     } catch (err) {

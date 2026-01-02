@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Branch: `feature/p2p-accounts-proxy`
 
 ### Fixed
+- **P2P Account Ownership Validation (2025-01-01)**
+  - **Root cause**: P2P transfers failed with "Account does not belong to specified user"
+  - WSIM was storing `fi_user_ref` (BSIM's external pseudonymous identifier) in `fiUserRef` field
+  - But BSIM accounts are owned by the internal `users.id`, not `fi_user_ref`
+  - **Fix**: BSIM now includes `bsim_user_id` claim in access tokens during enrollment
+  - WSIM now prefers `bsim_user_id` over `fi_user_ref` when storing `fiUserRef`
+  - Fallback to `fi_user_ref` for backwards compatibility with older BSIM versions
+  - File: `backend/src/services/bsim-oidc.ts` (exchangeCode function)
+  - **Note**: Existing enrollments need to re-enroll to get correct `fiUserRef`
+  - Branch: `feature/p2p-accounts-proxy`
+
 - **BSIM Credential Storage Architecture (2025-01-01)**
   - **Root cause**: Enrollment stored `walletCredential` (wcred_xxx) but used it for Open Banking API calls expecting JWT
   - **Fix**: Added separate `accessToken` field to `BsimEnrollment` schema for JWT storage
