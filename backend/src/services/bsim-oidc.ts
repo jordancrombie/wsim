@@ -73,7 +73,7 @@ export async function buildAuthorizationUrl(
 
   const authUrl = client.buildAuthorizationUrl(config, {
     redirect_uri: redirectUri,
-    scope: 'openid profile email wallet:enroll fdx:accountdetailed:read',
+    scope: 'openid profile email wallet:enroll fdx:accountdetailed:read offline_access',
     state,
     nonce,
     code_challenge: codeChallenge,

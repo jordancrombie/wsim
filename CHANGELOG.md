@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Branch: `feature/p2p-accounts-proxy`
 
 ### Fixed
+- **Enable Refresh Token Flow (2025-01-02)**
+  - **Root cause**: Access tokens expire after 1 hour, users couldn't fetch accounts
+  - WSIM was not requesting `offline_access` scope, so BSIM never issued refresh tokens
+  - All enrolled users had `refreshToken: NULL` in the database
+  - **Fix**: Added `offline_access` to OAuth scope in enrollment flow
+  - BSIM will now issue refresh tokens (30-day validity) during enrollment
+  - WSIM's existing token refresh logic (already implemented) will now work
+  - File: `backend/src/services/bsim-oidc.ts` (buildAuthorizationUrl function)
+  - **Note**: Existing enrollments need to re-enroll to get refresh tokens
+  - Branch: `feature/p2p-accounts-proxy`
+
 - **P2P Account Ownership Validation (2025-01-01)**
   - **Root cause**: P2P transfers failed with "Account does not belong to specified user"
   - WSIM was storing `fi_user_ref` (BSIM's external pseudonymous identifier) in `fiUserRef` field
