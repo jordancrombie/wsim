@@ -45,9 +45,12 @@ import { env } from '../config/env';
 import { encrypt, decrypt, generateWalletCardToken } from '../utils/crypto';
 import {
   BsimProviderConfig,
+  BsimAccount,
   buildAuthorizationUrl,
   exchangeCode,
   fetchCards,
+  fetchAccounts,
+  refreshBsimToken,
   generatePkce,
   generateState,
   generateNonce,
@@ -910,6 +913,170 @@ router.get('/wallet/summary', requireMobileAuth, async (req: AuthenticatedReques
   }
 });
 
+/**
+ * GET /api/mobile/accounts
+ *
+ * Fetch bank accounts from all enrolled BSIMs using WSIM-stored OAuth tokens.
+ * Returns aggregated accounts from all banks with bsimId for P2P routing.
+ * Handles token refresh automatically if tokens are expired.
+ */
+router.get('/accounts', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+
+    console.log(`[Mobile] Fetching accounts for user ${userId}`);
+
+    // Get BSIM providers configuration
+    const providers: BsimProviderConfig[] = JSON.parse(env.BSIM_PROVIDERS);
+    const providersMap = new Map(providers.map(p => [p.bsimId, p]));
+
+    // Get all user's enrollments with BSIM OAuth tokens
+    const enrollments = await prisma.bsimEnrollment.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        bsimId: true,
+        bsimIssuer: true,
+        accessToken: true,  // JWT for Open Banking API
+        refreshToken: true,
+        credentialExpiry: true,
+      },
+    });
+
+    if (enrollments.length === 0) {
+      // User has no bank enrollments yet
+      return res.json({ accounts: [] });
+    }
+
+    console.log(`[Mobile] Found ${enrollments.length} enrollments for user ${userId}`);
+
+    // Fetch accounts from each enrolled bank
+    const allAccounts: BsimAccount[] = [];
+    const errors: Array<{ bsimId: string; error: string; message: string; action?: string }> = [];
+
+    for (const enrollment of enrollments) {
+      const provider = providersMap.get(enrollment.bsimId);
+      if (!provider) {
+        console.warn(`[Mobile] No provider config found for ${enrollment.bsimId}, skipping`);
+        errors.push({
+          bsimId: enrollment.bsimId,
+          error: 'provider_not_configured',
+          message: `Provider ${enrollment.bsimId} is not configured`,
+        });
+        continue;
+      }
+
+      try {
+        // Check if we have an access token (JWT) for Open Banking API
+        if (!enrollment.accessToken) {
+          console.warn(`[Mobile] No accessToken for ${enrollment.bsimId} - user needs to re-enroll`);
+          errors.push({
+            bsimId: enrollment.bsimId,
+            error: 'missing_access_token',
+            message: `Re-enrollment required for ${provider.name || enrollment.bsimId} to access accounts`,
+            action: 'reenroll',
+          });
+          continue;
+        }
+
+        // Decrypt the stored access token (JWT for Open Banking API)
+        let accessToken = decrypt(enrollment.accessToken);
+
+        // Attempt to fetch accounts
+        let accounts: BsimAccount[];
+        try {
+          accounts = await fetchAccounts(provider, accessToken);
+          console.log(`[Mobile] Fetched ${accounts.length} accounts from ${enrollment.bsimId}`);
+          allAccounts.push(...accounts);
+        } catch (fetchError: any) {
+          // If 401, try to refresh the token
+          if (fetchError.message?.includes('401') && enrollment.refreshToken) {
+            console.log(`[Mobile] Token expired for ${enrollment.bsimId}, attempting refresh`);
+
+            const decryptedRefreshToken = decrypt(enrollment.refreshToken);
+            const refreshResult = await refreshBsimToken(provider, decryptedRefreshToken);
+
+            if (refreshResult) {
+              // Token refresh successful - update database
+              console.log(`[Mobile] Token refreshed for ${enrollment.bsimId}, updating database`);
+
+              await prisma.bsimEnrollment.update({
+                where: { id: enrollment.id },
+                data: {
+                  // Update accessToken (JWT for Open Banking API)
+                  accessToken: encrypt(refreshResult.accessToken),
+                  refreshToken: encrypt(refreshResult.refreshToken),
+                  credentialExpiry: new Date(Date.now() + refreshResult.expiresIn * 1000),
+                  // Note: walletCredential (wcred_xxx) is not updated - refresh only returns JWT
+                },
+              });
+
+              // Retry fetch with new token
+              accounts = await fetchAccounts(provider, refreshResult.accessToken);
+              console.log(`[Mobile] Fetched ${accounts.length} accounts from ${enrollment.bsimId} after refresh`);
+              allAccounts.push(...accounts);
+            } else {
+              // Refresh failed - user needs to re-enroll
+              console.error(`[Mobile] Token refresh failed for ${enrollment.bsimId}`);
+              errors.push({
+                bsimId: enrollment.bsimId,
+                error: 'bsim_token_expired',
+                message: `Re-enrollment required for ${provider.name || enrollment.bsimId}`,
+                action: 'reenroll',
+              });
+            }
+          } else {
+            // Other fetch error or no refresh token available
+            throw fetchError;
+          }
+        }
+      } catch (error: any) {
+        console.error(`[Mobile] Failed to fetch accounts from ${enrollment.bsimId}:`, error);
+
+        // Determine error type
+        let errorCode = 'bsim_unavailable';
+        let errorMessage = `Unable to fetch accounts from ${provider.name || enrollment.bsimId}`;
+
+        if (error.message?.includes('401') || error.message?.includes('403')) {
+          errorCode = 'bsim_unauthorized';
+          errorMessage = `Authorization failed for ${provider.name || enrollment.bsimId}`;
+        } else if (error.message?.includes('Invalid encrypted')) {
+          errorCode = 'bsim_invalid_credentials';
+          errorMessage = `Invalid credentials stored for ${provider.name || enrollment.bsimId}`;
+        }
+
+        errors.push({
+          bsimId: enrollment.bsimId,
+          error: errorCode,
+          message: errorMessage,
+        });
+      }
+    }
+
+    console.log(`[Mobile] Returning ${allAccounts.length} total accounts with ${errors.length} errors`);
+
+    // Return accounts and errors (if any)
+    const response: {
+      accounts: BsimAccount[];
+      errors?: Array<{ bsimId: string; error: string; message: string; action?: string }>;
+    } = {
+      accounts: allAccounts,
+    };
+
+    if (errors.length > 0) {
+      response.errors = errors;
+    }
+
+    return res.json(response);
+  } catch (error) {
+    console.error('[Mobile] Accounts fetch error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to fetch accounts',
+    });
+  }
+});
+
 // =============================================================================
 // CARD MANAGEMENT
 // =============================================================================
@@ -1298,7 +1465,10 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
       enrollment = await prisma.bsimEnrollment.update({
         where: { id: enrollment.id },
         data: {
+          // walletCredential: wcred_xxx token for card operations
           walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          // accessToken: JWT for Open Banking API calls (/accounts)
+          accessToken: encrypt(tokenResponse.accessToken),
           refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
           credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
         },
@@ -1312,7 +1482,10 @@ router.get('/enrollment/callback/:bsimId', async (req: Request, res: Response) =
           bsimId: bsimId,
           bsimIssuer: provider.issuer,
           fiUserRef: tokenResponse.fiUserRef,
+          // walletCredential: wcred_xxx token for card operations
           walletCredential: encrypt(tokenResponse.walletCredential || tokenResponse.accessToken),
+          // accessToken: JWT for Open Banking API calls (/accounts)
+          accessToken: encrypt(tokenResponse.accessToken),
           refreshToken: tokenResponse.refreshToken ? encrypt(tokenResponse.refreshToken) : null,
           credentialExpiry: new Date(Date.now() + (tokenResponse.expiresIn * 1000)),
         },
@@ -1414,6 +1587,7 @@ router.get('/enrollment/list', requireMobileAuth, async (req: AuthenticatedReque
       select: {
         id: true,
         bsimId: true,
+        fiUserRef: true,  // BSIM internal user ID - needed for TransferSim P2P routing
         createdAt: true,
         credentialExpiry: true,
         _count: {
@@ -1430,6 +1604,7 @@ router.get('/enrollment/list', requireMobileAuth, async (req: AuthenticatedReque
         return {
           id: e.id,
           bsimId: e.bsimId,
+          fiUserRef: e.fiUserRef,  // BSIM internal user ID for P2P transfers
           bankName: provider?.name || e.bsimId,
           logoUrl: provider?.logoUrl,
           cardCount: e._count.cards,

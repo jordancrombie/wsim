@@ -8,6 +8,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **P2P Accounts Proxy Endpoint (2026-01-01)**
+  - New `GET /api/mobile/accounts` endpoint to aggregate bank accounts from all enrolled BSIMs
+  - Fetches real balances via BSIM Open Banking API (`/accounts` endpoint)
+  - Response format matches mwsim API contract: `displayName`, `balance`, `bankName`, `bankLogoUrl`, `bsimId`
+  - Enables mwsim "Send Money" P2P flow with real account selection
+  - Branch: `feature/p2p-accounts-proxy`
+
+- **Expose fiUserRef in Enrollment List API (2026-01-01)**
+  - Added `fiUserRef` field to `GET /api/mobile/enrollment/list` response
+  - `fiUserRef` is the BSIM internal user ID (sub claim from OIDC token)
+  - Required by mwsim for TransferSim P2P routing - identifies account owner at BSIM
+  - No database changes - field already exists in `BsimEnrollment` table
+  - Branch: `feature/p2p-accounts-proxy`
+
+### Fixed
+- **Enable Refresh Token Flow (2026-01-02)**
+  - **Root cause**: Access tokens expire after 1 hour, users couldn't fetch accounts
+  - WSIM was not requesting `offline_access` scope, so BSIM never issued refresh tokens
+  - All enrolled users had `refreshToken: NULL` in the database
+  - **Fix**: Added `offline_access` to OAuth scope in enrollment flow
+  - BSIM will now issue refresh tokens (30-day validity) during enrollment
+  - WSIM's existing token refresh logic (already implemented) will now work
+  - File: `backend/src/services/bsim-oidc.ts` (buildAuthorizationUrl function)
+  - **Note**: Existing enrollments need to re-enroll to get refresh tokens
+  - Branch: `feature/p2p-accounts-proxy`
+
+- **P2P Account Ownership Validation (2026-01-01)**
+  - **Root cause**: P2P transfers failed with "Account does not belong to specified user"
+  - WSIM was storing `fi_user_ref` (BSIM's external pseudonymous identifier) in `fiUserRef` field
+  - But BSIM accounts are owned by the internal `users.id`, not `fi_user_ref`
+  - **Fix**: BSIM now includes `bsim_user_id` claim in access tokens during enrollment
+  - WSIM now prefers `bsim_user_id` over `fi_user_ref` when storing `fiUserRef`
+  - Fallback to `fi_user_ref` for backwards compatibility with older BSIM versions
+  - File: `backend/src/services/bsim-oidc.ts` (exchangeCode function)
+  - **Note**: Existing enrollments need to re-enroll to get correct `fiUserRef`
+  - Branch: `feature/p2p-accounts-proxy`
+
+- **BSIM Credential Storage Architecture (2026-01-01)**
+  - **Root cause**: Enrollment stored `walletCredential` (wcred_xxx) but used it for Open Banking API calls expecting JWT
+  - **Fix**: Added separate `accessToken` field to `BsimEnrollment` schema for JWT storage
+  - Schema change: `accessToken String?` added (nullable for backwards compatibility)
+  - Enrollment now stores both:
+    - `walletCredential`: wcred_xxx token for card operations (`/api/wallet/cards`)
+    - `accessToken`: JWT for Open Banking API calls (`/accounts`)
+  - **Updated files:**
+    - `backend/src/routes/mobile.ts` - Mobile enrollment and token refresh
+    - `backend/src/routes/enrollment.ts` - Web enrollment callback
+  - Accounts endpoint now uses `accessToken` field instead of `walletCredential`
+  - Token refresh updates `accessToken` field correctly
+  - Existing enrollments without `accessToken` will prompt for re-enrollment
+  - **MIGRATION REQUIRED**: Run `npx prisma db push` or `npx prisma migrate dev`
+  - Bug report: BSIM team - "jwt malformed" error when calling Open Banking API
+  - Branch: `feature/p2p-accounts-proxy`
+
+- **Mobile Accounts API Response Format (2026-01-01)**
+  - Fixed `GET /api/mobile/accounts` response to match mwsim API contract
+  - Renamed `accountName` → `displayName` for P2P "From Account" selection
+  - Added `bankName` field (from provider config) for multi-bank display
+  - Added `bankLogoUrl` field (from provider config, nullable) for bank branding
+  - Removed unused fields: `accountNumber`, `availableBalance`
+  - Bug report: mwsim team - P2P account selection showed undefined values
+  - Branch: `feature/p2p-accounts-proxy`
+
+### Added
 - **Multi-Bank Enrollment Support (2025-12-28)**
   - Authenticated users can now add additional banks without re-entering password
   - Enrollment page detects auth state and skips password step for logged-in users
