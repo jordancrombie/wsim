@@ -49,7 +49,17 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 - **Admin Dashboard**: OAuth client management with passkey-only admin access
 - **Modern Checkout UI**: Branded wallet checkout with step progress and payment summary
 
-### Recent Updates (December 2025)
+### Recent Updates (January 2026)
+
+- **P2P Accounts Proxy for mwsim** - Fetch real bank account balances through WSIM
+  - New endpoint: `GET /api/mobile/accounts` - Aggregates accounts from all enrolled BSIMs
+  - OAuth credential architecture: Separate `accessToken` (JWT for Open Banking) and `walletCredential` (wcred_xxx for cards)
+  - Token refresh support via `offline_access` scope - 30-day refresh tokens
+  - `fiUserRef` exposed in enrollment list for TransferSim P2P routing
+  - Prefers `bsim_user_id` over `fi_user_ref` for correct account ownership validation
+  - **Database migration required**: New `accessToken` field in `BsimEnrollment`
+
+### December 2025
 
 - **Multi-Bank Enrollment UX Improvements** - Authenticated users can add banks without password prompt
   - Enrollment page detects auth state and skips password step
@@ -247,8 +257,9 @@ See [docs/DEPLOYMENT_GUIDE.md](./docs/DEPLOYMENT_GUIDE.md) for complete docker-c
 | GET | `/enrollment/banks` | List available banks |
 | POST | `/enrollment/start/:bsimId` | Start bank OAuth enrollment |
 | GET | `/enrollment/callback/:bsimId` | OAuth callback (redirects to deep link) |
-| GET | `/enrollment/list` | List enrolled banks |
+| GET | `/enrollment/list` | List enrolled banks (includes `fiUserRef` for P2P) |
 | DELETE | `/enrollment/:enrollmentId` | Remove bank enrollment |
+| GET | `/mobile/accounts` | Aggregate accounts from all enrolled BSIMs |
 
 #### Mobile Payment Flow (Merchant → User → Merchant)
 

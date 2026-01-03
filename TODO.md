@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2025-12-28
+> **Last Updated**: 2026-01-03
 
 ## Current Status: 🟢 Production Ready
 
@@ -26,6 +26,7 @@
 - ✅ **Mobile Payment Flow** - Deep link payment approval with biometric auth
 - ✅ **QR Code Payment** - Desktop checkout via phone QR scan (2025-12-17)
 - ✅ **Multi-Bank Enrollment** - Add banks without password for authenticated users (2025-12-28)
+- ✅ **P2P Accounts Proxy** - Real bank account balances for mwsim P2P (2026-01-03)
 
 ---
 
@@ -273,15 +274,26 @@ Access at: https://wsim-dev.banksim.ca
 
 ### WSIM Team Role
 - ✅ Reviewed production deployment - **no WSIM configuration changes needed**
+- ✅ **P2P Accounts Proxy** (2026-01-03) - mwsim can fetch real bank balances
 - P2P transfers flow through mwsim (mobile app), not WSIM (web wallet)
 - WSIM provides OAuth/OIDC backend support for bank authentication
 - TransferSim orchestrator credentials are for mwsim, not WSIM
+
+### P2P Accounts Proxy ✅ COMPLETE (2026-01-03)
+- [x] `GET /api/mobile/accounts` - Aggregate accounts from enrolled BSIMs
+- [x] Separate `accessToken` (JWT) and `walletCredential` (wcred_xxx) storage
+- [x] Token refresh via `offline_access` scope (30-day refresh tokens)
+- [x] `fiUserRef` exposed in enrollment list for P2P routing
+- [x] Prefer `bsim_user_id` over `fi_user_ref` for account ownership
+- [x] Database migration: `accessToken String?` in BsimEnrollment
+- Branch: `feature/p2p-accounts-proxy`
 
 ### Phase 5 Status (mwsim Full Integration)
 - ✅ P2P tab structure + enrollment check
 - ✅ P2P enrollment flow
 - ✅ Alias management (register username)
 - ✅ Receive money (generate QR)
+- ✅ **WSIM accounts proxy for "From Account" selection**
 - ⏳ Send money by alias (mwsim team)
 - ⏳ Send money by QR scan (mwsim team)
 - ⏳ Transfer history (mwsim team)
