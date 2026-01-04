@@ -230,7 +230,7 @@ describe('Webhook Routes', () => {
       });
 
       // Mock notification failure
-      mockSendNotificationToUser.mockRejectedValue(new Error('Expo API error'));
+      mockSendNotificationToUser.mockRejectedValue(new Error('APNs connection error'));
 
       const res = await request(app)
         .post('/api/webhooks/transfersim')
@@ -241,7 +241,7 @@ describe('Webhook Routes', () => {
       expect(res.status).toBe(500);
       expect(res.body).toMatchObject({
         error: 'Internal server error',
-        message: 'Expo API error',
+        message: 'APNs connection error',
       });
     });
 

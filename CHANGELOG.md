@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-01-04
+
+**Direct APNs Integration** - Architecture revision (AD6) to use direct APNs instead of Expo Push Service.
+
+**Compatibility:**
+- Requires mwsim v1.5.0+ (uses native APNs tokens)
+- Requires APNs credentials from Apple Developer Portal
+- No external service dependencies (fully self-hosted)
+
+### Changed
+- **Push Notification Service** (`notification.ts`) - Replaced Expo Push with direct APNs
+  - Uses `@parse/node-apn` for APNs HTTP/2 connection
+  - Lazy-initialized APNs provider (only created when sending)
+  - Graceful fallback when APNs not configured (development)
+  - Handles `BadDeviceToken` and `Unregistered` errors to deactivate invalid tokens
+  - Groups devices by token type (APNs, FCM, deprecated Expo)
+  - FCM placeholder for future Android implementation
+  - Added `shutdownNotificationService()` for graceful shutdown
+
+### Configuration
+New environment variables for APNs:
+```bash
+APNS_KEY_ID=ABC123DEFG           # 10-character key ID from Apple
+APNS_TEAM_ID=ZJHD6JAC94          # Your Apple Team ID
+APNS_KEY_PATH=/path/to/key.p8    # Path to APNs auth key file
+APNS_BUNDLE_ID=com.banksim.mwsim # iOS bundle identifier
+APNS_PRODUCTION=false            # true for App Store builds
+```
+
+### Dependencies
+- Removed `expo-server-sdk`
+- Added `@parse/node-apn` for direct APNs integration
+- Added `@types/apn` for TypeScript definitions
+
+### Migration Notes
+- Existing devices with `pushTokenType: 'expo'` will receive deprecation errors
+- Users need to re-open mwsim app to register native APNs tokens
+- APNs credentials required before push notifications work
+
+### References
+- Architecture Decision AD6 in `PUSH_NOTIFICATION_QA.md`
+- Apple APNs documentation: https://developer.apple.com/documentation/usernotifications
+
+---
+
 ## [0.5.0] - 2026-01-04
 
 **Push Notification Infrastructure** - Phase 1 implementation for mwsim mobile app notifications.

@@ -47,4 +47,22 @@ describe('Notification Service Types', () => {
     ];
     expect(types).toHaveLength(6);
   });
+
+  it('should support APNs result format in tickets', () => {
+    // Verify the new APNs-compatible ticket format works
+    const result: NotificationResult = {
+      success: true,
+      totalDevices: 2,
+      successCount: 1,
+      failureCount: 1,
+      tickets: [
+        { device: 'device-1', status: 'ok' },
+        { device: 'device-2', status: 'error', error: 'BadDeviceToken' },
+      ],
+      errors: [{ deviceId: 'device-2', error: 'BadDeviceToken' }],
+    };
+    expect(result.tickets).toHaveLength(2);
+    expect(result.tickets[0].status).toBe('ok');
+    expect(result.tickets[1].status).toBe('error');
+  });
 });

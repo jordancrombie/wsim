@@ -2,16 +2,68 @@
  * Push Notification Service
  *
  * Handles sending push notifications to mwsim mobile app users.
- * Uses Expo Push Notification service for Phase 1 (per AD2).
+ * Uses direct APNs for iOS (per AD6 architecture revision).
  *
- * Flow: TransferSim webhook → WSIM notification service → Expo Push → APNs/FCM → mwsim
+ * Flow: TransferSim webhook → WSIM notification service → APNs/FCM → mwsim
  */
 
-import Expo, { ExpoPushMessage, ExpoPushTicket, ExpoPushReceipt } from 'expo-server-sdk';
+import apn from '@parse/node-apn';
 import { prisma } from '../config/database';
 
-// Singleton Expo client
-const expo = new Expo();
+// =============================================================================
+// APNs CONFIGURATION
+// =============================================================================
+
+/**
+ * APNs configuration from environment variables
+ * For development, we provide sensible defaults that will be overridden in production
+ */
+const apnsConfig = {
+  keyId: process.env.APNS_KEY_ID || '',
+  teamId: process.env.APNS_TEAM_ID || '',
+  keyPath: process.env.APNS_KEY_PATH || '',
+  bundleId: process.env.APNS_BUNDLE_ID || 'com.banksim.mwsim',
+  production: process.env.APNS_PRODUCTION === 'true',
+};
+
+/**
+ * Lazy-initialized APNs provider
+ * Only created when actually sending notifications
+ */
+let apnProvider: apn.Provider | null = null;
+
+function getApnProvider(): apn.Provider | null {
+  if (apnProvider) {
+    return apnProvider;
+  }
+
+  // Check if APNs is configured
+  if (!apnsConfig.keyId || !apnsConfig.teamId || !apnsConfig.keyPath) {
+    console.warn('[Notification] APNs not configured - push notifications disabled');
+    console.warn('[Notification] Set APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH to enable');
+    return null;
+  }
+
+  try {
+    apnProvider = new apn.Provider({
+      token: {
+        key: apnsConfig.keyPath,
+        keyId: apnsConfig.keyId,
+        teamId: apnsConfig.teamId,
+      },
+      production: apnsConfig.production,
+    });
+    console.log(`[Notification] APNs provider initialized (production=${apnsConfig.production})`);
+    return apnProvider;
+  } catch (error) {
+    console.error('[Notification] Failed to initialize APNs provider:', error);
+    return null;
+  }
+}
+
+// =============================================================================
+// TYPES
+// =============================================================================
 
 /**
  * Notification types for categorization and logging
@@ -45,9 +97,22 @@ export interface NotificationResult {
   totalDevices: number;
   successCount: number;
   failureCount: number;
-  tickets: ExpoPushTicket[];
+  tickets: ApnsSendResult[];
   errors: Array<{ deviceId: string; error: string }>;
 }
+
+/**
+ * Individual APNs send result
+ */
+interface ApnsSendResult {
+  device: string;
+  status: 'ok' | 'error';
+  error?: string;
+}
+
+// =============================================================================
+// NOTIFICATION FUNCTIONS
+// =============================================================================
 
 /**
  * Send push notification to all active devices for a user.
@@ -131,96 +196,39 @@ export async function sendNotificationToUser(
     };
   }
 
-  // Build Expo push messages
-  const messages: ExpoPushMessage[] = [];
-  const deviceMap = new Map<number, string>(); // index -> deviceId
+  // Group devices by token type
+  const apnsDevices = devices.filter(d => d.pushTokenType === 'apns');
+  const fcmDevices = devices.filter(d => d.pushTokenType === 'fcm');
+  const expoDevices = devices.filter(d => d.pushTokenType === 'expo');
 
-  for (const device of devices) {
-    const pushToken = device.pushToken!;
+  const allResults: ApnsSendResult[] = [];
+  const allErrors: Array<{ deviceId: string; error: string }> = [];
 
-    // Validate Expo push token format
-    if (!Expo.isExpoPushToken(pushToken)) {
-      console.warn(`[Notification] Invalid Expo token for device=${device.deviceId}: ${pushToken}`);
-      continue;
-    }
-
-    messages.push({
-      to: pushToken,
-      title: payload.title,
-      body: payload.body,
-      data: payload.data,
-      sound: payload.sound ?? 'default',
-      priority: payload.priority ?? 'high',
-      channelId: payload.channelId ?? 'default',
-      badge: payload.badge,
-    });
-
-    deviceMap.set(messages.length - 1, device.deviceId);
+  // Send to APNs devices (iOS)
+  if (apnsDevices.length > 0) {
+    const results = await sendApnsNotifications(apnsDevices, payload);
+    allResults.push(...results.tickets);
+    allErrors.push(...results.errors);
   }
 
-  if (messages.length === 0) {
-    console.log(`[Notification] No valid Expo tokens for user=${userId}`);
-    return {
-      success: false,
-      totalDevices: devices.length,
-      successCount: 0,
-      failureCount: devices.length,
-      tickets: [],
-      errors: devices.map((d: { deviceId: string }) => ({ deviceId: d.deviceId, error: 'Invalid push token format' })),
-    };
-  }
-
-  // Send notifications in chunks (Expo recommends max 100 per request)
-  const chunks = expo.chunkPushNotifications(messages);
-  const tickets: ExpoPushTicket[] = [];
-  const errors: Array<{ deviceId: string; error: string }> = [];
-
-  for (const chunk of chunks) {
-    try {
-      const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-      tickets.push(...ticketChunk);
-    } catch (error) {
-      console.error(`[Notification] Failed to send chunk:`, error);
-      // Mark all devices in this chunk as failed
-      for (let i = 0; i < chunk.length; i++) {
-        const deviceId = deviceMap.get(tickets.length + i);
-        if (deviceId) {
-          errors.push({ deviceId, error: String(error) });
-        }
-      }
+  // FCM devices (Android) - not yet implemented
+  if (fcmDevices.length > 0) {
+    console.log(`[Notification] FCM not yet implemented, skipping ${fcmDevices.length} Android devices`);
+    for (const device of fcmDevices) {
+      allErrors.push({ deviceId: device.deviceId, error: 'FCM not yet implemented' });
     }
   }
 
-  // Process tickets and handle errors
-  let successCount = 0;
-  let failureCount = 0;
-
-  for (let i = 0; i < tickets.length; i++) {
-    const ticket = tickets[i];
-    const deviceId = deviceMap.get(i);
-
-    if (ticket.status === 'ok') {
-      successCount++;
-    } else {
-      failureCount++;
-      const errorMessage = ticket.message || 'Unknown error';
-      const errorCode = ticket.details?.error;
-
-      if (deviceId) {
-        errors.push({ deviceId, error: `${errorCode}: ${errorMessage}` });
-
-        // Handle specific error codes
-        if (errorCode === 'DeviceNotRegistered') {
-          // Mark device token as inactive
-          await prisma.mobileDevice.updateMany({
-            where: { deviceId },
-            data: { pushTokenActive: false },
-          });
-          console.log(`[Notification] Deactivated token for unregistered device=${deviceId}`);
-        }
-      }
+  // Expo tokens - no longer supported
+  if (expoDevices.length > 0) {
+    console.log(`[Notification] Expo tokens deprecated, skipping ${expoDevices.length} devices`);
+    for (const device of expoDevices) {
+      allErrors.push({ deviceId: device.deviceId, error: 'Expo tokens no longer supported - please re-register' });
     }
   }
+
+  const successCount = allResults.filter(r => r.status === 'ok').length;
+  const failureCount = allResults.filter(r => r.status === 'error').length + allErrors.length;
 
   // Log the notification
   await prisma.notificationLog.create({
@@ -231,7 +239,7 @@ export async function sendNotificationToUser(
       body: payload.body,
       data: payload.data as object | undefined,
       status: failureCount === devices.length ? 'failed' : 'sent',
-      errorMessage: errors.length > 0 ? JSON.stringify(errors) : null,
+      errorMessage: allErrors.length > 0 ? JSON.stringify(allErrors) : null,
       sourceType: 'webhook',
       sourceId,
       sentAt: new Date(),
@@ -247,9 +255,97 @@ export async function sendNotificationToUser(
     totalDevices: devices.length,
     successCount,
     failureCount,
-    tickets,
-    errors,
+    tickets: allResults,
+    errors: allErrors,
   };
+}
+
+/**
+ * Send APNs notifications to iOS devices
+ */
+async function sendApnsNotifications(
+  devices: Array<{ deviceId: string; pushToken: string | null; pushTokenType: string | null }>,
+  payload: NotificationPayload
+): Promise<{ tickets: ApnsSendResult[]; errors: Array<{ deviceId: string; error: string }> }> {
+  const provider = getApnProvider();
+  const tickets: ApnsSendResult[] = [];
+  const errors: Array<{ deviceId: string; error: string }> = [];
+
+  if (!provider) {
+    // APNs not configured
+    for (const device of devices) {
+      errors.push({ deviceId: device.deviceId, error: 'APNs not configured' });
+    }
+    return { tickets, errors };
+  }
+
+  for (const device of devices) {
+    if (!device.pushToken) {
+      errors.push({ deviceId: device.deviceId, error: 'No push token' });
+      continue;
+    }
+
+    try {
+      // Build APNs notification
+      const notification = new apn.Notification();
+      notification.alert = {
+        title: payload.title,
+        body: payload.body,
+      };
+      // Only set sound if not explicitly silenced
+      if (payload.sound !== null) {
+        notification.sound = 'default';
+      }
+      notification.badge = payload.badge ?? 1;
+      notification.topic = apnsConfig.bundleId;
+      notification.priority = payload.priority === 'high' ? 10 : 5;
+
+      // Add custom data payload
+      if (payload.data) {
+        notification.payload = payload.data;
+      }
+
+      // Send to device
+      const result = await provider.send(notification, device.pushToken);
+
+      if (result.failed.length > 0) {
+        const failure = result.failed[0];
+        const errorReason = failure.response?.reason || 'Unknown error';
+
+        tickets.push({
+          device: device.deviceId,
+          status: 'error',
+          error: errorReason,
+        });
+        errors.push({ deviceId: device.deviceId, error: errorReason });
+
+        // Handle specific error codes
+        if (errorReason === 'BadDeviceToken' || errorReason === 'Unregistered') {
+          // Mark device token as inactive
+          await prisma.mobileDevice.updateMany({
+            where: { deviceId: device.deviceId },
+            data: { pushTokenActive: false },
+          });
+          console.log(`[Notification] Deactivated token for unregistered device=${device.deviceId}`);
+        }
+      } else {
+        tickets.push({
+          device: device.deviceId,
+          status: 'ok',
+        });
+      }
+    } catch (error) {
+      console.error(`[Notification] APNs error for device=${device.deviceId}:`, error);
+      tickets.push({
+        device: device.deviceId,
+        status: 'error',
+        error: String(error),
+      });
+      errors.push({ deviceId: device.deviceId, error: String(error) });
+    }
+  }
+
+  return { tickets, errors };
 }
 
 /**
@@ -285,34 +381,10 @@ export async function sendNotificationToDevice(
     };
   }
 
-  if (!Expo.isExpoPushToken(device.pushToken)) {
-    console.warn(`[Notification] Invalid Expo token for device=${deviceId}`);
-    return {
-      success: false,
-      totalDevices: 1,
-      successCount: 0,
-      failureCount: 1,
-      tickets: [],
-      errors: [{ deviceId, error: 'Invalid push token format' }],
-    };
-  }
-
-  try {
-    const tickets = await expo.sendPushNotificationsAsync([
-      {
-        to: device.pushToken,
-        title: payload.title,
-        body: payload.body,
-        data: payload.data,
-        sound: payload.sound ?? 'default',
-        priority: payload.priority ?? 'high',
-        channelId: payload.channelId ?? 'default',
-        badge: payload.badge,
-      },
-    ]);
-
-    const ticket = tickets[0];
-    const success = ticket.status === 'ok';
+  // Check token type
+  if (device.pushTokenType === 'apns') {
+    const result = await sendApnsNotifications([device], payload);
+    const success = result.tickets.some(t => t.status === 'ok');
 
     // Log the notification
     await prisma.notificationLog.create({
@@ -324,75 +396,51 @@ export async function sendNotificationToDevice(
         body: payload.body,
         data: payload.data as object | undefined,
         status: success ? 'sent' : 'failed',
-        errorMessage: success ? null : (ticket as { message?: string }).message,
+        errorMessage: result.errors.length > 0 ? JSON.stringify(result.errors) : null,
         sourceType: 'webhook',
         sourceId,
         sentAt: new Date(),
       },
     });
 
-    if (!success && (ticket as { details?: { error?: string } }).details?.error === 'DeviceNotRegistered') {
-      await prisma.mobileDevice.update({
-        where: { deviceId },
-        data: { pushTokenActive: false },
-      });
-    }
-
     return {
       success,
       totalDevices: 1,
       successCount: success ? 1 : 0,
       failureCount: success ? 0 : 1,
-      tickets,
-      errors: success ? [] : [{ deviceId, error: (ticket as { message?: string }).message || 'Unknown error' }],
+      tickets: result.tickets,
+      errors: result.errors,
     };
-  } catch (error) {
-    console.error(`[Notification] Failed to send to device=${deviceId}:`, error);
-
-    await prisma.notificationLog.create({
-      data: {
-        userId: device.userId,
-        deviceId,
-        notificationType,
-        title: payload.title,
-        body: payload.body,
-        data: payload.data as object | undefined,
-        status: 'failed',
-        errorMessage: String(error),
-        sourceType: 'webhook',
-        sourceId,
-      },
-    });
-
+  } else if (device.pushTokenType === 'fcm') {
+    console.log(`[Notification] FCM not yet implemented for device=${deviceId}`);
     return {
       success: false,
       totalDevices: 1,
       successCount: 0,
       failureCount: 1,
       tickets: [],
-      errors: [{ deviceId, error: String(error) }],
+      errors: [{ deviceId, error: 'FCM not yet implemented' }],
+    };
+  } else {
+    console.log(`[Notification] Unsupported token type for device=${deviceId}: ${device.pushTokenType}`);
+    return {
+      success: false,
+      totalDevices: 1,
+      successCount: 0,
+      failureCount: 1,
+      tickets: [],
+      errors: [{ deviceId, error: `Unsupported token type: ${device.pushTokenType}` }],
     };
   }
 }
 
 /**
- * Check push notification receipts for delivery status.
- * Should be called periodically to update notification logs.
+ * Shutdown the APNs provider (for graceful shutdown)
  */
-export async function checkNotificationReceipts(ticketIds: string[]): Promise<Map<string, ExpoPushReceipt>> {
-  const receiptIdChunks = expo.chunkPushNotificationReceiptIds(ticketIds);
-  const receipts = new Map<string, ExpoPushReceipt>();
-
-  for (const chunk of receiptIdChunks) {
-    try {
-      const chunkReceipts = await expo.getPushNotificationReceiptsAsync(chunk);
-      for (const [id, receipt] of Object.entries(chunkReceipts)) {
-        receipts.set(id, receipt);
-      }
-    } catch (error) {
-      console.error(`[Notification] Failed to get receipts:`, error);
-    }
+export function shutdownNotificationService(): void {
+  if (apnProvider) {
+    apnProvider.shutdown();
+    apnProvider = null;
+    console.log('[Notification] APNs provider shutdown');
   }
-
-  return receipts;
 }

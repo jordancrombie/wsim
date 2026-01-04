@@ -314,9 +314,9 @@ model MobileDevice {
   platform         String   // "ios" or "android"
   deviceName       String
 
-  // Push notification token (AD4: Extended for push notifications)
-  pushToken        String?  // APNS, FCM, or Expo push token
-  pushTokenType    String?  // "apns" | "fcm" | "expo"
+  // Push notification token (AD4: Extended for push notifications, AD6: Direct APNs/FCM)
+  pushToken        String?  // APNs device token (hex) or FCM registration token
+  pushTokenType    String?  // "apns" | "fcm" (expo deprecated per AD6)
   pushTokenActive  Boolean  @default(true) // False when token invalidated or user logged out
   pushTokenUpdatedAt DateTime? // Last time push token was updated
 
