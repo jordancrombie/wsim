@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.2] - 2026-01-03
+
+**Enhanced Diagnostic Logging** - More detailed logging to trace `offline_access` scope through the OAuth flow.
+
+### Added
+- **Comprehensive Scope Tracing** (`bsim-oidc.ts`)
+  - JSON stringify scope string to detect hidden characters
+  - Explicit boolean check for `offline_access` presence in input
+  - URL searchParams analysis after `buildAuthorizationUrl` call
+  - Check both raw and URL-encoded scope in final URL
+  - Start/end markers for easier log parsing
+
+### Investigation Update
+- BSIM team confirmed auth server does NOT receive `offline_access` in the authorization request
+- WSIM code clearly includes `offline_access` in the scope string
+- Enhanced logging will reveal if the scope is lost during URL construction or encoding
+- Possible causes: URL encoding issue, proxy modification, or browser redirect behavior
+
+---
+
 ## [0.4.1] - 2026-01-03
 
 **Diagnostic Logging** - Added detailed logging to troubleshoot refresh token issues.

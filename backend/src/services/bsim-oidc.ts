@@ -72,7 +72,10 @@ export async function buildAuthorizationUrl(
   const config = await discoverConfig(provider);
 
   const requestedScope = 'openid profile email wallet:enroll fdx:accountdetailed:read offline_access';
-  console.log('[BSIM OIDC] Building authorization URL with scope:', requestedScope);
+  console.log('[BSIM OIDC] === AUTHORIZATION URL BUILD START ===');
+  console.log('[BSIM OIDC] Provider:', provider.bsimId, provider.issuer);
+  console.log('[BSIM OIDC] Requested scope string:', JSON.stringify(requestedScope));
+  console.log('[BSIM OIDC] Scope includes offline_access:', requestedScope.includes('offline_access'));
 
   const authUrl = client.buildAuthorizationUrl(config, {
     redirect_uri: redirectUri,
@@ -84,9 +87,17 @@ export async function buildAuthorizationUrl(
     prompt: 'login', // Force BSIM to show login screen even if user has existing session
   });
 
-  // Log the full URL to verify offline_access is included
-  console.log('[BSIM OIDC] Authorization URL:', authUrl.href);
-  console.log('[BSIM OIDC] URL scope param:', authUrl.searchParams.get('scope'));
+  // Detailed URL analysis
+  const scopeParam = authUrl.searchParams.get('scope');
+  console.log('[BSIM OIDC] Generated URL scope param:', JSON.stringify(scopeParam));
+  console.log('[BSIM OIDC] Scope param includes offline_access:', scopeParam?.includes('offline_access'));
+  console.log('[BSIM OIDC] Full URL:', authUrl.href);
+
+  // Check if URL-encoded scope contains offline_access
+  const urlStr = authUrl.href;
+  console.log('[BSIM OIDC] URL contains "offline_access":', urlStr.includes('offline_access'));
+  console.log('[BSIM OIDC] URL contains encoded "offline_access":', urlStr.includes(encodeURIComponent('offline_access')));
+  console.log('[BSIM OIDC] === AUTHORIZATION URL BUILD END ===');
 
   return authUrl.href;
 }
