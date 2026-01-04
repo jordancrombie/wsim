@@ -8,6 +8,7 @@ import passkeyRoutes from './passkey';
 import walletApiRoutes from './wallet-api';
 import partnerRoutes from './partner';
 import mobileRoutes from './mobile';
+import webhookRoutes from './webhooks';
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use('/api/passkey', passkeyRoutes);
 router.use('/api/merchant', walletApiRoutes);
 router.use('/api/partner', partnerRoutes); // Server-to-server partner integrations (BSIM SSO)
 router.use('/api/mobile', mobileRoutes); // Mobile app API (mwsim)
+router.use('/api/webhooks', webhookRoutes); // Internal webhooks (TransferSim, etc.)
 
 export default router;

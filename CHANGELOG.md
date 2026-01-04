@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.0] - 2026-01-04
+
+**Push Notification Infrastructure** - Phase 1 implementation for mwsim mobile app notifications.
+
+**Compatibility:**
+- Requires mwsim with expo-notifications integration
+- Works with TransferSim webhook integration (Phase 2)
+- **Database migration required** (new NotificationLog model, MobileDevice schema changes)
+
+### Added
+- **Push Notification Service** (`notification.ts`)
+  - Expo Push integration for iOS/Android notifications
+  - `sendNotificationToUser()` - Notify all active devices for a user (per AD3)
+  - `sendNotificationToDevice()` - Target specific device
+  - Automatic token deactivation on `DeviceNotRegistered` error
+  - Chunked sending for large device lists (Expo 100/request limit)
+  - Idempotency support via sourceId for webhook retry deduplication
+
+- **TransferSim Webhook Endpoint** (`POST /api/webhooks/transfersim`)
+  - HMAC-SHA256 signature verification (production)
+  - AD5-compliant enhanced payload format
+  - User lookup: `fiUserRef` + `bsimId` → `BsimEnrollment` → `userId` → `MobileDevice`
+  - Rich notification copy with sender name and bank info
+  - Deep link data for mwsim navigation (`mwsim://transfer/{id}`)
+
+- **Push Token Registration API**
+  - `POST /api/mobile/device/push-token` - Register/update Expo push token
+  - `DELETE /api/mobile/device/push-token` - Deactivate token on logout
+  - Supports token types: `expo`, `apns`, `fcm`
+
+- **Database Schema** (per AD4)
+  - Extended `MobileDevice` model: `pushTokenType`, `pushTokenActive`, `pushTokenUpdatedAt`
+  - New `NotificationLog` model for audit/debugging
+  - Index on `pushToken` for efficient device lookup
+
+### Tests
+- 10 webhook tests covering signature verification, user lookup, notification flow
+- 3 notification service type export tests
+
+### Dependencies
+- Added `expo-server-sdk` for Expo Push API integration
+
+### Migration
+```bash
+npx prisma migrate dev --name add_push_notifications
+# or: npx prisma db push
+```
+
+### References
+- Architecture Decisions: AD1-AD5 from push notification proposal
+- Project Tracker: `mwsim/LOCAL_DEPLOYMENT_PLANS/PUSH_NOTIFICATION_PROJECT_TRACKER.md`
+
+---
+
 ## [0.4.2] - 2026-01-03
 
 **Enhanced Diagnostic Logging** - More detailed logging to trace `offline_access` scope through the OAuth flow.

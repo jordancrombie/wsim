@@ -1,6 +1,6 @@
 {
   "name": "wsim-backend",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "WSIM Wallet Simulator - Backend API Server",
   "main": "dist/index.js",
   "scripts": {
@@ -31,6 +31,7 @@
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "expo-server-sdk": "^4.0.0",
     "express": "^5.2.1",
     "express-session": "^1.18.2",
     "helmet": "^8.1.0",

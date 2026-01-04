@@ -313,7 +313,12 @@ model MobileDevice {
   deviceId         String   @unique  // Client-generated UUID
   platform         String   // "ios" or "android"
   deviceName       String
-  pushToken        String?  // APNS or FCM token (future use)
+
+  // Push notification token (AD4: Extended for push notifications)
+  pushToken        String?  // APNS, FCM, or Expo push token
+  pushTokenType    String?  // "apns" | "fcm" | "expo"
+  pushTokenActive  Boolean  @default(true) // False when token invalidated or user logged out
+  pushTokenUpdatedAt DateTime? // Last time push token was updated
 
   // Device credential for authentication
   deviceCredential String   // Encrypted server-issued token
@@ -331,6 +336,7 @@ model MobileDevice {
   refreshTokens    MobileRefreshToken[]
 
   @@index([userId])
+  @@index([pushToken]) // Index for looking up devices by push token
   @@map("mobile_devices")
 }
 
@@ -399,4 +405,39 @@ model MobilePaymentRequest {
   @@index([oneTimeToken])
   @@index([userId])
   @@map("mobile_payment_requests")
+}
+
+// =============================================================================
+// PUSH NOTIFICATIONS
+// =============================================================================
+// Notification audit log for debugging and tracking delivery status
+
+model NotificationLog {
+  id               String    @id @default(uuid())
+  userId           String    // Recipient user
+  deviceId         String?   // Target device (if specific device)
+
+  // Notification content
+  notificationType String    // "transfer.received", "auth.challenge", etc.
+  title            String
+  body             String
+  data             Json?     // Additional payload data (transferId, deepLink, etc.)
+
+  // Delivery status
+  status           String    @default("pending") // "pending", "sent", "delivered", "failed"
+  errorMessage     String?   // Error details if failed
+
+  // Source info (for webhook-triggered notifications)
+  sourceType       String?   // "webhook", "system", "scheduled"
+  sourceId         String?   // e.g., transferId, idempotencyKey for dedup
+
+  // Timestamps
+  createdAt        DateTime  @default(now())
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+
+  @@index([userId])
+  @@index([sourceId]) // For idempotency checks
+  @@index([status, createdAt]) // For monitoring/cleanup
+  @@map("notification_logs")
 }
