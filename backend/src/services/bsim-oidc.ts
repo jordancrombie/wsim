@@ -71,15 +71,22 @@ export async function buildAuthorizationUrl(
 ): Promise<string> {
   const config = await discoverConfig(provider);
 
+  const requestedScope = 'openid profile email wallet:enroll fdx:accountdetailed:read offline_access';
+  console.log('[BSIM OIDC] Building authorization URL with scope:', requestedScope);
+
   const authUrl = client.buildAuthorizationUrl(config, {
     redirect_uri: redirectUri,
-    scope: 'openid profile email wallet:enroll fdx:accountdetailed:read offline_access',
+    scope: requestedScope,
     state,
     nonce,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
     prompt: 'login', // Force BSIM to show login screen even if user has existing session
   });
+
+  // Log the full URL to verify offline_access is included
+  console.log('[BSIM OIDC] Authorization URL:', authUrl.href);
+  console.log('[BSIM OIDC] URL scope param:', authUrl.searchParams.get('scope'));
 
   return authUrl.href;
 }
@@ -125,6 +132,18 @@ export async function exchangeCode(
     expectedState,
     expectedNonce,
   });
+
+  // Log token response details for debugging refresh token issues
+  console.log('[BSIM OIDC] Token response keys:', Object.keys(tokens));
+  console.log('[BSIM OIDC] Has access_token:', !!tokens.access_token);
+  console.log('[BSIM OIDC] Has id_token:', !!tokens.id_token);
+  console.log('[BSIM OIDC] Has refresh_token:', !!tokens.refresh_token);
+  console.log('[BSIM OIDC] expires_in:', tokens.expires_in);
+  if (tokens.refresh_token) {
+    console.log('[BSIM OIDC] Refresh token received (first 20 chars):', tokens.refresh_token.substring(0, 20) + '...');
+  } else {
+    console.warn('[BSIM OIDC] WARNING: No refresh_token in response - offline_access scope may not be granted');
+  }
 
   // Get claims from id_token
   const claims = tokens.claims();

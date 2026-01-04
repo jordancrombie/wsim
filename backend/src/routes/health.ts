@@ -4,7 +4,7 @@ import { prisma } from '../config/database';
 const router = Router();
 
 // Version and compatibility info
-const VERSION = '0.4.0';
+const VERSION = '0.4.1';
 const COMPATIBILITY = {
   // Minimum versions required for full functionality
   bsim: {

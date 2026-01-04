@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.4.1] - 2026-01-03
+
+**Diagnostic Logging** - Added detailed logging to troubleshoot refresh token issues.
+
+### Added
+- **OAuth Flow Logging** (`bsim-oidc.ts`)
+  - Log requested scope when building authorization URL
+  - Log full authorization URL and scope parameter for verification
+  - Log token response keys after code exchange
+  - Log presence/absence of refresh_token with warning if missing
+  - Helps diagnose why `offline_access` scope may not be granted
+
+### Investigation
+- **Issue**: Refresh tokens not being stored for BSIM/NewBank enrollments
+- **Symptom**: Access tokens expire after 1 hour with no way to renew
+- **Root cause under investigation**: WSIM sends `offline_access` scope but auth server may not receive it
+- See BSIM team analysis for auth server side investigation
+
+---
+
 ## [0.4.0] - 2026-01-03
 
 **P2P / Open Banking Support** - Enables mwsim to fetch real bank account balances for P2P transfers.
