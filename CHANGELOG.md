@@ -48,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 10 webhook tests covering signature verification, user lookup, notification flow
 - 3 notification service type export tests
 
+### Fixed
+- **Health endpoint version sync** - Version now imported from `package.json` instead of hardcoded string (BSIM team contribution)
+
 ### Dependencies
 - Added `expo-server-sdk` for Expo Push API integration
 
