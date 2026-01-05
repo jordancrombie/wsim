@@ -23,11 +23,16 @@ const WEBHOOK_SECRET = process.env.TRANSFERSIM_WEBHOOK_SECRET || 'dev-webhook-se
  * Verify HMAC-SHA256 signature from webhook request
  */
 function verifyWebhookSignature(req: Request): boolean {
-  const signature = req.headers['x-webhook-signature'] as string;
-  if (!signature) {
+  const signatureHeader = req.headers['x-webhook-signature'] as string;
+  if (!signatureHeader) {
     console.warn('[Webhook] Missing X-Webhook-Signature header');
     return false;
   }
+
+  // TransferSim sends signature as "sha256=<hex>", extract just the hex part
+  const signature = signatureHeader.startsWith('sha256=')
+    ? signatureHeader.slice(7)
+    : signatureHeader;
 
   // Get raw body for signature verification
   const rawBody = JSON.stringify(req.body);

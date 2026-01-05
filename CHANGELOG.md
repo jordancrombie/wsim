@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.1] - 2026-01-04
+
+**Webhook Signature Fix** - Fixed production webhook signature verification.
+
+### Fixed
+- **Webhook Signature Parsing** (`webhooks.ts`) - TransferSim sends signatures as `sha256=<hex>` but WSIM was comparing the full string including the prefix, causing buffer length mismatch and signature verification failure in production
+  - Now properly strips `sha256=` prefix before hex comparison
+  - Issue was masked in development by signature bypass (dev mode skips verification)
+
+---
+
 ## [0.6.0] - 2026-01-04
 
 **Direct APNs Integration** - Architecture revision (AD6) to use direct APNs instead of Expo Push Service.
