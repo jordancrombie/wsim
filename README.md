@@ -51,6 +51,11 @@ WSIM acts as a credential vault, similar to Apple Pay or Google Pay, allowing us
 
 ### Recent Updates (January 2026)
 
+- **Push Notifications** (v0.6.0-0.6.1) - Real-time payment notifications for mwsim
+  - Direct APNs integration (no Expo dependency)
+  - TransferSim webhook receiver for P2P transfer notifications
+  - HMAC-SHA256 signature verification for production security
+  - Deep link data for in-app navigation (`mwsim://transfer/{id}`)
 - **P2P Accounts Proxy for mwsim** - Fetch real bank account balances through WSIM
   - New endpoint: `GET /api/mobile/accounts` - Aggregates accounts from all enrolled BSIMs
   - OAuth credential architecture: Separate `accessToken` (JWT for Open Banking) and `walletCredential` (wcred_xxx for cards)

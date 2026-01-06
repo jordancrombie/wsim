@@ -1,6 +1,6 @@
 # WSIM Project TODO
 
-> **Last Updated**: 2026-01-03
+> **Last Updated**: 2026-01-06
 
 ## Current Status: 🟢 Production Ready
 
@@ -27,6 +27,7 @@
 - ✅ **QR Code Payment** - Desktop checkout via phone QR scan (2025-12-17)
 - ✅ **Multi-Bank Enrollment** - Add banks without password for authenticated users (2025-12-28)
 - ✅ **P2P Accounts Proxy** - Real bank account balances for mwsim P2P (2026-01-03)
+- ✅ **Push Notifications** - Direct APNs for mwsim payment alerts (2026-01-04)
 
 ---
 
@@ -255,7 +256,7 @@ Access at: https://wsim-dev.banksim.ca
 
 ### Phase 4 ✅ QR Code Payment Complete
 - [ ] Biometric authentication (Face ID / Touch ID) with cryptographic signature
-- [ ] Push notification token storage
+- [x] **Push notification infrastructure** (2026-01-04)
 - [ ] Multi-device management
 - [x] **QR code flow for desktop checkout** (2025-12-17)
   - Universal link landing page at `/pay/[requestId]`
@@ -263,6 +264,20 @@ Access at: https://wsim-dev.banksim.ca
   - `GET /api/mobile/payment/:requestId/public` endpoint
   - iOS Universal Links + Android App Links configuration
   - Cross-team feature: SSIM displays QR → mwsim scans → WSIM hosts landing page
+
+### Phase 5 ✅ Push Notifications Complete (2026-01-04)
+- [x] **Direct APNs Integration** (v0.6.0) - No Expo Push dependency
+  - `@parse/node-apn` for APNs HTTP/2 connection
+  - Lazy initialization, graceful degradation without APNs config
+  - Token deactivation on `BadDeviceToken`/`Unregistered` errors
+- [x] **TransferSim Webhook** (`POST /api/webhooks/transfersim`)
+  - HMAC-SHA256 signature verification (production)
+  - User lookup via `fiUserRef` + `bsimId` → notification
+  - Deep link data for mwsim navigation
+- [x] **Push Token API**
+  - `POST /api/mobile/device/push-token` - Register APNs/FCM token
+  - `DELETE /api/mobile/device/push-token` - Deactivate on logout
+- [x] **Webhook Signature Fix** (v0.6.1) - Strip `sha256=` prefix
 
 ---
 
