@@ -136,7 +136,7 @@ describe('BSIM OIDC Service', () => {
         mockConfig,
         expect.objectContaining({
           redirect_uri: 'https://wallet.ca/callback',
-          scope: 'openid profile email wallet:enroll',
+          scope: 'openid profile email wallet:enroll fdx:accountdetailed:read offline_access',
           state: 'test-state',
           nonce: 'test-nonce',
           code_challenge: 'test-challenge',
