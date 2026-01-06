@@ -63,3 +63,6 @@ LOCAL_DEPLOYMENT_PLANS/
 
 # Claude Code local context (session-specific, not repo)
 .claude/
+
+# Buildkite pipeline (managed separately from repo)
+.buildkite/

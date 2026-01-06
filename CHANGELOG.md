@@ -9,6 +9,119 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.1] - 2026-01-04
+
+**Webhook Signature Fix** - Fixed production webhook signature verification.
+
+### Fixed
+- **Webhook Signature Parsing** (`webhooks.ts`) - TransferSim sends signatures as `sha256=<hex>` but WSIM was comparing the full string including the prefix, causing buffer length mismatch and signature verification failure in production
+  - Now properly strips `sha256=` prefix before hex comparison
+  - Issue was masked in development by signature bypass (dev mode skips verification)
+
+---
+
+## [0.6.0] - 2026-01-04
+
+**Direct APNs Integration** - Architecture revision (AD6) to use direct APNs instead of Expo Push Service.
+
+**Compatibility:**
+- Requires mwsim v1.5.0+ (uses native APNs tokens)
+- Requires APNs credentials from Apple Developer Portal
+- No external service dependencies (fully self-hosted)
+
+### Changed
+- **Push Notification Service** (`notification.ts`) - Replaced Expo Push with direct APNs
+  - Uses `@parse/node-apn` for APNs HTTP/2 connection
+  - Lazy-initialized APNs provider (only created when sending)
+  - Graceful fallback when APNs not configured (development)
+  - Handles `BadDeviceToken` and `Unregistered` errors to deactivate invalid tokens
+  - Groups devices by token type (APNs, FCM, deprecated Expo)
+  - FCM placeholder for future Android implementation
+  - Added `shutdownNotificationService()` for graceful shutdown
+
+### Configuration
+New environment variables for APNs:
+```bash
+APNS_KEY_ID=ABC123DEFG           # 10-character key ID from Apple
+APNS_TEAM_ID=ZJHD6JAC94          # Your Apple Team ID
+APNS_KEY_PATH=/path/to/key.p8    # Path to APNs auth key file
+APNS_BUNDLE_ID=com.banksim.mwsim # iOS bundle identifier
+APNS_PRODUCTION=false            # true for App Store builds
+```
+
+### Dependencies
+- Removed `expo-server-sdk`
+- Added `@parse/node-apn` for direct APNs integration
+- Added `@types/apn` for TypeScript definitions
+
+### Migration Notes
+- Existing devices with `pushTokenType: 'expo'` will receive deprecation errors
+- Users need to re-open mwsim app to register native APNs tokens
+- APNs credentials required before push notifications work
+
+### References
+- Architecture Decision AD6 in `PUSH_NOTIFICATION_QA.md`
+- Apple APNs documentation: https://developer.apple.com/documentation/usernotifications
+
+---
+
+## [0.5.0] - 2026-01-04
+
+**Push Notification Infrastructure** - Phase 1 implementation for mwsim mobile app notifications.
+
+**Compatibility:**
+- Requires mwsim with expo-notifications integration
+- Works with TransferSim webhook integration (Phase 2)
+- **Database migration required** (new NotificationLog model, MobileDevice schema changes)
+
+### Added
+- **Push Notification Service** (`notification.ts`)
+  - Expo Push integration for iOS/Android notifications
+  - `sendNotificationToUser()` - Notify all active devices for a user (per AD3)
+  - `sendNotificationToDevice()` - Target specific device
+  - Automatic token deactivation on `DeviceNotRegistered` error
+  - Chunked sending for large device lists (Expo 100/request limit)
+  - Idempotency support via sourceId for webhook retry deduplication
+
+- **TransferSim Webhook Endpoint** (`POST /api/webhooks/transfersim`)
+  - HMAC-SHA256 signature verification (production)
+  - AD5-compliant enhanced payload format
+  - User lookup: `fiUserRef` + `bsimId` → `BsimEnrollment` → `userId` → `MobileDevice`
+  - Rich notification copy with sender name and bank info
+  - Deep link data for mwsim navigation (`mwsim://transfer/{id}`)
+
+- **Push Token Registration API**
+  - `POST /api/mobile/device/push-token` - Register/update Expo push token
+  - `DELETE /api/mobile/device/push-token` - Deactivate token on logout
+  - Supports token types: `expo`, `apns`, `fcm`
+
+- **Database Schema** (per AD4)
+  - Extended `MobileDevice` model: `pushTokenType`, `pushTokenActive`, `pushTokenUpdatedAt`
+  - New `NotificationLog` model for audit/debugging
+  - Index on `pushToken` for efficient device lookup
+
+### Tests
+- 10 webhook tests covering signature verification, user lookup, notification flow
+- 3 notification service type export tests
+
+### Fixed
+- **Health endpoint version sync** - Version now imported from `package.json` instead of hardcoded string (BSIM team contribution)
+
+### Dependencies
+- Added `expo-server-sdk` for Expo Push API integration
+
+### Migration
+```bash
+npx prisma migrate dev --name add_push_notifications
+# or: npx prisma db push
+```
+
+### References
+- Architecture Decisions: AD1-AD5 from push notification proposal
+- Project Tracker: `mwsim/LOCAL_DEPLOYMENT_PLANS/PUSH_NOTIFICATION_PROJECT_TRACKER.md`
+
+---
+
 ## [0.4.2] - 2026-01-03
 
 **Enhanced Diagnostic Logging** - More detailed logging to trace `offline_access` scope through the OAuth flow.

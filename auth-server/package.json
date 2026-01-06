@@ -1,6 +1,6 @@
 {
   "name": "wsim-auth-server",
-  "version": "0.4.2",
+  "version": "0.6.1",
   "description": "WSIM Wallet Simulator - OIDC Authorization Server",
   "main": "dist/index.js",
   "scripts": {

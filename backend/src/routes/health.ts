@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import { prisma } from '../config/database';
+import packageJson from '../../package.json';
 
 const router = Router();
 
-// Version and compatibility info
-const VERSION = '0.4.2';
+// Version from package.json
+const VERSION = packageJson.version;
 const COMPATIBILITY = {
   // Minimum versions required for full functionality
   bsim: {

@@ -6,6 +6,8 @@
  *
  * Phase 1 (MVP):
  * - POST /device/register - Register a mobile device
+ * - POST /device/push-token - Register push notification token (requires auth)
+ * - DELETE /device/push-token - Deactivate push token (on logout)
  * - POST /auth/register - Create a new wallet account
  * - POST /auth/login - Start login for existing account
  * - POST /auth/login/verify - Verify login with email code
@@ -237,6 +239,161 @@ router.post('/device/register', async (req: Request, res: Response) => {
     return res.status(500).json({
       error: 'server_error',
       message: 'Failed to register device',
+    });
+  }
+});
+
+// =============================================================================
+// PUSH NOTIFICATION TOKEN REGISTRATION
+// =============================================================================
+
+/**
+ * POST /api/mobile/device/push-token
+ *
+ * Register or update push notification token for the authenticated user's device.
+ * Per AD4: Updates existing MobileDevice record with push token fields.
+ *
+ * Request body:
+ * - pushToken: string (required) - Expo, APNs, or FCM push token
+ * - tokenType: 'apns' | 'fcm' | 'expo' (optional, defaults to 'expo')
+ *
+ * The device is identified by the deviceId in the JWT access token.
+ */
+router.post('/device/push-token', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId, deviceId } = req;
+    const { pushToken, tokenType = 'expo' } = req.body as {
+      pushToken: string;
+      tokenType?: 'apns' | 'fcm' | 'expo';
+    };
+
+    // Validate required fields
+    if (!pushToken) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'pushToken is required',
+      });
+    }
+
+    // Validate token type
+    const validTokenTypes = ['apns', 'fcm', 'expo'];
+    if (!validTokenTypes.includes(tokenType)) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'tokenType must be one of: apns, fcm, expo',
+      });
+    }
+
+    if (!deviceId) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'deviceId not found in token',
+      });
+    }
+
+    // Find the device
+    const device = await prisma.mobileDevice.findUnique({
+      where: { deviceId },
+    });
+
+    if (!device) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Device not found. Please register the device first.',
+      });
+    }
+
+    // Verify the device belongs to this user
+    if (device.userId !== userId) {
+      console.warn(`[Mobile] Push token registration: device ${deviceId} belongs to different user`);
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Device does not belong to this user',
+      });
+    }
+
+    // Update the device with push token
+    const now = new Date();
+    await prisma.mobileDevice.update({
+      where: { deviceId },
+      data: {
+        pushToken,
+        pushTokenType: tokenType,
+        pushTokenActive: true,
+        pushTokenUpdatedAt: now,
+        updatedAt: now,
+      },
+    });
+
+    console.log(`[Mobile] Push token registered for device ${deviceId} (type: ${tokenType})`);
+
+    return res.json({
+      success: true,
+      registeredAt: now.toISOString(),
+    });
+  } catch (error) {
+    console.error('[Mobile] Push token registration error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to register push token',
+    });
+  }
+});
+
+/**
+ * DELETE /api/mobile/device/push-token
+ *
+ * Deactivate push token for the current device.
+ * Called on logout to stop receiving notifications on this device.
+ * Per integration point answer: Mark inactive rather than delete.
+ */
+router.delete('/device/push-token', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId, deviceId } = req;
+
+    if (!deviceId) {
+      return res.status(400).json({
+        error: 'bad_request',
+        message: 'deviceId not found in token',
+      });
+    }
+
+    // Find and update device
+    const device = await prisma.mobileDevice.findUnique({
+      where: { deviceId },
+    });
+
+    if (!device) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Device not found',
+      });
+    }
+
+    if (device.userId !== userId) {
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Device does not belong to this user',
+      });
+    }
+
+    // Mark push token as inactive (don't delete - user might log back in)
+    await prisma.mobileDevice.update({
+      where: { deviceId },
+      data: {
+        pushTokenActive: false,
+        updatedAt: new Date(),
+      },
+    });
+
+    console.log(`[Mobile] Push token deactivated for device ${deviceId}`);
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('[Mobile] Push token deactivation error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to deactivate push token',
     });
   }
 });
