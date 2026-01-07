@@ -359,11 +359,9 @@ async function sendApnsNotifications(
       if (result.failed.length > 0) {
         const failure = result.failed[0];
         const errorReason = failure.response?.reason || 'Unknown error';
-        const statusCode = failure.response?.status;
 
         console.error(`${logPrefix} [APNs] FAILED for device=${device.deviceId}:`, {
           reason: errorReason,
-          status: statusCode,
           device: failure.device?.slice(0, 20),
         });
 
