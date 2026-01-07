@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.2] - 2026-01-07
+
+**Micro Merchant Notification Support** - Enhanced webhook to support Micro Merchant payments.
+
+**Compatibility:**
+- Requires TransferSim v0.5.2+ (sends `recipientType` and `merchantName` in webhook)
+- Backwards compatible with existing P2P transfers
+
+### Added
+- **Micro Merchant Webhook Support** (`webhooks.ts`)
+  - New fields in webhook payload: `recipientType` ('individual' | 'merchant'), `merchantName`
+  - Different notification copy for merchant payments: "Payment Received!" vs "Money Received!"
+  - Merchant notifications show business name: "Java Joe's Coffee received $25.00"
+  - Push notification data includes `recipientType` and `merchantName` for mwsim dashboard refresh
+
+### Tests
+- Added 2 new webhook tests for merchant payment notifications
+
+---
+
 ## [0.6.1] - 2026-01-04
 
 **Webhook Signature Fix** - Fixed production webhook signature verification.
