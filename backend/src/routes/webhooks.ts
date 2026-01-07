@@ -101,8 +101,23 @@ interface TransferWebhookPayload {
  * 5. Returns 200 OK (fire-and-forget from TransferSim perspective)
  */
 router.post('/transfersim', async (req: Request, res: Response) => {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const startTime = Date.now();
+
+  console.log(`[Webhook:${requestId}] ========== INCOMING WEBHOOK ==========`);
+  console.log(`[Webhook:${requestId}] Timestamp: ${new Date().toISOString()}`);
+  console.log(`[Webhook:${requestId}] Headers:`, {
+    'content-type': req.headers['content-type'],
+    'x-webhook-signature': req.headers['x-webhook-signature'] ? 'present' : 'missing',
+    'user-agent': req.headers['user-agent'],
+  });
+
+  // Log full incoming payload from TransferSim
+  console.log(`[Webhook:${requestId}] Raw payload from TransferSim:`, JSON.stringify(req.body, null, 2));
+
   // Verify signature in production
   if (process.env.NODE_ENV === 'production' && !verifyWebhookSignature(req)) {
+    console.error(`[Webhook:${requestId}] Signature verification FAILED`);
     return res.status(401).json({ error: 'Invalid webhook signature' });
   }
 
@@ -110,9 +125,11 @@ router.post('/transfersim', async (req: Request, res: Response) => {
   if (process.env.NODE_ENV !== 'production') {
     const signature = req.headers['x-webhook-signature'];
     if (!signature) {
-      console.log('[Webhook] Dev mode: No signature provided, proceeding anyway');
+      console.log(`[Webhook:${requestId}] Dev mode: No signature provided, proceeding anyway`);
     } else if (!verifyWebhookSignature(req)) {
-      console.warn('[Webhook] Dev mode: Invalid signature, proceeding anyway');
+      console.warn(`[Webhook:${requestId}] Dev mode: Invalid signature, proceeding anyway`);
+    } else {
+      console.log(`[Webhook:${requestId}] Signature verification passed`);
     }
   }
 
@@ -121,18 +138,25 @@ router.post('/transfersim', async (req: Request, res: Response) => {
 
     // Validate event type
     if (payload.eventType !== 'transfer.completed') {
-      console.log(`[Webhook] Ignoring event type: ${payload.eventType}`);
+      console.log(`[Webhook:${requestId}] Ignoring event type: ${payload.eventType}`);
       return res.status(200).json({ received: true, processed: false });
     }
 
     const { data } = payload;
 
-    console.log(`[Webhook] Processing transfer.completed:`, {
+    console.log(`[Webhook:${requestId}] Processing transfer.completed`);
+    console.log(`[Webhook:${requestId}] Transfer details:`, {
       transferId: data.transferId,
+      idempotencyKey: payload.idempotencyKey,
       recipientBsimId: data.recipientBsimId,
       recipientUserId: data.recipientUserId,
+      recipientType: data.recipientType,
+      merchantName: data.merchantName,
+      senderDisplayName: data.senderDisplayName,
+      senderBankName: data.senderBankName,
       amount: data.amount,
       currency: data.currency,
+      isCrossBank: data.isCrossBank,
     });
 
     // Look up WSIM user from BSIM enrollment
@@ -155,8 +179,10 @@ router.post('/transfersim', async (req: Request, res: Response) => {
 
     if (!enrollment) {
       console.log(
-        `[Webhook] No enrollment found for fiUserRef=${data.recipientUserId}, bsimId=${data.recipientBsimId}`
+        `[Webhook:${requestId}] No enrollment found for fiUserRef=${data.recipientUserId}, bsimId=${data.recipientBsimId}`
       );
+      const duration = Date.now() - startTime;
+      console.log(`[Webhook:${requestId}] Response: 200 (not enrolled) in ${duration}ms`);
       // Return 200 to prevent TransferSim from retrying - user just isn't enrolled in WSIM
       return res.status(200).json({
         received: true,
@@ -164,6 +190,12 @@ router.post('/transfersim', async (req: Request, res: Response) => {
         reason: 'Recipient not enrolled in WSIM',
       });
     }
+
+    console.log(`[Webhook:${requestId}] Enrollment found:`, {
+      wsimUserId: enrollment.userId,
+      userName: enrollment.user?.firstName,
+      userEmail: enrollment.user?.email,
+    });
 
     // Build notification content
     const amount = parseFloat(data.amount).toLocaleString('en-CA', {
@@ -208,7 +240,11 @@ router.post('/transfersim', async (req: Request, res: Response) => {
       priority: 'high',
     };
 
+    // Log the full notification payload being sent to APNs
+    console.log(`[Webhook:${requestId}] Notification payload for APNs:`, JSON.stringify(notificationPayload, null, 2));
+
     // Send notification to all user's devices (per AD3)
+    console.log(`[Webhook:${requestId}] Sending notification to user ${enrollment.userId}...`);
     const result = await sendNotificationToUser(
       enrollment.userId,
       'transfer.received' as NotificationType,
@@ -216,13 +252,17 @@ router.post('/transfersim', async (req: Request, res: Response) => {
       payload.idempotencyKey // Use transferId for deduplication
     );
 
-    console.log(`[Webhook] Notification result:`, {
+    const duration = Date.now() - startTime;
+    console.log(`[Webhook:${requestId}] Notification result:`, {
       userId: enrollment.userId,
       success: result.success,
-      devices: result.totalDevices,
-      sent: result.successCount,
-      failed: result.failureCount,
+      totalDevices: result.totalDevices,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors,
     });
+    console.log(`[Webhook:${requestId}] Response: 200 (processed) in ${duration}ms`);
+    console.log(`[Webhook:${requestId}] ========== END WEBHOOK ==========`);
 
     return res.status(200).json({
       received: true,
@@ -234,7 +274,10 @@ router.post('/transfersim', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('[Webhook] Error processing TransferSim webhook:', error);
+    const duration = Date.now() - startTime;
+    console.error(`[Webhook:${requestId}] Error processing TransferSim webhook:`, error);
+    console.log(`[Webhook:${requestId}] Response: 500 (error) in ${duration}ms`);
+    console.log(`[Webhook:${requestId}] ========== END WEBHOOK (ERROR) ==========`);
 
     // Return 500 to trigger retry
     return res.status(500).json({

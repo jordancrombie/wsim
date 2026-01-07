@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.3] - 2026-01-07
+
+**Debug Logging** - Comprehensive logging for webhook and push notification troubleshooting.
+
+### Added
+- **Webhook Debug Logging** (`webhooks.ts`)
+  - Unique request ID for log correlation across services
+  - Full incoming payload from TransferSim
+  - Headers inspection (signature status, content-type)
+  - Transfer details with all fields logged
+  - Enrollment lookup results
+  - Full notification payload sent to APNs
+  - Request timing and response status
+
+- **Notification Service Debug Logging** (`notification.ts`)
+  - Unique notification ID for correlation
+  - Device query results with token info (truncated for security)
+  - Device breakdown by type (APNs/FCM/Expo)
+  - Idempotency check results
+  - Per-device APNs send details (token, alert, priority, response time)
+  - APNs success/failure with error reasons
+  - Token deactivation events logged
+  - Batch completion summary with timing
+
+---
+
 ## [0.6.2] - 2026-01-07
 
 **Micro Merchant Notification Support** - Enhanced webhook to support Micro Merchant payments.

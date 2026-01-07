@@ -129,8 +129,17 @@ export async function sendNotificationToUser(
   payload: NotificationPayload,
   sourceId?: string
 ): Promise<NotificationResult> {
+  const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const startTime = Date.now();
+
+  console.log(`[Notification:${notifId}] ========== SEND TO USER ==========`);
+  console.log(`[Notification:${notifId}] userId: ${userId}`);
+  console.log(`[Notification:${notifId}] type: ${notificationType}`);
+  console.log(`[Notification:${notifId}] sourceId: ${sourceId || 'none'}`);
+
   // Check for duplicate notification (idempotency)
   if (sourceId) {
+    console.log(`[Notification:${notifId}] Checking idempotency for sourceId=${sourceId}...`);
     const existing = await prisma.notificationLog.findFirst({
       where: {
         sourceId,
@@ -140,7 +149,8 @@ export async function sendNotificationToUser(
     });
 
     if (existing) {
-      console.log(`[Notification] Duplicate detected for sourceId=${sourceId}, skipping`);
+      console.log(`[Notification:${notifId}] DUPLICATE detected - already sent at ${existing.sentAt}`);
+      console.log(`[Notification:${notifId}] ========== END (DUPLICATE) ==========`);
       return {
         success: true,
         totalDevices: 0,
@@ -150,9 +160,11 @@ export async function sendNotificationToUser(
         errors: [],
       };
     }
+    console.log(`[Notification:${notifId}] No duplicate found, proceeding`);
   }
 
   // Get all active devices with push tokens for this user
+  console.log(`[Notification:${notifId}] Querying devices for user=${userId}...`);
   const devices = await prisma.mobileDevice.findMany({
     where: {
       userId,
@@ -168,8 +180,13 @@ export async function sendNotificationToUser(
     },
   });
 
+  console.log(`[Notification:${notifId}] Found ${devices.length} active device(s):`);
+  devices.forEach((d, i) => {
+    console.log(`[Notification:${notifId}]   [${i + 1}] ${d.deviceName || 'Unknown'} (${d.pushTokenType}) - token: ${d.pushToken?.slice(0, 20)}...`);
+  });
+
   if (devices.length === 0) {
-    console.log(`[Notification] No active devices for user=${userId}`);
+    console.log(`[Notification:${notifId}] No active devices for user=${userId}`);
 
     // Log the notification attempt
     await prisma.notificationLog.create({
@@ -186,6 +203,10 @@ export async function sendNotificationToUser(
       },
     });
 
+    const duration = Date.now() - startTime;
+    console.log(`[Notification:${notifId}] Result: FAILED (no devices) in ${duration}ms`);
+    console.log(`[Notification:${notifId}] ========== END (NO DEVICES) ==========`);
+
     return {
       success: false,
       totalDevices: 0,
@@ -201,19 +222,22 @@ export async function sendNotificationToUser(
   const fcmDevices = devices.filter(d => d.pushTokenType === 'fcm');
   const expoDevices = devices.filter(d => d.pushTokenType === 'expo');
 
+  console.log(`[Notification:${notifId}] Device breakdown: APNs=${apnsDevices.length}, FCM=${fcmDevices.length}, Expo=${expoDevices.length}`);
+
   const allResults: ApnsSendResult[] = [];
   const allErrors: Array<{ deviceId: string; error: string }> = [];
 
   // Send to APNs devices (iOS)
   if (apnsDevices.length > 0) {
-    const results = await sendApnsNotifications(apnsDevices, payload);
+    console.log(`[Notification:${notifId}] Sending to ${apnsDevices.length} APNs device(s)...`);
+    const results = await sendApnsNotifications(apnsDevices, payload, notifId);
     allResults.push(...results.tickets);
     allErrors.push(...results.errors);
   }
 
   // FCM devices (Android) - not yet implemented
   if (fcmDevices.length > 0) {
-    console.log(`[Notification] FCM not yet implemented, skipping ${fcmDevices.length} Android devices`);
+    console.log(`[Notification:${notifId}] FCM not yet implemented, skipping ${fcmDevices.length} Android devices`);
     for (const device of fcmDevices) {
       allErrors.push({ deviceId: device.deviceId, error: 'FCM not yet implemented' });
     }
@@ -221,7 +245,7 @@ export async function sendNotificationToUser(
 
   // Expo tokens - no longer supported
   if (expoDevices.length > 0) {
-    console.log(`[Notification] Expo tokens deprecated, skipping ${expoDevices.length} devices`);
+    console.log(`[Notification:${notifId}] Expo tokens deprecated, skipping ${expoDevices.length} devices`);
     for (const device of expoDevices) {
       allErrors.push({ deviceId: device.deviceId, error: 'Expo tokens no longer supported - please re-register' });
     }
@@ -246,9 +270,12 @@ export async function sendNotificationToUser(
     },
   });
 
-  console.log(
-    `[Notification] Sent to user=${userId}: ${successCount}/${devices.length} devices successful`
-  );
+  const duration = Date.now() - startTime;
+  console.log(`[Notification:${notifId}] Result: ${successCount}/${devices.length} devices successful in ${duration}ms`);
+  if (allErrors.length > 0) {
+    console.log(`[Notification:${notifId}] Errors:`, JSON.stringify(allErrors, null, 2));
+  }
+  console.log(`[Notification:${notifId}] ========== END ==========`);
 
   return {
     success: successCount > 0,
@@ -265,22 +292,30 @@ export async function sendNotificationToUser(
  */
 async function sendApnsNotifications(
   devices: Array<{ deviceId: string; pushToken: string | null; pushTokenType: string | null }>,
-  payload: NotificationPayload
+  payload: NotificationPayload,
+  notifId?: string
 ): Promise<{ tickets: ApnsSendResult[]; errors: Array<{ deviceId: string; error: string }> }> {
+  const logPrefix = notifId ? `[Notification:${notifId}]` : '[Notification]';
+
+  console.log(`${logPrefix} [APNs] Getting provider...`);
   const provider = getApnProvider();
   const tickets: ApnsSendResult[] = [];
   const errors: Array<{ deviceId: string; error: string }> = [];
 
   if (!provider) {
     // APNs not configured
+    console.error(`${logPrefix} [APNs] Provider not available - APNs not configured`);
     for (const device of devices) {
       errors.push({ deviceId: device.deviceId, error: 'APNs not configured' });
     }
     return { tickets, errors };
   }
 
+  console.log(`${logPrefix} [APNs] Provider ready, bundleId=${apnsConfig.bundleId}, production=${apnsConfig.production}`);
+
   for (const device of devices) {
     if (!device.pushToken) {
+      console.warn(`${logPrefix} [APNs] Device ${device.deviceId} has no push token, skipping`);
       errors.push({ deviceId: device.deviceId, error: 'No push token' });
       continue;
     }
@@ -305,12 +340,32 @@ async function sendApnsNotifications(
         notification.payload = payload.data;
       }
 
+      console.log(`${logPrefix} [APNs] Sending to device=${device.deviceId}...`);
+      console.log(`${logPrefix} [APNs]   Token: ${device.pushToken.slice(0, 20)}...${device.pushToken.slice(-10)}`);
+      console.log(`${logPrefix} [APNs]   Alert: "${payload.title}" / "${payload.body}"`);
+      console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}, Badge: ${notification.badge}`);
+      console.log(`${logPrefix} [APNs]   Payload keys: ${payload.data ? Object.keys(payload.data).join(', ') : 'none'}`);
+
       // Send to device
+      const sendStart = Date.now();
       const result = await provider.send(notification, device.pushToken);
+      const sendDuration = Date.now() - sendStart;
+
+      console.log(`${logPrefix} [APNs] Response in ${sendDuration}ms:`, {
+        sent: result.sent.length,
+        failed: result.failed.length,
+      });
 
       if (result.failed.length > 0) {
         const failure = result.failed[0];
         const errorReason = failure.response?.reason || 'Unknown error';
+        const statusCode = failure.response?.status;
+
+        console.error(`${logPrefix} [APNs] FAILED for device=${device.deviceId}:`, {
+          reason: errorReason,
+          status: statusCode,
+          device: failure.device?.slice(0, 20),
+        });
 
         tickets.push({
           device: device.deviceId,
@@ -322,20 +377,22 @@ async function sendApnsNotifications(
         // Handle specific error codes
         if (errorReason === 'BadDeviceToken' || errorReason === 'Unregistered') {
           // Mark device token as inactive
+          console.log(`${logPrefix} [APNs] Deactivating invalid token for device=${device.deviceId} (reason: ${errorReason})`);
           await prisma.mobileDevice.updateMany({
             where: { deviceId: device.deviceId },
             data: { pushTokenActive: false },
           });
-          console.log(`[Notification] Deactivated token for unregistered device=${device.deviceId}`);
+          console.log(`${logPrefix} [APNs] Token deactivated successfully`);
         }
       } else {
+        console.log(`${logPrefix} [APNs] SUCCESS for device=${device.deviceId}`);
         tickets.push({
           device: device.deviceId,
           status: 'ok',
         });
       }
     } catch (error) {
-      console.error(`[Notification] APNs error for device=${device.deviceId}:`, error);
+      console.error(`${logPrefix} [APNs] EXCEPTION for device=${device.deviceId}:`, error);
       tickets.push({
         device: device.deviceId,
         status: 'error',
@@ -345,6 +402,7 @@ async function sendApnsNotifications(
     }
   }
 
+  console.log(`${logPrefix} [APNs] Batch complete: ${tickets.filter(t => t.status === 'ok').length}/${devices.length} successful`);
   return { tickets, errors };
 }
 
