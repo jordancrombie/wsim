@@ -71,6 +71,8 @@ interface TransferWebhookPayload {
     recipientBsimId: string; // bsimId for enrollment lookup
     recipientAlias?: string;
     recipientAliasType?: 'USERNAME' | 'EMAIL' | 'PHONE';
+    recipientType?: 'individual' | 'merchant'; // NEW: For Micro Merchant support
+    merchantName?: string | null; // NEW: Business name for merchant payments
     senderDisplayName: string;
     senderAlias?: string;
     senderBankName: string;
@@ -169,13 +171,28 @@ router.post('/transfersim', async (req: Request, res: Response) => {
       currency: data.currency || 'CAD',
     });
 
-    // Rich notification copy using sender info
-    const senderInfo = data.senderDisplayName || 'Someone';
-    const bankInfo = data.isCrossBank ? ` from ${data.senderBankName}` : '';
+    // Determine if this is a merchant payment
+    const isMerchantPayment = data.recipientType === 'merchant' && data.merchantName;
+
+    // Rich notification copy - different for merchant vs individual
+    let title: string;
+    let body: string;
+
+    if (isMerchantPayment) {
+      // Merchant payment: "Java Joe's Coffee received $25.00"
+      title = 'Payment Received!';
+      body = `${data.merchantName} received ${amount}`;
+    } else {
+      // Individual P2P: "John Doe sent you $25.00"
+      const senderInfo = data.senderDisplayName || 'Someone';
+      const bankInfo = data.isCrossBank ? ` from ${data.senderBankName}` : '';
+      title = 'Money Received!';
+      body = `${senderInfo}${bankInfo} sent you ${amount}`;
+    }
 
     const notificationPayload: NotificationPayload = {
-      title: 'Money Received!',
-      body: `${senderInfo}${bankInfo} sent you ${amount}`,
+      title,
+      body,
       data: {
         type: 'transfer.received',
         transferId: data.transferId,
@@ -183,6 +200,8 @@ router.post('/transfersim', async (req: Request, res: Response) => {
         currency: data.currency,
         senderName: data.senderDisplayName,
         senderBank: data.senderBankName,
+        recipientType: data.recipientType || 'individual', // For mwsim dashboard refresh
+        merchantName: data.merchantName || null, // For merchant dashboard
         deepLink: `mwsim://transfer/${data.transferId}`,
       },
       sound: 'default',

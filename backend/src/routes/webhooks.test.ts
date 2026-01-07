@@ -273,6 +273,100 @@ describe('Webhook Routes', () => {
             type: 'transfer.received',
             transferId: 'p2p_abc123',
             deepLink: 'mwsim://transfer/p2p_abc123',
+            recipientType: 'individual', // Default when not specified
+          }),
+        }),
+        expect.any(String)
+      );
+    });
+
+    it('should format notification differently for merchant payments', async () => {
+      const merchantPayload = {
+        ...validPayload,
+        data: {
+          ...validPayload.data,
+          recipientType: 'merchant',
+          merchantName: "Java Joe's Coffee",
+        },
+      };
+
+      mockPrismaInstance.bsimEnrollment.findFirst.mockResolvedValue({
+        userId: 'wsim-user-123',
+        user: { firstName: 'Jane', email: 'jane@example.com' },
+      });
+
+      mockSendNotificationToUser.mockResolvedValue({
+        success: true,
+        totalDevices: 1,
+        successCount: 1,
+        failureCount: 0,
+        tickets: [],
+        errors: [],
+      });
+
+      const res = await request(app)
+        .post('/api/webhooks/transfersim')
+        .set('X-Webhook-Signature', generateSignature(merchantPayload))
+        .send(merchantPayload);
+
+      expect(res.status).toBe(200);
+
+      // Merchant payment should have different title/body
+      expect(mockSendNotificationToUser).toHaveBeenCalledWith(
+        'wsim-user-123',
+        'transfer.received',
+        expect.objectContaining({
+          title: 'Payment Received!',
+          body: "Java Joe's Coffee received $100.00",
+          data: expect.objectContaining({
+            recipientType: 'merchant',
+            merchantName: "Java Joe's Coffee",
+          }),
+        }),
+        expect.any(String)
+      );
+    });
+
+    it('should treat individual recipientType like regular P2P transfer', async () => {
+      const individualPayload = {
+        ...validPayload,
+        data: {
+          ...validPayload.data,
+          recipientType: 'individual',
+          merchantName: null,
+        },
+      };
+
+      mockPrismaInstance.bsimEnrollment.findFirst.mockResolvedValue({
+        userId: 'wsim-user-123',
+        user: { firstName: 'Jane', email: 'jane@example.com' },
+      });
+
+      mockSendNotificationToUser.mockResolvedValue({
+        success: true,
+        totalDevices: 1,
+        successCount: 1,
+        failureCount: 0,
+        tickets: [],
+        errors: [],
+      });
+
+      const res = await request(app)
+        .post('/api/webhooks/transfersim')
+        .set('X-Webhook-Signature', generateSignature(individualPayload))
+        .send(individualPayload);
+
+      expect(res.status).toBe(200);
+
+      // Individual P2P should have standard notification
+      expect(mockSendNotificationToUser).toHaveBeenCalledWith(
+        'wsim-user-123',
+        'transfer.received',
+        expect.objectContaining({
+          title: 'Money Received!',
+          body: 'John D. from Alpha Bank sent you $100.00',
+          data: expect.objectContaining({
+            recipientType: 'individual',
           }),
         }),
         expect.any(String)
