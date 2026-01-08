@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.6] - 2026-01-08
+
+**APNs Payload Structure - Root Level** - Put custom data at root level to match Expo Push Service format.
+
+### Changed
+- **APNs Payload Structure** (`notification.ts`)
+  - Reverted from wrapping data in `{ data: {...} }` to putting data at root level
+  - Now matches how Expo Push Service formats APNs payloads
+  - Before: `{ "aps": {...}, "data": { "type": "...", "transferId": "..." } }`
+  - After: `{ "aps": {...}, "type": "...", "transferId": "...", ... }`
+  - Expo/React Native maps all non-aps keys to `notification.request.content.data`
+
+---
+
 ## [0.6.5] - 2026-01-08
 
 **APNs Payload Debug Logging** - Added logging to see the exact compiled APNs payload.

@@ -335,10 +335,11 @@ async function sendApnsNotifications(
       notification.topic = apnsConfig.bundleId;
       notification.priority = payload.priority === 'high' ? 10 : 5;
 
-      // Add custom data payload - wrap in 'data' key for Expo/React Native compatibility
-      // APNs payload structure: { aps: {...}, data: { type, transferId, ... } }
+      // Add custom data payload at ROOT level (matches Expo Push Service format)
+      // APNs payload structure: { aps: {...}, type: "...", transferId: "...", ... }
+      // Expo/React Native then maps all non-aps keys to notification.request.content.data
       if (payload.data) {
-        notification.payload = { data: payload.data };
+        notification.payload = payload.data;
       }
 
       console.log(`${logPrefix} [APNs] Sending to device=${device.deviceId}...`);
