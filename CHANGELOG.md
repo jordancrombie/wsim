@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.5] - 2026-01-08
+
+**APNs Payload Debug Logging** - Added logging to see the exact compiled APNs payload.
+
+### Added
+- **Compiled Payload Logging** (`notification.ts`)
+  - Logs `notification.payload` after setting it
+  - Logs `notification.compile()` to see exact JSON sent to APNs
+  - Helps diagnose why data payload isn't reaching iOS devices
+
+---
+
 ## [0.6.4] - 2026-01-08
 
 **APNs Payload Structure Fix** - Fixed push notification data payload not reaching iOS devices.

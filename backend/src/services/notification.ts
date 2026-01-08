@@ -345,7 +345,10 @@ async function sendApnsNotifications(
       console.log(`${logPrefix} [APNs]   Token: ${device.pushToken.slice(0, 20)}...${device.pushToken.slice(-10)}`);
       console.log(`${logPrefix} [APNs]   Alert: "${payload.title}" / "${payload.body}"`);
       console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}, Badge: ${notification.badge}`);
-      console.log(`${logPrefix} [APNs]   Payload keys: ${payload.data ? Object.keys(payload.data).join(', ') : 'none'}`);
+      console.log(`${logPrefix} [APNs]   notification.payload:`, JSON.stringify(notification.payload));
+      // Log the actual compiled APNs payload that will be sent
+      const compiledPayload = JSON.stringify(notification.compile());
+      console.log(`${logPrefix} [APNs]   COMPILED APNs payload:`, compiledPayload);
 
       // Send to device
       const sendStart = Date.now();
