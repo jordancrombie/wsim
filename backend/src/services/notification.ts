@@ -321,42 +321,38 @@ async function sendApnsNotifications(
     }
 
     try {
-      // Build APNs notification
+      // Build APNs notification using rawPayload for complete control
       const notification = new apn.Notification();
-      notification.alert = {
-        title: payload.title,
-        body: payload.body,
-      };
-      // Only set sound if not explicitly silenced
-      if (payload.sound !== null) {
-        notification.sound = 'default';
-      }
-      notification.badge = payload.badge ?? 1;
       notification.topic = apnsConfig.bundleId;
       notification.priority = payload.priority === 'high' ? 10 : 5;
 
-      // Add custom data payload at ROOT level (matches Expo Push Service format)
-      // APNs payload structure: { aps: {...}, type: "...", transferId: "...", ... }
-      // Expo/React Native then maps all non-aps keys to notification.request.content.data
+      // Use rawPayload to set the EXACT APNs payload structure
+      // Custom data fields must be siblings of 'aps', not inside it
+      const rawPayload: Record<string, unknown> = {
+        aps: {
+          alert: {
+            title: payload.title,
+            body: payload.body,
+          },
+          sound: payload.sound !== null ? 'default' : undefined,
+          badge: payload.badge ?? 1,
+        },
+      };
+
+      // Add custom data fields at root level (siblings of aps)
       if (payload.data) {
-        notification.payload = payload.data;
+        Object.assign(rawPayload, payload.data);
       }
+
+      // Set the raw payload directly
+      notification.rawPayload = rawPayload;
 
       console.log(`${logPrefix} [APNs] Sending to device=${device.deviceId}...`);
       console.log(`${logPrefix} [APNs]   Token: ${device.pushToken.slice(0, 20)}...${device.pushToken.slice(-10)}`);
       console.log(`${logPrefix} [APNs]   Alert: "${payload.title}" / "${payload.body}"`);
-      console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}, Badge: ${notification.badge}`);
-      console.log(`${logPrefix} [APNs]   notification.payload:`, JSON.stringify(notification.payload));
-      // Log what the full APNs payload structure should look like
-      const expectedApnsPayload = {
-        aps: {
-          alert: notification.alert,
-          sound: notification.sound,
-          badge: notification.badge,
-        },
-        ...notification.payload,
-      };
-      console.log(`${logPrefix} [APNs]   FULL APNs payload structure:`, JSON.stringify(expectedApnsPayload));
+      console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}`);
+      // Log the exact rawPayload being sent to APNs
+      console.log(`${logPrefix} [APNs]   rawPayload:`, JSON.stringify(rawPayload));
 
       // Send to device
       const sendStart = Date.now();

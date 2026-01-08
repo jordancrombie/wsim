@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.7] - 2026-01-08
+
+**APNs rawPayload Fix** - Use `rawPayload` for complete control over APNs payload structure.
+
+### Fixed
+- **APNs Payload Using rawPayload** (`notification.ts`)
+  - Previous approach using `notification.payload` wasn't reliably placing custom data at root level
+  - Now uses `notification.rawPayload` to set the EXACT JSON structure sent to APNs
+  - Custom data fields (type, transferId, amount, etc.) are now guaranteed siblings of `aps`
+  - Payload structure: `{ "aps": { "alert": {...}, "sound": "default", "badge": 1 }, "type": "...", "transferId": "...", ... }`
+  - iOS/Expo maps all non-aps root keys to `notification.request.content.data`
+
+---
+
 ## [0.6.6] - 2026-01-08
 
 **APNs Payload Structure - Root Level** - Put custom data at root level to match Expo Push Service format.
