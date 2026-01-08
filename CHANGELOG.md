@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.4] - 2026-01-08
+
+**APNs Payload Structure Fix** - Fixed push notification data payload not reaching iOS devices.
+
+### Fixed
+- **APNs Data Payload Structure** (`notification.ts`)
+  - Custom data fields were placed at the root level of APNs payload
+  - Expo/React Native expects custom data nested under a `data` key
+  - Before: `{ "aps": {...}, "type": "...", "transferId": "..." }`
+  - After: `{ "aps": {...}, "data": { "type": "...", "transferId": "..." } }`
+  - This was causing `data: null` in the notification handler on iOS
+  - Micro Merchant dashboard refresh now works correctly when payment notifications arrive
+
+---
+
 ## [0.6.3] - 2026-01-07
 
 **Debug Logging** - Comprehensive logging for webhook and push notification troubleshooting.
