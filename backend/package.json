@@ -1,6 +1,6 @@
 {
   "name": "wsim-backend",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "description": "WSIM Wallet Simulator - Backend API Server",
   "main": "dist/index.js",
   "scripts": {
@@ -25,6 +25,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.965.0",
     "@parse/node-apn": "^7.0.1",
     "@prisma/client": "^5.22.0",
     "@simplewebauthn/server": "^13.2.2",
@@ -36,8 +37,10 @@
     "express-session": "^1.18.2",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
     "openid-client": "^6.8.1",
     "prisma": "^5.22.0",
+    "sharp": "^0.34.5",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
@@ -47,7 +50,9 @@
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.18.2",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
+    "@types/sharp": "^0.31.1",
     "@types/supertest": "^6.0.3",
     "@types/uuid": "^10.0.0",
     "@vitest/coverage-v8": "^4.0.15",

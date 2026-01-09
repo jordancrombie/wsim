@@ -34,6 +34,17 @@ export const env = {
   // Internal API (auth-server to backend communication)
   INTERNAL_API_SECRET: process.env.INTERNAL_API_SECRET || 'dev-internal-secret-change-in-production',
 
+  // AWS S3 / CloudFront (Profile Images)
+  AWS_REGION: process.env.AWS_REGION || 'ca-central-1',
+  AWS_S3_BUCKET_PROFILES: process.env.AWS_S3_BUCKET_PROFILES || 'banksim-profiles-wsim',
+  AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID || '',
+  AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY || '',
+  CDN_BASE_URL: process.env.CDN_BASE_URL || 'https://cdn.banksim.ca',
+
+  // Profile image settings
+  PROFILE_IMAGE_MAX_SIZE_MB: parseInt(process.env.PROFILE_IMAGE_MAX_SIZE_MB || '5', 10),
+  PROFILE_IMAGE_UPLOAD_RATE_LIMIT: parseInt(process.env.PROFILE_IMAGE_UPLOAD_RATE_LIMIT || '10', 10), // per hour
+
   // CORS
   CORS_ORIGINS: process.env.CORS_ORIGINS?.split(',') || [
     'http://localhost:3004',

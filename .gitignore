@@ -47,7 +47,6 @@ e2e/playwright/.cache/
 
 # Prisma
 backend/prisma/*.db
-backend/prisma/migrations/**/migration_lock.toml
 
 # Generated
 backend/src/generated/

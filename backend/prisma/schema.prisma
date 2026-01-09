@@ -24,6 +24,12 @@ model WalletUser {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Profile fields (Phase 1 User Profile feature)
+  displayName     String?  // Editable display name (defaults to firstName + lastName)
+  profileImageUrl String?  // CDN URL for profile image
+  profileImageKey String?  // S3 key for deletion/replacement
+  initialsColor   String?  // Background color for initials avatar fallback
+
   // Relationships
   enrollments           BsimEnrollment[]
   walletCards           WalletCard[]

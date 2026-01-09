@@ -9,6 +9,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-01-09
+
+**Phase 1 User Profile** - User profile management with image upload and internal API for TransferSim.
+
+### Added
+
+#### Prisma Schema
+- New profile fields on `WalletUser` model:
+  - `displayName` - Editable display name (defaults to firstName + lastName)
+  - `profileImageUrl` - CDN URL for profile image
+  - `profileImageKey` - S3 key for deletion/replacement
+  - `initialsColor` - Background color for initials avatar fallback
+
+#### Mobile Profile API (`/api/mobile/profile/*`)
+- `GET /api/mobile/profile` - Get authenticated user's profile
+- `PUT /api/mobile/profile` - Update profile (displayName)
+- `POST /api/mobile/profile/image` - Upload profile image (multipart/form-data)
+- `DELETE /api/mobile/profile/image` - Delete profile image
+
+#### Internal Profile API (`/api/internal/profile`)
+- `GET /api/internal/profile?bsimUserId={id}&bsimId={bsimId}`
+- For TransferSim to fetch sender profile image for webhook payloads
+- Authenticated via `X-Internal-Api-Key` header (uses `INTERNAL_API_SECRET`)
+
+#### Image Upload Service (`image-upload.ts`)
+- Sharp-based image processing: resize to 512x512, 128x128, 64x64
+- EXIF data stripping for privacy
+- Magic byte validation for JPEG, PNG, HEIC
+- File size validation (configurable, default 5MB)
+- S3 upload with CDN cache busting
+- Rate limiting (configurable, default 10 uploads/hour)
+
+#### Configuration (`env.ts`)
+- `AWS_REGION` - AWS region (default: ca-central-1)
+- `AWS_S3_BUCKET_PROFILES` - S3 bucket name (default: banksim-profiles-wsim)
+- `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - AWS credentials
+- `CDN_BASE_URL` - CloudFront CDN URL (default: https://cdn.banksim.ca)
+- `PROFILE_IMAGE_MAX_SIZE_MB` - Max image size (default: 5)
+- `PROFILE_IMAGE_UPLOAD_RATE_LIMIT` - Max uploads per hour (default: 10)
+
+#### Dependencies
+- `@aws-sdk/client-s3` - AWS S3 SDK for image storage
+- `sharp` - Image processing library
+- `multer` - Multipart form data handling
+
+### Migration Required
+Run `prisma db push` or `prisma migrate dev` to add profile fields to WalletUser table.
+
+### Infrastructure Required
+- S3 bucket: `banksim-profiles-wsim`
+- CloudFront distribution with path routing `/users/*` → S3 bucket
+
+---
+
 ## [0.6.7] - 2026-01-08
 
 **APNs rawPayload Fix** - Use `rawPayload` for complete control over APNs payload structure.
