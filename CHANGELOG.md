@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Magic byte validation for JPEG, PNG, HEIC
 - File size validation (configurable, default 5MB)
 - S3 upload with CDN cache busting
-- Rate limiting (configurable, default 10 uploads/hour)
+- Rate limiting (configurable, default 100 uploads/user/hour)
 
 #### Configuration (`env.ts`)
 - `AWS_REGION` - AWS region (default: ca-central-1)
@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` - AWS credentials
 - `CDN_BASE_URL` - CloudFront CDN URL (default: https://cdn.banksim.ca)
 - `PROFILE_IMAGE_MAX_SIZE_MB` - Max image size (default: 5)
-- `PROFILE_IMAGE_UPLOAD_RATE_LIMIT` - Max uploads per hour (default: 10)
+- `PROFILE_IMAGE_UPLOAD_RATE_LIMIT` - Max uploads per user per hour (default: 100)
 
 #### Dependencies
 - `@aws-sdk/client-s3` - AWS S3 SDK for image storage

@@ -43,7 +43,7 @@ export const env = {
 
   // Profile image settings
   PROFILE_IMAGE_MAX_SIZE_MB: parseInt(process.env.PROFILE_IMAGE_MAX_SIZE_MB || '5', 10),
-  PROFILE_IMAGE_UPLOAD_RATE_LIMIT: parseInt(process.env.PROFILE_IMAGE_UPLOAD_RATE_LIMIT || '10', 10), // per hour
+  PROFILE_IMAGE_UPLOAD_RATE_LIMIT: parseInt(process.env.PROFILE_IMAGE_UPLOAD_RATE_LIMIT || '100', 10), // per user per hour
 
   // CORS
   CORS_ORIGINS: process.env.CORS_ORIGINS?.split(',') || [
