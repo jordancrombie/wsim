@@ -73,6 +73,8 @@ Run `prisma migrate deploy` to add profile fields to WalletUser table.
 ### Infrastructure Required
 - S3 bucket: `banksim-profiles-wsim`
 - CloudFront distribution with path routing `/users/*` → S3 bucket
+- **CloudFront Cache Key**: Must include `v` query string parameter for cache busting
+  - Without this, `?v=timestamp` cache-buster is ignored and old images are served
 
 ---
 
