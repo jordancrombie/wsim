@@ -54,8 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sharp` - Image processing library
 - `multer` - Multipart form data handling
 
+#### Tests
+- `profile.test.ts` - 23 tests covering all profile API endpoints
+  - Mobile auth (JWT validation)
+  - GET/PUT/POST/DELETE profile operations
+  - Internal API key authentication
+  - Error handling and validation
+- `image-upload.test.ts` - 21 tests for image processing service
+  - `generateInitials()` and `generateInitialsColor()` utilities
+  - File validation (size, MIME type, magic bytes)
+  - S3 upload/delete operations (mocked)
+  - Sharp image processing (mocked)
+- Coverage: `profile.ts` 83%, `image-upload.ts` 98%
+
 ### Migration Required
-Run `prisma db push` or `prisma migrate dev` to add profile fields to WalletUser table.
+Run `prisma migrate deploy` to add profile fields to WalletUser table.
 
 ### Infrastructure Required
 - S3 bucket: `banksim-profiles-wsim`
