@@ -16,8 +16,9 @@ import {
 
 const router = Router();
 
-// Webhook secret for HMAC signature verification
+// Webhook secrets for HMAC signature verification
 const WEBHOOK_SECRET = process.env.TRANSFERSIM_WEBHOOK_SECRET || 'dev-webhook-secret';
+const CONTRACTSIM_WEBHOOK_SECRET = process.env.CONTRACTSIM_WEBHOOK_SECRET || 'dev-contractsim-webhook-secret';
 
 /**
  * Verify HMAC-SHA256 signature from webhook request
@@ -280,6 +281,234 @@ router.post('/transfersim', async (req: Request, res: Response) => {
     console.log(`[Webhook:${requestId}] ========== END WEBHOOK (ERROR) ==========`);
 
     // Return 500 to trigger retry
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// =============================================================================
+// CONTRACTSIM WEBHOOK
+// =============================================================================
+
+/**
+ * Verify HMAC-SHA256 signature from ContractSim webhook
+ */
+function verifyContractSimSignature(req: Request): boolean {
+  const signatureHeader = req.headers['x-webhook-signature'] as string;
+  if (!signatureHeader) {
+    console.warn('[Webhook] Missing X-Webhook-Signature header (ContractSim)');
+    return false;
+  }
+
+  const signature = signatureHeader.startsWith('sha256=')
+    ? signatureHeader.slice(7)
+    : signatureHeader;
+
+  const rawBody = JSON.stringify(req.body);
+  const expectedSignature = crypto
+    .createHmac('sha256', CONTRACTSIM_WEBHOOK_SECRET)
+    .update(rawBody)
+    .digest('hex');
+
+  const signatureBuffer = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+
+  if (signatureBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+}
+
+/**
+ * ContractSim Webhook Event Types
+ */
+type ContractEventType =
+  | 'contract.proposed'
+  | 'contract.accepted'
+  | 'contract.funded'
+  | 'contract.outcome'
+  | 'contract.settled'
+  | 'contract.disputed'
+  | 'contract.expired'
+  | 'contract.cancelled';
+
+/**
+ * ContractSim Webhook Payload
+ */
+interface ContractWebhookPayload {
+  event_id: string;
+  event_type: ContractEventType;
+  timestamp: string;
+  data: {
+    contract_id: string;
+    title: string;
+    creator?: {
+      wallet_id: string;
+      display_name: string;
+    };
+    counterparty?: {
+      wallet_id: string;
+      display_name: string;
+    };
+    recipient_wallet_id?: string; // Who should receive the notification
+    amount?: string;
+    currency?: string;
+    outcome?: 'won' | 'lost';
+    reason?: string;
+  };
+}
+
+/**
+ * Contract notification templates
+ */
+const CONTRACT_NOTIFICATION_TEMPLATES: Record<ContractEventType, {
+  title: string;
+  bodyTemplate: (data: ContractWebhookPayload['data']) => string;
+}> = {
+  'contract.proposed': {
+    title: 'New Contract Invitation',
+    bodyTemplate: (data) => `${data.creator?.display_name || 'Someone'} invited you to "${data.title}"`,
+  },
+  'contract.accepted': {
+    title: 'Contract Accepted',
+    bodyTemplate: (data) => `${data.counterparty?.display_name || 'Someone'} accepted "${data.title}"`,
+  },
+  'contract.funded': {
+    title: 'Contract Active',
+    bodyTemplate: (data) => `"${data.title}" is now fully funded and active`,
+  },
+  'contract.outcome': {
+    title: 'Contract Result',
+    bodyTemplate: (data) => data.outcome === 'won'
+      ? `You won "${data.title}"!`
+      : `"${data.title}" - better luck next time`,
+  },
+  'contract.settled': {
+    title: 'Contract Settled',
+    bodyTemplate: (data) => {
+      if (data.amount) {
+        const amount = parseFloat(data.amount).toLocaleString('en-CA', {
+          style: 'currency',
+          currency: data.currency || 'CAD',
+        });
+        return `${amount} has been transferred to your account`;
+      }
+      return `"${data.title}" has been settled`;
+    },
+  },
+  'contract.disputed': {
+    title: 'Contract Disputed',
+    bodyTemplate: (data) => `${data.creator?.display_name || 'The other party'} disputed "${data.title}"`,
+  },
+  'contract.expired': {
+    title: 'Contract Expired',
+    bodyTemplate: (data) => `"${data.title}" expired - funds returned`,
+  },
+  'contract.cancelled': {
+    title: 'Contract Cancelled',
+    bodyTemplate: (data) => `"${data.title}" was cancelled`,
+  },
+};
+
+/**
+ * POST /api/webhooks/contractsim
+ *
+ * Webhook endpoint for ContractSim to notify WSIM of contract events.
+ * Triggers push notifications to the relevant user's mobile devices.
+ */
+router.post('/contractsim', async (req: Request, res: Response) => {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const startTime = Date.now();
+
+  console.log(`[Webhook:${requestId}] ========== CONTRACTSIM WEBHOOK ==========`);
+  console.log(`[Webhook:${requestId}] Timestamp: ${new Date().toISOString()}`);
+  console.log(`[Webhook:${requestId}] Raw payload:`, JSON.stringify(req.body, null, 2));
+
+  // Verify signature in production
+  if (process.env.NODE_ENV === 'production' && !verifyContractSimSignature(req)) {
+    console.error(`[Webhook:${requestId}] ContractSim signature verification FAILED`);
+    return res.status(401).json({ error: 'Invalid webhook signature' });
+  }
+
+  try {
+    const payload = req.body as ContractWebhookPayload;
+    const { event_type, event_id, data } = payload;
+
+    console.log(`[Webhook:${requestId}] Processing ${event_type} for contract ${data.contract_id}`);
+
+    // Get notification template
+    const template = CONTRACT_NOTIFICATION_TEMPLATES[event_type];
+    if (!template) {
+      console.warn(`[Webhook:${requestId}] Unknown event type: ${event_type}`);
+      return res.status(200).json({ received: true, processed: false, reason: 'Unknown event type' });
+    }
+
+    // Determine recipient
+    const recipientWalletId = data.recipient_wallet_id;
+    if (!recipientWalletId) {
+      console.log(`[Webhook:${requestId}] No recipient_wallet_id in payload`);
+      return res.status(200).json({ received: true, processed: false, reason: 'No recipient specified' });
+    }
+
+    // Look up WSIM user by walletId
+    const user = await prisma.walletUser.findUnique({
+      where: { walletId: recipientWalletId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      console.log(`[Webhook:${requestId}] No user found for walletId=${recipientWalletId}`);
+      return res.status(200).json({ received: true, processed: false, reason: 'User not found' });
+    }
+
+    // Build notification
+    const notificationPayload: NotificationPayload = {
+      title: template.title,
+      body: template.bodyTemplate(data),
+      data: {
+        type: event_type,
+        contractId: data.contract_id,
+        title: data.title,
+        deepLink: `mwsim://contracts/${data.contract_id}`,
+      },
+      sound: 'default',
+      priority: 'high',
+    };
+
+    console.log(`[Webhook:${requestId}] Sending notification:`, notificationPayload);
+
+    // Send notification
+    const result = await sendNotificationToUser(
+      user.id,
+      event_type as NotificationType,
+      notificationPayload,
+      event_id // For idempotency
+    );
+
+    const duration = Date.now() - startTime;
+    console.log(`[Webhook:${requestId}] Notification result:`, {
+      success: result.success,
+      totalDevices: result.totalDevices,
+      successCount: result.successCount,
+    });
+    console.log(`[Webhook:${requestId}] Response: 200 in ${duration}ms`);
+    console.log(`[Webhook:${requestId}] ========== END CONTRACTSIM WEBHOOK ==========`);
+
+    return res.status(200).json({
+      received: true,
+      processed: true,
+      notification: {
+        success: result.success,
+        devicesNotified: result.successCount,
+      },
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(`[Webhook:${requestId}] Error processing ContractSim webhook:`, error);
+    console.log(`[Webhook:${requestId}] Response: 500 in ${duration}ms`);
     return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',

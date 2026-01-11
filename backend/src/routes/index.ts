@@ -10,6 +10,7 @@ import partnerRoutes from './partner';
 import mobileRoutes from './mobile';
 import webhookRoutes from './webhooks';
 import profileRoutes, { internalProfileRouter } from './profile';
+import contractRoutes, { internalContractsRouter } from './contracts';
 
 const router = Router();
 
@@ -27,5 +28,7 @@ router.use('/api/mobile', mobileRoutes); // Mobile app API (mwsim)
 router.use('/api/mobile/profile', profileRoutes); // Mobile profile API (Phase 1 User Profile)
 router.use('/api/webhooks', webhookRoutes); // Internal webhooks (TransferSim, etc.)
 router.use('/api/internal/profile', internalProfileRouter); // Internal API for TransferSim
+router.use('/api/mobile/contracts', contractRoutes); // Contract proxy API (ContractSim)
+router.use('/api/internal/contracts', internalContractsRouter); // Internal API for ContractSim
 
 export default router;

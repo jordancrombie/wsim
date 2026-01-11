@@ -51,6 +51,11 @@ export const env = {
     'http://localhost:3005',
   ],
 
+  // ContractSim Integration
+  CONTRACTSIM_API_URL: process.env.CONTRACTSIM_API_URL || 'http://localhost:3007',
+  CONTRACTSIM_API_KEY: process.env.CONTRACTSIM_API_KEY || 'dev-contractsim-key',
+  CONTRACTSIM_WEBHOOK_SECRET: process.env.CONTRACTSIM_WEBHOOK_SECRET || 'dev-contractsim-webhook-secret',
+
   // WebAuthn / Passkeys
   WEBAUTHN_RP_NAME: process.env.WEBAUTHN_RP_NAME || 'WSIM Wallet',
   WEBAUTHN_RP_ID: process.env.WEBAUTHN_RP_ID || 'localhost',

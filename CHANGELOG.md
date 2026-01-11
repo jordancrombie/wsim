@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2026-01-11
+
+**ContractSim Integration** - Proxy layer for conditional payments (wagers, escrow) between users.
+
+### Added
+
+#### Contract Proxy API (`/api/mobile/contracts/*`)
+- `GET /api/mobile/contracts` - List user's contracts (filtered by status)
+- `GET /api/mobile/contracts/:id` - Get contract details
+- `POST /api/mobile/contracts` - Create contract (with alias resolution)
+- `POST /api/mobile/contracts/:id/accept` - Accept contract invitation
+- `POST /api/mobile/contracts/:id/fund` - Initiate escrow funding
+- `POST /api/mobile/contracts/:id/cancel` - Cancel unfunded contract
+
+#### Internal Contracts API (`/api/internal/contracts/*`)
+- `GET /api/internal/contracts/profile/:walletId` - Profile lookup by walletId
+- For ContractSim to fetch party display info (displayName, profileImageUrl, initialsColor)
+- Authenticated via `X-Internal-Api-Key` header
+
+#### Alias Resolution (`contracts.ts`)
+- `resolveAlias()` - Resolves @username or email to walletId
+- Looks up BsimEnrollment by alias → WalletUser → walletId
+- Supports email addresses (exact match) and @usernames
+
+#### ContractSim Webhook Handler (`/api/webhooks/contractsim`)
+- HMAC-SHA256 signature verification
+- Idempotent processing via NotificationLog
+- Handles 8 contract event types with push notifications
+
+#### Contract Notification Templates (`notification.ts`)
+New notification types for contract lifecycle events:
+- `contract.proposed` - New contract invitation
+- `contract.accepted` - Counterparty accepted
+- `contract.funded` - Contract now active
+- `contract.outcome` - Result determined (win/lose)
+- `contract.settled` - Funds transferred
+- `contract.disputed` - Dispute raised
+- `contract.expired` - Funding timeout
+- `contract.cancelled` - Contract cancelled
+
+#### Configuration (`env.ts`)
+- `CONTRACTSIM_API_URL` - ContractSim service URL (default: http://localhost:3007)
+- `CONTRACTSIM_API_KEY` - API key for WSIM → ContractSim calls
+- `CONTRACTSIM_WEBHOOK_SECRET` - HMAC secret for webhook verification
+
+#### Pipeline Updates
+- Added ContractSim env vars to `pipeline-dev.yaml` and `pipeline-dev-sandbox.yaml`
+
+### Documentation
+- Updated OpenAPI spec (`docs/openapi.yaml`) to v0.8.0 with contract endpoints
+- Added Contract, ContractParty, CreateContractRequest schemas
+
+### No Database Changes Required
+Uses existing tables: WalletUser, BsimEnrollment, MobileDevice, NotificationLog
+
+### References
+- ContractSim Integration Guide: `/docs/INTEGRATION_WSIM.md` (in contractSim repo)
+- Project Plan: `/LOCAL_DEPLOYMENT_PLANS/PROJECT_PLAN.md` (in contractSim repo)
+
+---
+
 ## [0.7.0] - 2026-01-09
 
 **Phase 1 User Profile** - User profile management with image upload and internal API for TransferSim.

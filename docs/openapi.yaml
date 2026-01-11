@@ -1,0 +1,826 @@
+openapi: 3.0.3
+info:
+  title: WSIM API
+  description: |
+    WSIM (Wallet Simulator) API - Mobile wallet backend for the BankSim ecosystem.
+
+    ## Authentication
+
+    WSIM uses two authentication methods:
+
+    1. **Mobile API (Bearer JWT)**: For mobile app endpoints under `/api/mobile/*`
+       - Include `Authorization: Bearer <access_token>` header
+       - Tokens obtained from `/api/mobile/auth/login` or `/api/mobile/auth/refresh`
+
+    2. **Internal API (API Key)**: For service-to-service communication under `/api/internal/*`
+       - Include `X-Internal-Api-Key: <secret>` header
+       - Uses `INTERNAL_API_SECRET` environment variable
+
+    ## Related Services
+
+    - **BSIM** - Bank Simulator (account/card management)
+    - **TransferSim** - Payment network (P2P transfers)
+    - **mwsim** - Mobile app (iOS/Android client)
+  version: 0.8.0
+  contact:
+    name: WSIM Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://wsim.banksim.ca
+    description: Production
+  - url: http://localhost:3003
+    description: Local development
+
+tags:
+  - name: Profile (Mobile)
+    description: User profile management for mobile app
+  - name: Profile (Internal)
+    description: Profile lookup for internal services (TransferSim)
+  - name: Contracts (Mobile)
+    description: Contract proxy endpoints for ContractSim integration
+  - name: Contracts (Internal)
+    description: Contract profile lookup for ContractSim
+
+paths:
+  /api/mobile/profile:
+    get:
+      tags:
+        - Profile (Mobile)
+      summary: Get user profile
+      description: Returns the authenticated user's profile information.
+      operationId: getMobileProfile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '401':
+          description: Unauthorized - missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      tags:
+        - Profile (Mobile)
+      summary: Update user profile
+      description: |
+        Update the authenticated user's profile. Currently supports updating `displayName`.
+      operationId: updateMobileProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '400':
+          description: Invalid request (e.g., displayName too long or empty)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/profile/image:
+    post:
+      tags:
+        - Profile (Mobile)
+      summary: Upload profile image
+      description: |
+        Upload a profile image. The image is processed to:
+        - Resize to 512x512 (full), 128x128 (medium), 64x64 (small)
+        - Strip EXIF metadata
+        - Convert to JPEG
+
+        Supported formats: JPEG, PNG, HEIC
+
+        **Rate limit**: 100 uploads per user per hour
+      operationId: uploadProfileImage
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (JPEG, PNG, or HEIC)
+      responses:
+        '200':
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageUploadResponse'
+        '400':
+          description: Invalid request (no file, invalid type, or file too large)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded (100 uploads per hour)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Profile (Mobile)
+      summary: Delete profile image
+      description: Remove the user's profile image from S3 and clear the database fields.
+      operationId: deleteProfileImage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Image deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: No image to delete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/internal/profile:
+    get:
+      tags:
+        - Profile (Internal)
+      summary: Get user profile by BSIM user
+      description: |
+        Look up a WSIM user's profile by their BSIM user ID and bank identifier.
+        Used by TransferSim to get sender/recipient profile information for transfers.
+
+        **Authentication**: Requires `X-Internal-Api-Key` header with `INTERNAL_API_SECRET`.
+      operationId: getInternalProfile
+      security:
+        - internalApiKey: []
+      parameters:
+        - name: bsimUserId
+          in: query
+          required: true
+          description: User's ID at the BSIM (fiUserRef from enrollment)
+          schema:
+            type: string
+          example: "user_12345"
+        - name: bsimId
+          in: query
+          required: true
+          description: Bank identifier (e.g., "bsim", "newbank")
+          schema:
+            type: string
+          example: "bsim"
+      responses:
+        '200':
+          description: Profile found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalProfileResponse'
+        '400':
+          description: Missing required query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found for given bsimUserId and bsimId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =========================================================================
+  # CONTRACT ENDPOINTS (ContractSim Proxy)
+  # =========================================================================
+
+  /api/mobile/contracts:
+    get:
+      tags:
+        - Contracts (Mobile)
+      summary: List user's contracts
+      description: Returns a list of contracts where the user is a party.
+      operationId: listContracts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          description: Filter by status (comma-separated)
+          schema:
+            type: string
+          example: "active,proposed"
+      responses:
+        '200':
+          description: Contracts retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contracts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Contract'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Contracts (Mobile)
+      summary: Create new contract
+      description: |
+        Create a new contract. WSIM resolves the counterparty alias and enriches
+        the request with profile data before proxying to ContractSim.
+      operationId: createContract
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContractRequest'
+      responses:
+        '201':
+          description: Contract created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contract'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Counterparty not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/contracts/{contractId}:
+    get:
+      tags:
+        - Contracts (Mobile)
+      summary: Get contract details
+      operationId: getContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contract details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contract'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/mobile/contracts/{contractId}/accept:
+    post:
+      tags:
+        - Contracts (Mobile)
+      summary: Accept contract invitation
+      operationId: acceptContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - consent
+              properties:
+                consent:
+                  type: boolean
+                  description: Must be true to accept
+                  example: true
+      responses:
+        '200':
+          description: Contract accepted
+        '400':
+          description: Consent required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/mobile/contracts/{contractId}/fund:
+    post:
+      tags:
+        - Contracts (Mobile)
+      summary: Fund contract
+      description: Initiate escrow funding for the contract.
+      operationId: fundContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id:
+                  type: string
+                  description: Bank account to fund from (optional, uses default)
+      responses:
+        '200':
+          description: Funding initiated
+        '400':
+          description: No bank linked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/mobile/contracts/{contractId}/cancel:
+    post:
+      tags:
+        - Contracts (Mobile)
+      summary: Cancel contract
+      description: Cancel a contract (only before funding).
+      operationId: cancelContract
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contractId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contract cancelled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          description: Cannot cancel funded contract
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/internal/contracts/profile/{walletId}:
+    get:
+      tags:
+        - Contracts (Internal)
+      summary: Get profile by walletId
+      description: |
+        Look up a WSIM user's profile by their walletId.
+        Used by ContractSim to fetch party display information.
+      operationId: getContractProfile
+      security:
+        - internalApiKey: []
+      parameters:
+        - name: walletId
+          in: path
+          required: true
+          description: User's wallet identifier (e.g., "WLLT-ABC123")
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Profile found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalProfileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Mobile API JWT access token.
+        Obtain via `/api/mobile/auth/login` or `/api/mobile/auth/refresh`.
+    internalApiKey:
+      type: apiKey
+      in: header
+      name: X-Internal-Api-Key
+      description: |
+        Internal API key for service-to-service communication.
+        Value should match `INTERNAL_API_SECRET` environment variable.
+
+  schemas:
+    ProfileResponse:
+      type: object
+      required:
+        - success
+        - profile
+      properties:
+        success:
+          type: boolean
+          example: true
+        profile:
+          $ref: '#/components/schemas/Profile'
+
+    Profile:
+      type: object
+      required:
+        - userId
+        - walletId
+        - email
+        - displayName
+        - initials
+        - initialsColor
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: WSIM user ID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        walletId:
+          type: string
+          description: User's wallet identifier
+          example: "WLLT-ABC123"
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@example.com"
+        displayName:
+          type: string
+          description: User's display name (custom or derived from first/last name)
+          example: "John Doe"
+        initials:
+          type: string
+          description: Two-letter initials derived from display name
+          example: "JD"
+        initialsColor:
+          type: string
+          description: Hex color for avatar background when no image is set
+          example: "#4A90D9"
+        profileImageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Full-size profile image URL (512x512)
+          example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar.jpg?v=1704825600"
+        thumbnails:
+          type: object
+          nullable: true
+          description: Thumbnail URLs (null if no profile image)
+          properties:
+            small:
+              type: string
+              format: uri
+              description: Small thumbnail (64x64)
+              example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_64.jpg?v=1704825600"
+            medium:
+              type: string
+              format: uri
+              description: Medium thumbnail (128x128)
+              example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_128.jpg?v=1704825600"
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        displayName:
+          type: string
+          description: New display name (1-50 characters)
+          minLength: 1
+          maxLength: 50
+          example: "John D."
+
+    ImageUploadResponse:
+      type: object
+      required:
+        - success
+        - profileImageUrl
+        - thumbnails
+      properties:
+        success:
+          type: boolean
+          example: true
+        profileImageUrl:
+          type: string
+          format: uri
+          description: Full-size profile image URL
+          example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar.jpg?v=1704825600"
+        thumbnails:
+          type: object
+          properties:
+            small:
+              type: string
+              format: uri
+              example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_64.jpg?v=1704825600"
+            medium:
+              type: string
+              format: uri
+              example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_128.jpg?v=1704825600"
+
+    InternalProfileResponse:
+      type: object
+      required:
+        - success
+        - profile
+      properties:
+        success:
+          type: boolean
+          example: true
+        profile:
+          type: object
+          required:
+            - displayName
+            - initials
+            - initialsColor
+          properties:
+            displayName:
+              type: string
+              description: User's display name
+              example: "John Doe"
+            profileImageUrl:
+              type: string
+              format: uri
+              nullable: true
+              description: Full-size profile image URL
+              example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar.jpg?v=1704825600"
+            thumbnails:
+              type: object
+              nullable: true
+              properties:
+                small:
+                  type: string
+                  format: uri
+                  example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_64.jpg?v=1704825600"
+                medium:
+                  type: string
+                  format: uri
+                  example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_128.jpg?v=1704825600"
+            initials:
+              type: string
+              description: Two-letter initials
+              example: "JD"
+            initialsColor:
+              type: string
+              description: Hex color for avatar background
+              example: "#4A90D9"
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: "unauthorized"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Invalid or expired access token"
+
+    # Contract schemas
+    Contract:
+      type: object
+      properties:
+        contract_id:
+          type: string
+          example: "contract_abc123"
+        status:
+          type: string
+          enum: [draft, proposed, funding, active, settling, settled, expired, cancelled, disputed]
+        title:
+          type: string
+          example: "Superbowl 2026 Bet"
+        type:
+          type: string
+          enum: [wager, escrow, milestone]
+        parties:
+          type: array
+          items:
+            $ref: '#/components/schemas/ContractParty'
+        total_pot:
+          type: number
+          example: 100.00
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    ContractParty:
+      type: object
+      properties:
+        wallet_id:
+          type: string
+          example: "WLLT-ABC123"
+        display_name:
+          type: string
+          example: "John Doe"
+        role:
+          type: string
+          enum: [creator, counterparty]
+        stake:
+          type: object
+          properties:
+            amount:
+              type: number
+              example: 50.00
+            currency:
+              type: string
+              example: "CAD"
+        accepted:
+          type: boolean
+        funded:
+          type: boolean
+
+    CreateContractRequest:
+      type: object
+      required:
+        - type
+        - counterparty_alias
+        - event
+        - my_stake
+        - their_stake
+      properties:
+        type:
+          type: string
+          enum: [wager, escrow]
+          example: "wager"
+        counterparty_alias:
+          type: string
+          description: "@username or email of counterparty"
+          example: "@jane"
+        title:
+          type: string
+          example: "Superbowl 2026 Bet"
+        description:
+          type: string
+        event:
+          type: object
+          required:
+            - oracle
+            - event_id
+            - my_prediction
+          properties:
+            oracle:
+              type: string
+              example: "test_oracle"
+            event_id:
+              type: string
+              example: "test_game_001"
+            my_prediction:
+              type: string
+              example: "team_a_wins"
+        my_stake:
+          type: number
+          example: 50.00
+        their_stake:
+          type: number
+          example: 50.00
+        expires_in_hours:
+          type: integer
+          default: 24
+          example: 24
+
+  responses:
+    Unauthorized:
+      description: Unauthorized - missing or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BadRequest:
+      description: Bad request - invalid input
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

@@ -74,7 +74,16 @@ export type NotificationType =
   | 'payment.approved'
   | 'payment.completed'
   | 'auth.challenge'
-  | 'system.announcement';
+  | 'system.announcement'
+  // Contract notification types (ContractSim integration)
+  | 'contract.proposed'
+  | 'contract.accepted'
+  | 'contract.funded'
+  | 'contract.outcome'
+  | 'contract.settled'
+  | 'contract.disputed'
+  | 'contract.expired'
+  | 'contract.cancelled';
 
 /**
  * Notification payload for sending to devices
