@@ -250,6 +250,63 @@ router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
 });
 
 /**
+ * GET /api/mobile/contracts/events
+ *
+ * Get available oracle events for contract creation.
+ * Proxies to ContractSim's oracle events endpoint.
+ */
+router.get('/events', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+  try {
+    const { userId } = req;
+    console.log(`[Contracts:${requestId}] Get contract events for userId=${userId}`);
+
+    // Get user's walletId
+    const user = await prisma.walletUser.findUnique({
+      where: { id: userId },
+      select: { walletId: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'User not found',
+      });
+    }
+
+    // Proxy to ContractSim oracles endpoint
+    const result = await callContractSim('GET', '/oracles/test/events/upcoming', user.walletId);
+
+    if (!result.ok) {
+      console.error(`[Contracts:${requestId}] ContractSim error:`, result.data);
+      return res.status(result.status).json(result.data);
+    }
+
+    // Transform response to mobile format
+    const data = result.data as { oracle_id?: string; events?: any[] };
+    const events = data.events || [];
+    return res.json({
+      events: events.map((e: any) => ({
+        oracle: data.oracle_id || 'test_oracle',
+        event_id: e.event_id,
+        title: e.title,
+        teams: e.teams,
+        starts_at: e.starts_at,
+        ends_at: e.ends_at,
+        status: e.status,
+      })),
+    });
+  } catch (error) {
+    console.error(`[Contracts:${requestId}] Get events error:`, error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to get events',
+    });
+  }
+});
+
+/**
  * GET /api/mobile/contracts/:contractId
  *
  * Get contract details.
