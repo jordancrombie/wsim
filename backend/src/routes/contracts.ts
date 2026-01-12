@@ -118,6 +118,235 @@ function getDisplayName(user: { displayName: string | null; firstName: string | 
   return `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
 }
 
+// =============================================================================
+// RESPONSE TRANSFORMERS (ContractSim snake_case → Mobile camelCase)
+// =============================================================================
+
+interface ContractSimParty {
+  wallet_id: string;
+  bank_id?: string;
+  display_name: string;
+  role: string;
+  stake: string;
+  accepted: boolean;
+  accepted_at?: string;
+  funded: boolean;
+  funded_at?: string;
+  escrow_id?: string;
+}
+
+interface ContractSimCondition {
+  index: number;
+  oracle_id: string;
+  event_type: string;
+  event_id: string;
+  predicate: {
+    field: string;
+    operator: string;
+    value: string;
+  };
+  status: string;
+  result?: boolean;
+}
+
+interface ContractSimListParty {
+  wallet_id: string;
+  display_name: string;
+  role: string;
+}
+
+interface ContractSimListItem {
+  contract_id: string;
+  type: string;
+  status: string;
+  title: string;
+  total_pot: string;
+  currency: string;
+  parties_count: number;
+  parties: ContractSimListParty[];
+  expires_at: string;
+  created_at: string;
+}
+
+interface ContractSimDetail {
+  contract_id: string;
+  type: string;
+  status: string;
+  title: string;
+  description?: string;
+  total_pot: string;
+  currency: string;
+  escrow_type: string;
+  settlement_type: string;
+  parties: ContractSimParty[];
+  conditions: ContractSimCondition[];
+  expires_at: string;
+  funding_deadline: string;
+  created_at: string;
+  accepted_at?: string;
+  funded_at?: string;
+  resolved_at?: string;
+  settled_at?: string;
+}
+
+interface ContractSimCreateResponse {
+  contract_id: string;
+  status: string;
+  title: string;
+  total_pot: string;
+  currency: string;
+  parties: ContractSimParty[];
+  conditions_count: number;
+  expires_at: string;
+  funding_deadline: string;
+  created_at: string;
+}
+
+/**
+ * Transform ContractSim list item to mobile format
+ */
+function transformContractListItem(
+  item: ContractSimListItem,
+  userWalletId: string
+): Record<string, unknown> {
+  // Determine user's role and counterparty from parties array
+  let myRole = 'creator';
+  let counterpartyName = 'Unknown';
+
+  if (item.parties && item.parties.length >= 2) {
+    const myParty = item.parties.find(p => p.wallet_id === userWalletId);
+    const counterparty = item.parties.find(p => p.wallet_id !== userWalletId);
+
+    if (myParty) {
+      myRole = myParty.role;
+    }
+    if (counterparty) {
+      counterpartyName = counterparty.display_name || 'Unknown';
+    }
+  }
+
+  return {
+    id: item.contract_id,
+    type: item.type,
+    status: item.status,
+    title: item.title,
+    totalPot: parseFloat(item.total_pot),
+    currency: item.currency,
+    myRole,
+    counterpartyName,
+    expiresAt: item.expires_at,
+    createdAt: item.created_at,
+  };
+}
+
+/**
+ * Transform ContractSim party to mobile format
+ */
+function transformParty(party: ContractSimParty): Record<string, unknown> {
+  return {
+    id: party.wallet_id,
+    walletId: party.wallet_id,
+    bankId: party.bank_id,
+    role: party.role,
+    displayName: party.display_name,
+    stake: {
+      amount: parseFloat(party.stake),
+      currency: 'CAD',
+    },
+    accepted: party.accepted,
+    acceptedAt: party.accepted_at,
+    funded: party.funded,
+    fundedAt: party.funded_at,
+    escrowId: party.escrow_id,
+  };
+}
+
+/**
+ * Transform ContractSim condition to mobile format
+ */
+function transformCondition(condition: ContractSimCondition): Record<string, unknown> {
+  return {
+    index: condition.index,
+    oracleId: condition.oracle_id,
+    eventType: condition.event_type,
+    eventId: condition.event_id,
+    predicate: condition.predicate,
+    status: condition.status,
+    result: condition.result,
+  };
+}
+
+/**
+ * Transform ContractSim contract detail to mobile format
+ */
+function transformContractDetail(
+  contract: ContractSimDetail,
+  userWalletId: string
+): Record<string, unknown> {
+  const parties = contract.parties.map(transformParty);
+  const conditions = contract.conditions.map(transformCondition);
+
+  // Determine user's role and counterparty
+  const myParty = contract.parties.find(p => p.wallet_id === userWalletId);
+  const counterparty = contract.parties.find(p => p.wallet_id !== userWalletId);
+  const myRole = myParty?.role || 'creator';
+
+  // Generate conditions summary
+  const conditionsSummary = conditions.length > 0
+    ? `${conditions.length} condition${conditions.length > 1 ? 's' : ''}`
+    : undefined;
+
+  return {
+    id: contract.contract_id,
+    type: contract.type,
+    status: contract.status,
+    title: contract.title,
+    description: contract.description,
+    parties,
+    conditions,
+    escrowType: contract.escrow_type,
+    settlementType: contract.settlement_type,
+    totalPot: parseFloat(contract.total_pot),
+    currency: contract.currency,
+    createdAt: contract.created_at,
+    acceptedAt: contract.accepted_at,
+    fundedAt: contract.funded_at,
+    resolvedAt: contract.resolved_at,
+    settledAt: contract.settled_at,
+    expiresAt: contract.expires_at,
+    fundingDeadline: contract.funding_deadline,
+    myRole,
+    counterparty: counterparty ? transformParty(counterparty) : undefined,
+    conditionsSummary,
+  };
+}
+
+/**
+ * Transform ContractSim create response to mobile format
+ */
+function transformCreateResponse(
+  response: ContractSimCreateResponse,
+  userWalletId: string
+): Record<string, unknown> {
+  const parties = response.parties.map(transformParty);
+  const myParty = response.parties.find(p => p.wallet_id === userWalletId);
+  const counterparty = response.parties.find(p => p.wallet_id !== userWalletId);
+
+  return {
+    id: response.contract_id,
+    status: response.status,
+    title: response.title,
+    totalPot: parseFloat(response.total_pot),
+    currency: response.currency,
+    parties,
+    expiresAt: response.expires_at,
+    fundingDeadline: response.funding_deadline,
+    createdAt: response.created_at,
+    myRole: myParty?.role || 'creator',
+    counterparty: counterparty ? transformParty(counterparty) : undefined,
+  };
+}
+
 /**
  * Resolve alias to user info (walletId, bankId, displayName)
  *
@@ -316,7 +545,14 @@ router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
       return res.status(result.status).json(result.data);
     }
 
-    return res.json(result.data);
+    // Transform response to mobile format
+    const data = result.data as { contracts: ContractSimListItem[]; total: number };
+    const contracts = (data.contracts || []).map(c => transformContractListItem(c, user.walletId));
+
+    return res.json({
+      contracts,
+      total: data.total || contracts.length,
+    });
   } catch (error) {
     console.error(`[Contracts:${requestId}] List contracts error:`, error);
     return res.status(500).json({
@@ -418,7 +654,9 @@ router.get('/:contractId', requireMobileAuth, async (req: AuthenticatedRequest, 
       return res.status(result.status).json(result.data);
     }
 
-    return res.json(result.data);
+    // Transform response to mobile format
+    const contract = transformContractDetail(result.data as ContractSimDetail, user.walletId);
+    return res.json(contract);
   } catch (error) {
     console.error(`[Contracts:${requestId}] Get contract error:`, error);
     return res.status(500).json({
@@ -584,8 +822,10 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
       return res.status(result.status).json(result.data);
     }
 
-    console.log(`[Contracts:${requestId}] Contract created successfully`);
-    return res.status(201).json(result.data);
+    // Transform response to mobile format
+    const contract = transformCreateResponse(result.data as ContractSimCreateResponse, creator.walletId);
+    console.log(`[Contracts:${requestId}] Contract created successfully: ${contract.id}`);
+    return res.status(201).json(contract);
   } catch (error) {
     console.error(`[Contracts:${requestId}] Create contract error:`, error);
     return res.status(500).json({
