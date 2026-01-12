@@ -564,7 +564,7 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
           eventType: 'game_outcome',
           eventId: eventIdNorm,
           predicateField: 'winner',
-          predicateOperator: 'equals',
+          predicateOperator: 'EQUALS',
           predicateValue: myPredictionNorm,
         },
       ],
