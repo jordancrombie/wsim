@@ -362,38 +362,57 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
 
   try {
     const { userId } = req;
+    // Support both camelCase (mobile) and snake_case field names
     const {
       type,
       counterparty_alias,
+      counterpartyAlias,
       title,
       description,
       event,
       my_stake,
+      myStake,
       their_stake,
+      theirStake,
       expires_in_hours,
+      expiresInHours,
     } = req.body as {
       type: string;
-      counterparty_alias: string;
+      counterparty_alias?: string;
+      counterpartyAlias?: string;
       title?: string;
       description?: string;
       event: {
         oracle: string;
-        event_id: string;
-        my_prediction: string;
+        event_id?: string;
+        eventId?: string;
+        my_prediction?: string;
+        myPrediction?: string;
       };
-      my_stake: number;
-      their_stake: number;
+      my_stake?: number;
+      myStake?: number;
+      their_stake?: number;
+      theirStake?: number;
       expires_in_hours?: number;
+      expiresInHours?: number;
     };
 
+    // Normalize to snake_case for internal use
+    const counterpartyAliasNorm = counterparty_alias || counterpartyAlias;
+    const myStakeNorm = my_stake ?? myStake;
+    const theirStakeNorm = their_stake ?? theirStake;
+    const expiresInHoursNorm = expires_in_hours ?? expiresInHours;
+    const eventIdNorm = event?.event_id || event?.eventId;
+    const myPredictionNorm = event?.my_prediction || event?.myPrediction;
+
     console.log(`[Contracts:${requestId}] Create contract for userId=${userId}`);
-    console.log(`[Contracts:${requestId}] Counterparty alias: ${counterparty_alias}`);
+    console.log(`[Contracts:${requestId}] Counterparty alias: ${counterpartyAliasNorm}`);
 
     // Validate required fields
-    if (!type || !counterparty_alias || !event || !my_stake || !their_stake) {
+    if (!type || !counterpartyAliasNorm || !event || !myStakeNorm || !theirStakeNorm) {
       return res.status(400).json({
         error: 'invalid_request',
-        message: 'Missing required fields: type, counterparty_alias, event, my_stake, their_stake',
+        message: 'Missing required fields: type, counterpartyAlias, event, myStake, theirStake',
       });
     }
 
@@ -421,12 +440,12 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
     }
 
     // Resolve counterparty alias
-    const counterparty = await resolveAlias(counterparty_alias);
+    const counterparty = await resolveAlias(counterpartyAliasNorm!);
 
     if (!counterparty.found) {
       return res.status(404).json({
         error: 'counterparty_not_found',
-        message: `Could not find user with alias: ${counterparty_alias}`,
+        message: `Could not find user with alias: ${counterpartyAliasNorm}`,
       });
     }
 
@@ -439,7 +458,7 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
     }
 
     // Build ContractSim request with enriched party data
-    const expiresAt = new Date(Date.now() + (expires_in_hours || 24) * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + (expiresInHoursNorm || 24) * 60 * 60 * 1000).toISOString();
 
     const contractSimPayload = {
       type,
@@ -451,25 +470,25 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
           bank_id: creator.enrollments[0]?.bsimId || 'bsim',
           display_name: getDisplayName(creator),
           role: 'creator',
-          stake: { amount: my_stake, currency: 'CAD' },
+          stake: { amount: myStakeNorm, currency: 'CAD' },
         },
         {
           wallet_id: counterparty.walletId,
           bank_id: counterparty.bankId,
           display_name: counterparty.displayName,
           role: 'counterparty',
-          stake: { amount: their_stake, currency: 'CAD' },
+          stake: { amount: theirStakeNorm, currency: 'CAD' },
         },
       ],
       conditions: [
         {
           oracle_id: event.oracle,
           event_type: 'game_outcome',
-          event_id: event.event_id,
+          event_id: eventIdNorm,
           predicate: {
             field: 'winner',
             operator: 'equals',
-            value: event.my_prediction,
+            value: myPredictionNorm,
           },
         },
       ],
