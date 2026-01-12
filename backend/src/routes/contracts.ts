@@ -537,42 +537,41 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
     // Build ContractSim request with enriched party data
     const expiresAt = new Date(Date.now() + (expiresInHoursNorm || 24) * 60 * 60 * 1000).toISOString();
 
+    // ContractSim expects camelCase field names and uppercase enums
     const contractSimPayload = {
-      type,
+      type: type.toUpperCase(), // WAGER, ESCROW
       title: title || `${type} with ${counterparty.displayName}`,
       description,
       parties: [
         {
-          wallet_id: creator.walletId,
-          bank_id: creator.enrollments[0]?.bsimId || 'bsim',
-          display_name: getDisplayName(creator),
-          role: 'creator',
-          stake: { amount: myStakeNorm, currency: 'CAD' },
+          walletId: creator.walletId,
+          bankId: creator.enrollments[0]?.bsimId || 'bsim',
+          displayName: getDisplayName(creator),
+          role: 'CREATOR',
+          stakeAmount: myStakeNorm,
         },
         {
-          wallet_id: counterparty.walletId,
-          bank_id: counterparty.bankId,
-          display_name: counterparty.displayName,
-          role: 'counterparty',
-          stake: { amount: theirStakeNorm, currency: 'CAD' },
+          walletId: counterparty.walletId,
+          bankId: counterparty.bankId,
+          displayName: counterparty.displayName,
+          role: 'COUNTERPARTY',
+          stakeAmount: theirStakeNorm,
         },
       ],
       conditions: [
         {
-          oracle_id: event.oracle,
-          event_type: 'game_outcome',
-          event_id: eventIdNorm,
-          predicate: {
-            field: 'winner',
-            operator: 'equals',
-            value: myPredictionNorm,
-          },
+          oracleId: event.oracle,
+          eventType: 'game_outcome',
+          eventId: eventIdNorm,
+          predicateField: 'winner',
+          predicateOperator: 'equals',
+          predicateValue: myPredictionNorm,
         },
       ],
-      escrow_type: 'full',
-      settlement_type: 'winner_takes_all',
-      expires_at: expiresAt,
-      funding_deadline: expiresAt,
+      escrowType: 'FULL',
+      settlementType: 'WINNER_TAKES_ALL',
+      expiresAt: expiresAt,
+      fundingDeadline: expiresAt,
     };
 
     console.log(`[Contracts:${requestId}] Sending to ContractSim:`, JSON.stringify(contractSimPayload, null, 2));
