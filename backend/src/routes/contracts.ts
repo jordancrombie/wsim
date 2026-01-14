@@ -935,11 +935,10 @@ router.post('/:contractId/fund', requireMobileAuth, async (req: AuthenticatedReq
       });
     }
 
-    // Proxy to ContractSim - it will coordinate with BSIM for escrow
+    // Proxy to ContractSim - it orchestrates escrow creation with BSIM
     const result = await callContractSim('POST', `/contracts/${contractId}/fund`, user.walletId, {
-      party_id: user.walletId,
-      bank_id: user.enrollments[0].bsimId,
       account_id: account_id || 'default',
+      bsim_user_id: user.enrollments[0].fiUserRef,
     });
 
     if (!result.ok) {

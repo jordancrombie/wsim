@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Contract funding now sends `bsim_user_id` to ContractSim (instead of `party_id` and `bank_id`)
+- ContractSim orchestrates escrow creation with BSIM using the correct user identifier
+
 ---
 
 ## [0.8.0] - 2026-01-11
