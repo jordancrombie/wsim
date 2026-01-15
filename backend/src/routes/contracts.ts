@@ -24,8 +24,24 @@ import {
   generateInitialsColor,
   generateInitials,
 } from '../services/image-upload';
+import {
+  fetchAccounts,
+  refreshBsimToken,
+  BsimProviderConfig,
+} from '../services/bsim-oidc';
+import { decrypt, encrypt } from '../utils/crypto';
 
 const router = Router();
+
+// Parse BSIM providers from environment
+function getBsimProviders(): BsimProviderConfig[] {
+  try {
+    return JSON.parse(env.BSIM_PROVIDERS);
+  } catch {
+    console.warn('[Contracts] Failed to parse BSIM_PROVIDERS');
+    return [];
+  }
+}
 
 // =============================================================================
 // AUTH MIDDLEWARE
@@ -896,6 +912,7 @@ router.post('/:contractId/accept', requireMobileAuth, async (req: AuthenticatedR
  * POST /api/mobile/contracts/:contractId/fund
  *
  * Fund contract (trigger escrow hold).
+ * If account_id is not provided, fetches user's first account from BSIM.
  */
 router.post('/:contractId/fund', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -905,17 +922,21 @@ router.post('/:contractId/fund', requireMobileAuth, async (req: AuthenticatedReq
     const { contractId } = req.params;
     const { account_id } = req.body as { account_id?: string };
 
-    console.log(`[Contracts:${requestId}] Fund contract ${contractId} for userId=${userId}`);
+    console.log(`[Contracts:${requestId}] Fund contract ${contractId} for userId=${userId}, account_id=${account_id || 'not provided'}`);
 
-    // Get user's walletId and verify they have a BSIM enrollment
+    // Get user's walletId and enrollment details including tokens for account fetch
     const user = await prisma.walletUser.findUnique({
       where: { id: userId },
       select: {
         walletId: true,
         enrollments: {
           select: {
+            id: true,
             bsimId: true,
             fiUserRef: true,
+            accessToken: true,
+            refreshToken: true,
+            credentialExpiry: true,
           },
         },
       },
@@ -935,10 +956,93 @@ router.post('/:contractId/fund', requireMobileAuth, async (req: AuthenticatedReq
       });
     }
 
+    const enrollment = user.enrollments[0];
+    let accountId = account_id;
+
+    // If no account_id provided, fetch user's accounts from BSIM
+    if (!accountId) {
+      console.log(`[Contracts:${requestId}] No account_id provided, fetching from BSIM...`);
+
+      const providers = getBsimProviders();
+      const provider = providers.find(p => p.bsimId === enrollment.bsimId);
+
+      if (!provider) {
+        return res.status(400).json({
+          error: 'provider_not_found',
+          message: `Bank provider ${enrollment.bsimId} not configured`,
+        });
+      }
+
+      if (!enrollment.accessToken) {
+        return res.status(400).json({
+          error: 'no_access_token',
+          message: 'Bank re-enrollment required to fund contracts',
+        });
+      }
+
+      let accessToken = decrypt(enrollment.accessToken);
+
+      // Check if token is expired and refresh if needed
+      if (enrollment.credentialExpiry && new Date() > enrollment.credentialExpiry) {
+        console.log(`[Contracts:${requestId}] Access token expired, attempting refresh...`);
+
+        if (enrollment.refreshToken) {
+          const refreshResult = await refreshBsimToken(provider, decrypt(enrollment.refreshToken));
+
+          if (refreshResult) {
+            // Update stored tokens
+            await prisma.bsimEnrollment.update({
+              where: { id: enrollment.id },
+              data: {
+                accessToken: encrypt(refreshResult.accessToken),
+                refreshToken: encrypt(refreshResult.refreshToken),
+                credentialExpiry: new Date(Date.now() + refreshResult.expiresIn * 1000),
+              },
+            });
+            accessToken = refreshResult.accessToken;
+            console.log(`[Contracts:${requestId}] Token refreshed successfully`);
+          } else {
+            return res.status(400).json({
+              error: 'token_refresh_failed',
+              message: 'Please re-enroll with your bank to fund contracts',
+            });
+          }
+        } else {
+          return res.status(400).json({
+            error: 'token_expired',
+            message: 'Please re-enroll with your bank to fund contracts',
+          });
+        }
+      }
+
+      // Fetch accounts from BSIM
+      try {
+        const accounts = await fetchAccounts(provider, accessToken);
+        console.log(`[Contracts:${requestId}] Fetched ${accounts.length} accounts from BSIM`);
+
+        if (accounts.length === 0) {
+          return res.status(400).json({
+            error: 'no_accounts',
+            message: 'No bank accounts available for funding',
+          });
+        }
+
+        // Use the first account
+        accountId = accounts[0].accountId;
+        console.log(`[Contracts:${requestId}] Using account ${accountId}`);
+      } catch (fetchError) {
+        console.error(`[Contracts:${requestId}] Failed to fetch accounts:`, fetchError);
+        return res.status(400).json({
+          error: 'account_fetch_failed',
+          message: 'Failed to fetch bank accounts. Please try again.',
+        });
+      }
+    }
+
     // Proxy to ContractSim - it orchestrates escrow creation with BSIM
     const result = await callContractSim('POST', `/contracts/${contractId}/fund`, user.walletId, {
-      account_id: account_id || 'default',
-      bsim_user_id: user.enrollments[0].fiUserRef,
+      account_id: accountId,
+      bsim_user_id: enrollment.fiUserRef,
     });
 
     if (!result.ok) {
@@ -946,7 +1050,7 @@ router.post('/:contractId/fund', requireMobileAuth, async (req: AuthenticatedReq
       return res.status(result.status).json(result.data);
     }
 
-    console.log(`[Contracts:${requestId}] Contract funding initiated`);
+    console.log(`[Contracts:${requestId}] Contract funding initiated with account ${accountId}`);
     return res.json(result.data);
   } catch (error) {
     console.error(`[Contracts:${requestId}] Fund contract error:`, error);

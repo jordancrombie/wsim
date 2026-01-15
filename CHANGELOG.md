@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Contract funding now sends `bsim_user_id` to ContractSim (instead of `party_id` and `bank_id`)
 - ContractSim orchestrates escrow creation with BSIM using the correct user identifier
+- Fund endpoint now auto-fetches user's BSIM account_id when not provided by mobile
+- Fixes "Account not found" error when funding contracts without explicit account selection
 
 ---
 
