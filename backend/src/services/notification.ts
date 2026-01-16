@@ -30,6 +30,9 @@ const apnsConfig = {
   keyPath: process.env.APNS_KEY_PATH || '',
   bundleId: process.env.APNS_BUNDLE_ID || 'com.banksim.mwsim',
   production: process.env.APNS_PRODUCTION === 'true',
+  // Expo experienceId - REQUIRED for expo-notifications to parse custom data
+  // Format: @owner/slug (e.g., @banksim/mwsim)
+  experienceId: process.env.EXPO_EXPERIENCE_ID || '@banksim/mwsim',
 };
 
 /**
@@ -373,7 +376,10 @@ async function sendApnsNotifications(
       notification.topic = apnsConfig.bundleId;
       notification.priority = payload.priority === 'high' ? 10 : 5;
 
-      // Construct the EXACT APNs payload - custom data at root level (siblings of aps)
+      // Construct the EXACT APNs payload for expo-notifications
+      // Per Expo docs: https://docs.expo.dev/push-notifications/sending-notifications-custom/
+      // - experienceId is REQUIRED for expo-notifications to parse custom data
+      // - Custom data goes in a "body" object at root level
       const apnsPayload: Record<string, unknown> = {
         aps: {
           alert: {
@@ -383,14 +389,11 @@ async function sendApnsNotifications(
           sound: payload.sound !== null ? 'default' : undefined,
           badge: payload.badge ?? 1,
         },
+        // REQUIRED: Expo experience ID for expo-notifications to work
+        experienceId: apnsConfig.experienceId,
+        // Custom data goes in "body" object per Expo docs
+        body: payload.data || {},
       };
-
-      // Add custom data fields at root level (siblings of aps)
-      if (payload.data) {
-        Object.keys(payload.data).forEach(key => {
-          apnsPayload[key] = (payload.data as Record<string, unknown>)[key];
-        });
-      }
 
       // Set rawPayload - this is the EXACT JSON sent to APNs
       notification.rawPayload = apnsPayload;
