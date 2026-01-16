@@ -365,35 +365,42 @@ async function sendApnsNotifications(
     }
 
     try {
-      // Build APNs notification using library's built-in properties
-      // Custom data is added via `payload` property (appears at root level, sibling to aps)
+      // Build APNs notification using rawPayload for COMPLETE control over the JSON body
+      // This bypasses the library's payload construction entirely
       const notification = new apn.Notification();
+
+      // These are HTTP/2 headers, not part of the payload body
       notification.topic = apnsConfig.bundleId;
       notification.priority = payload.priority === 'high' ? 10 : 5;
 
-      // Set the standard aps fields using library's built-in properties
-      notification.alert = {
-        title: payload.title,
-        body: payload.body,
+      // Construct the EXACT APNs payload - custom data at root level (siblings of aps)
+      const apnsPayload: Record<string, unknown> = {
+        aps: {
+          alert: {
+            title: payload.title,
+            body: payload.body,
+          },
+          sound: payload.sound !== null ? 'default' : undefined,
+          badge: payload.badge ?? 1,
+        },
       };
-      if (payload.sound !== null) {
-        notification.sound = 'default';
-      }
-      notification.badge = payload.badge ?? 1;
 
-      // Add custom data fields at root level (siblings of aps) using payload property
-      // This is the correct way to add custom data in @parse/node-apn
+      // Add custom data fields at root level (siblings of aps)
       if (payload.data) {
-        notification.payload = payload.data;
+        Object.keys(payload.data).forEach(key => {
+          apnsPayload[key] = (payload.data as Record<string, unknown>)[key];
+        });
       }
+
+      // Set rawPayload - this is the EXACT JSON sent to APNs
+      notification.rawPayload = apnsPayload;
 
       console.log(`${logPrefix} [APNs] Sending to device=${device.deviceId}...`);
       console.log(`${logPrefix} [APNs]   Token: ${device.pushToken.slice(0, 20)}...${device.pushToken.slice(-10)}`);
       console.log(`${logPrefix} [APNs]   Alert: "${payload.title}" / "${payload.body}"`);
       console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}`);
-      // Log the custom data and notification.payload property
-      console.log(`${logPrefix} [APNs]   Custom payload:`, JSON.stringify(payload.data));
-      console.log(`${logPrefix} [APNs]   notification.payload:`, JSON.stringify(notification.payload));
+      // Log the EXACT payload being sent to APNs
+      console.log(`${logPrefix} [APNs]   rawPayload (EXACT APNs body):`, JSON.stringify(apnsPayload));
 
       // Send to device
       const sendStart = Date.now();
