@@ -86,12 +86,41 @@ export type NotificationType =
   | 'contract.cancelled';
 
 /**
+ * Deep link parameters for navigation
+ * Used by mwsim to navigate to the correct screen when notification is tapped
+ */
+export interface DeepLinkParams {
+  transferId?: string;
+  contractId?: string;
+}
+
+/**
  * Notification payload for sending to devices
+ *
+ * Deep linking: Include `screen` and `params` in the `data` object to enable
+ * deep linking when the user taps the notification. These fields are placed
+ * at the root level of the APNs payload (siblings of `aps`) per Apple's spec.
+ *
+ * Example:
+ * ```
+ * data: {
+ *   type: 'transfer.received',
+ *   screen: 'TransferDetail',
+ *   params: { transferId: '123' },
+ * }
+ * ```
+ *
+ * Supported screens:
+ * - 'TransferDetail' with params: { transferId }
+ * - 'ContractDetail' with params: { contractId }
  */
 export interface NotificationPayload {
   title: string;
   body: string;
-  data?: Record<string, unknown>;
+  data?: Record<string, unknown> & {
+    screen?: string;
+    params?: DeepLinkParams;
+  };
   badge?: number;
   sound?: 'default' | null;
   priority?: 'default' | 'normal' | 'high';

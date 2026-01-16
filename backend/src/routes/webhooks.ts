@@ -235,7 +235,9 @@ router.post('/transfersim', async (req: Request, res: Response) => {
         senderBank: data.senderBankName,
         recipientType: data.recipientType || 'individual', // For mwsim dashboard refresh
         merchantName: data.merchantName || null, // For merchant dashboard
-        deepLink: `mwsim://transfer/${data.transferId}`,
+        // Deep linking fields (per Push Notification Deep Linking Proposal)
+        screen: 'TransferDetail',
+        params: { transferId: data.transferId },
       },
       sound: 'default',
       priority: 'high',
@@ -472,7 +474,9 @@ router.post('/contractsim', async (req: Request, res: Response) => {
         type: event_type,
         contractId: data.contract_id,
         title: data.title,
-        deepLink: `mwsim://contracts/${data.contract_id}`,
+        // Deep linking fields (per Push Notification Deep Linking Proposal)
+        screen: 'ContractDetail',
+        params: { contractId: data.contract_id },
       },
       sound: 'default',
       priority: 'high',
