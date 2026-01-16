@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-01-16
+
+**Contract Webhook Notification Alignment** - Enhanced contract notifications per PROPOSAL_WEBHOOK_NOTIFICATIONS.md spec.
+
+### Changed
+- Updated ContractWebhookPayload interface with actor-specific fields
+- `contract.accepted`: Now uses `accepted_by.display_name`
+- `contract.funded`: Now uses `funded_by.display_name` and `contract_status`
+- `contract.outcome`: Now uses `opponent.display_name` for personalized messages
+- `contract.cancelled`: Now uses `cancelled_by.display_name`
+- `contract.disputed`: Now uses `disputed_by.display_name`
+
+### Added
+- New interface fields: `accepted_by`, `funded_by`, `cancelled_by`, `disputed_by`, `opponent`
+- New event fields: `contract_status`, `refund_amount`
+- Expo `experienceId` in APNs payload (required for expo-notifications)
+
+### Fixed
+- Push notification custom data now properly included in APNs payload
+- Fixes `data: null` issue on Expo/mwsim side when receiving notifications
+
+---
+
 ## [0.8.2] - 2026-01-16
 
 **APNs Payload Fix** - Custom data now correctly included in push notifications.
