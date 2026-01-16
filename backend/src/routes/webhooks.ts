@@ -339,6 +339,11 @@ type ContractEventType =
 
 /**
  * ContractSim Webhook Payload
+ *
+ * Per PROPOSAL_WEBHOOK_NOTIFICATIONS.md specification:
+ * - All fields use snake_case
+ * - recipient_wallet_id determines who gets the notification
+ * - Actor-specific fields (accepted_by, funded_by, etc.) identify who performed the action
  */
 interface ContractWebhookPayload {
   event_id: string;
@@ -347,51 +352,91 @@ interface ContractWebhookPayload {
   data: {
     contract_id: string;
     title: string;
-    creator?: {
+    recipient_wallet_id?: string; // Who should receive this notification
+
+    // Actor fields - varies by event type
+    creator?: {                   // contract.proposed
       wallet_id: string;
       display_name: string;
     };
-    counterparty?: {
+    accepted_by?: {               // contract.accepted
       wallet_id: string;
       display_name: string;
     };
-    recipient_wallet_id?: string; // Who should receive the notification
-    amount?: string;
-    currency?: string;
+    funded_by?: {                 // contract.funded
+      wallet_id: string;
+      display_name: string;
+    };
+    cancelled_by?: {              // contract.cancelled
+      wallet_id: string;
+      display_name: string;
+    };
+    disputed_by?: {               // contract.disputed
+      wallet_id: string;
+      display_name: string;
+    };
+    opponent?: {                  // contract.outcome
+      wallet_id: string;
+      display_name: string;
+    };
+
+    // Event-specific fields
+    contract_status?: 'pending' | 'funding' | 'active' | 'completed' | 'cancelled' | 'expired';
     outcome?: 'won' | 'lost';
-    reason?: string;
+    amount?: string;              // e.g., "100.00"
+    currency?: string;            // e.g., "CAD"
+    refund_amount?: string;       // contract.expired
+    reason?: string;              // contract.disputed
   };
 }
 
 /**
  * Contract notification templates
+ *
+ * Per PROPOSAL_WEBHOOK_NOTIFICATIONS.md specification.
+ * Each template uses the actor-specific field for that event type.
  */
 const CONTRACT_NOTIFICATION_TEMPLATES: Record<ContractEventType, {
   title: string;
   bodyTemplate: (data: ContractWebhookPayload['data']) => string;
 }> = {
   'contract.proposed': {
+    // Recipient: counterparty | Actor field: creator
     title: 'New Contract Invitation',
     bodyTemplate: (data) => `${data.creator?.display_name || 'Someone'} invited you to "${data.title}"`,
   },
   'contract.accepted': {
+    // Recipient: creator | Actor field: accepted_by
     title: 'Contract Accepted',
-    bodyTemplate: (data) => `${data.counterparty?.display_name || 'Someone'} accepted "${data.title}"`,
+    bodyTemplate: (data) => `${data.accepted_by?.display_name || 'Someone'} accepted "${data.title}"`,
   },
   'contract.funded': {
-    title: 'Contract Active',
-    bodyTemplate: (data) => `"${data.title}" is now fully funded and active`,
+    // Recipient: other party | Actor field: funded_by | Uses: contract_status
+    title: 'Contract Funded',
+    bodyTemplate: (data) => {
+      const funder = data.funded_by?.display_name || 'Someone';
+      if (data.contract_status === 'active') {
+        return `"${data.title}" is now active! Game on!`;
+      }
+      return `${funder} funded their stake for "${data.title}"`;
+    },
   },
   'contract.outcome': {
+    // Recipient: both (2 webhooks) | Uses: outcome, opponent
     title: 'Contract Result',
-    bodyTemplate: (data) => data.outcome === 'won'
-      ? `You won "${data.title}"!`
-      : `"${data.title}" - better luck next time`,
+    bodyTemplate: (data) => {
+      const opponent = data.opponent?.display_name || 'your opponent';
+      if (data.outcome === 'won') {
+        return `You won the wager against ${opponent}!`;
+      }
+      return `You lost the wager against ${opponent}`;
+    },
   },
   'contract.settled': {
+    // Recipient: both (2 webhooks) | Uses: outcome, amount, currency
     title: 'Contract Settled',
     bodyTemplate: (data) => {
-      if (data.amount) {
+      if (data.outcome === 'won' && data.amount) {
         const amount = parseFloat(data.amount).toLocaleString('en-CA', {
           style: 'currency',
           currency: data.currency || 'CAD',
@@ -402,16 +447,19 @@ const CONTRACT_NOTIFICATION_TEMPLATES: Record<ContractEventType, {
     },
   },
   'contract.disputed': {
+    // Recipient: other party | Actor field: disputed_by
     title: 'Contract Disputed',
-    bodyTemplate: (data) => `${data.creator?.display_name || 'The other party'} disputed "${data.title}"`,
+    bodyTemplate: (data) => `${data.disputed_by?.display_name || 'The other party'} disputed "${data.title}"`,
   },
   'contract.expired': {
+    // Recipient: both (2 webhooks) | Uses: refund_amount
     title: 'Contract Expired',
     bodyTemplate: (data) => `"${data.title}" expired - funds returned`,
   },
   'contract.cancelled': {
+    // Recipient: other party | Actor field: cancelled_by
     title: 'Contract Cancelled',
-    bodyTemplate: (data) => `"${data.title}" was cancelled`,
+    bodyTemplate: (data) => `${data.cancelled_by?.display_name || 'The other party'} cancelled "${data.title}"`,
   },
 };
 
