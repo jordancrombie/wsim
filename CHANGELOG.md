@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.2] - 2026-01-16
+
+**APNs Payload Fix** - Custom data now correctly included in push notifications.
+
+### Fixed
+- Push notification custom data (screen, params, type, etc.) now properly included in APNs payload
+- Changed from `rawPayload` approach to using `@parse/node-apn` built-in properties (`notification.payload`)
+- Fixes `data: null` issue on Expo/mwsim side when receiving notifications
+
+---
+
 ## [0.8.1] - 2026-01-16
 
 **Push Notification Deep Linking** - Tap notifications to navigate directly to relevant screens.

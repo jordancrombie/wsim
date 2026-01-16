@@ -5,6 +5,12 @@
  * Uses direct APNs for iOS (per AD6 architecture revision).
  *
  * Flow: TransferSim webhook → WSIM notification service → APNs/FCM → mwsim
+ *
+ * APNs Payload Structure:
+ * - Uses @parse/node-apn's built-in properties (alert, sound, badge)
+ * - Custom data is added via `notification.payload` property
+ * - Custom fields appear at root level (siblings of `aps`) per Apple spec
+ * - Expo collects root-level custom fields into notification.request.content.data
  */
 
 import apn from '@parse/node-apn';
@@ -359,38 +365,34 @@ async function sendApnsNotifications(
     }
 
     try {
-      // Build APNs notification using rawPayload for complete control
+      // Build APNs notification using library's built-in properties
+      // Custom data is added via `payload` property (appears at root level, sibling to aps)
       const notification = new apn.Notification();
       notification.topic = apnsConfig.bundleId;
       notification.priority = payload.priority === 'high' ? 10 : 5;
 
-      // Use rawPayload to set the EXACT APNs payload structure
-      // Custom data fields must be siblings of 'aps', not inside it
-      const rawPayload: Record<string, unknown> = {
-        aps: {
-          alert: {
-            title: payload.title,
-            body: payload.body,
-          },
-          sound: payload.sound !== null ? 'default' : undefined,
-          badge: payload.badge ?? 1,
-        },
+      // Set the standard aps fields using library's built-in properties
+      notification.alert = {
+        title: payload.title,
+        body: payload.body,
       };
-
-      // Add custom data fields at root level (siblings of aps)
-      if (payload.data) {
-        Object.assign(rawPayload, payload.data);
+      if (payload.sound !== null) {
+        notification.sound = 'default';
       }
+      notification.badge = payload.badge ?? 1;
 
-      // Set the raw payload directly
-      notification.rawPayload = rawPayload;
+      // Add custom data fields at root level (siblings of aps) using payload property
+      // This is the correct way to add custom data in @parse/node-apn
+      if (payload.data) {
+        notification.payload = payload.data;
+      }
 
       console.log(`${logPrefix} [APNs] Sending to device=${device.deviceId}...`);
       console.log(`${logPrefix} [APNs]   Token: ${device.pushToken.slice(0, 20)}...${device.pushToken.slice(-10)}`);
       console.log(`${logPrefix} [APNs]   Alert: "${payload.title}" / "${payload.body}"`);
       console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}`);
-      // Log the exact rawPayload being sent to APNs
-      console.log(`${logPrefix} [APNs]   rawPayload:`, JSON.stringify(rawPayload));
+      // Log the custom data being sent
+      console.log(`${logPrefix} [APNs]   Custom payload:`, JSON.stringify(payload.data));
 
       // Send to device
       const sendStart = Date.now();
