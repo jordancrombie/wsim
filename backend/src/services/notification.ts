@@ -391,10 +391,9 @@ async function sendApnsNotifications(
       console.log(`${logPrefix} [APNs]   Token: ${device.pushToken.slice(0, 20)}...${device.pushToken.slice(-10)}`);
       console.log(`${logPrefix} [APNs]   Alert: "${payload.title}" / "${payload.body}"`);
       console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}`);
-      // Log the custom data being sent
+      // Log the custom data and notification.payload property
       console.log(`${logPrefix} [APNs]   Custom payload:`, JSON.stringify(payload.data));
-      // Log the COMPILED notification - this is EXACTLY what APNs receives
-      console.log(`${logPrefix} [APNs]   COMPILED (sent to APNs):`, notification.compile());
+      console.log(`${logPrefix} [APNs]   notification.payload:`, JSON.stringify(notification.payload));
 
       // Send to device
       const sendStart = Date.now();
