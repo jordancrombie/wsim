@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.8.1] - 2026-01-16
+
+**Push Notification Deep Linking** - Tap notifications to navigate directly to relevant screens.
+
+### Added
+- Deep linking support for push notifications (`screen` and `params` fields)
+- `DeepLinkParams` interface for type-safe navigation parameters
+- Transfer notifications now include `screen: 'TransferDetail'` with `transferId`
+- Contract notifications now include `screen: 'ContractDetail'` with `contractId`
+
 ### Fixed
 - Contract funding now sends `bsim_user_id` to ContractSim (instead of `party_id` and `bank_id`)
 - ContractSim orchestrates escrow creation with BSIM using the correct user identifier
