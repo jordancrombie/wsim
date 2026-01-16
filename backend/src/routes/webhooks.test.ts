@@ -272,7 +272,8 @@ describe('Webhook Routes', () => {
           data: expect.objectContaining({
             type: 'transfer.received',
             transferId: 'p2p_abc123',
-            deepLink: 'mwsim://transfer/p2p_abc123',
+            screen: 'TransferDetail',
+            params: { transferId: 'p2p_abc123' },
             recipientType: 'individual', // Default when not specified
           }),
         }),
