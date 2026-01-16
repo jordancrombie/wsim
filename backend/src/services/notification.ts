@@ -393,6 +393,8 @@ async function sendApnsNotifications(
       console.log(`${logPrefix} [APNs]   Priority: ${notification.priority}`);
       // Log the custom data being sent
       console.log(`${logPrefix} [APNs]   Custom payload:`, JSON.stringify(payload.data));
+      // Log the COMPILED notification - this is EXACTLY what APNs receives
+      console.log(`${logPrefix} [APNs]   COMPILED (sent to APNs):`, notification.compile());
 
       // Send to device
       const sendStart = Date.now();
