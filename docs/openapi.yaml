@@ -703,6 +703,9 @@ components:
     # Contract schemas
     Contract:
       type: object
+      description: |
+        Contract object. WSIM enriches contract responses with profile data
+        (profileImageUrl, initialsColor) from its user database.
       properties:
         contract_id:
           type: string
@@ -720,6 +723,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ContractParty'
+        counterparty_name:
+          type: string
+          description: Display name of the counterparty (for list views)
+          example: "Jane Doe"
+        counterparty_profile_image_url:
+          type: string
+          nullable: true
+          description: URL of the counterparty's profile image (enriched by WSIM)
+          example: "https://cdn.banksim.ca/users/xyz789/profile-512.jpg"
+        counterparty_initials_color:
+          type: string
+          nullable: true
+          description: Background color for counterparty initials avatar fallback
+          example: "#1E88E5"
         total_pot:
           type: number
           example: 100.00
@@ -739,6 +756,16 @@ components:
         display_name:
           type: string
           example: "John Doe"
+        profile_image_url:
+          type: string
+          nullable: true
+          description: URL of the party's profile image (enriched by WSIM)
+          example: "https://cdn.banksim.ca/users/abc123/profile-512.jpg"
+        initials_color:
+          type: string
+          nullable: true
+          description: Background color for initials avatar fallback (enriched by WSIM)
+          example: "#E53935"
         role:
           type: string
           enum: [creator, counterparty]

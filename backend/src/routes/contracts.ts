@@ -218,16 +218,62 @@ interface ContractSimCreateResponse {
   created_at: string;
 }
 
+// =============================================================================
+// PROFILE ENRICHMENT
+// =============================================================================
+
+interface ProfileData {
+  profileImageUrl: string | null;
+  initialsColor: string | null;
+}
+
+/**
+ * Batch lookup user profiles by walletIds
+ * Returns a map of walletId -> profile data for enriching contract responses
+ */
+async function getUserProfiles(walletIds: string[]): Promise<Map<string, ProfileData>> {
+  if (walletIds.length === 0) {
+    return new Map();
+  }
+
+  const uniqueWalletIds = [...new Set(walletIds)];
+  const users = await prisma.walletUser.findMany({
+    where: { walletId: { in: uniqueWalletIds } },
+    select: {
+      walletId: true,
+      profileImageUrl: true,
+      initialsColor: true,
+    },
+  });
+
+  return new Map(
+    users.map(u => [
+      u.walletId,
+      {
+        profileImageUrl: u.profileImageUrl,
+        initialsColor: u.initialsColor,
+      },
+    ])
+  );
+}
+
+// =============================================================================
+// TRANSFORM FUNCTIONS
+// =============================================================================
+
 /**
  * Transform ContractSim list item to mobile format
+ * Enriches with profile data (profileImageUrl, initialsColor) from WSIM database
  */
 function transformContractListItem(
   item: ContractSimListItem,
-  userWalletId: string
+  userWalletId: string,
+  profileMap: Map<string, ProfileData>
 ): Record<string, unknown> {
   // Determine user's role and counterparty from parties array
   let myRole = 'creator';
   let counterpartyName = 'Unknown';
+  let counterpartyWalletId: string | undefined;
 
   if (item.parties && item.parties.length >= 2) {
     const myParty = item.parties.find(p => p.wallet_id === userWalletId);
@@ -238,8 +284,12 @@ function transformContractListItem(
     }
     if (counterparty) {
       counterpartyName = counterparty.display_name || 'Unknown';
+      counterpartyWalletId = counterparty.wallet_id;
     }
   }
+
+  // Get counterparty profile data
+  const counterpartyProfile = counterpartyWalletId ? profileMap.get(counterpartyWalletId) : undefined;
 
   return {
     id: item.contract_id,
@@ -250,6 +300,8 @@ function transformContractListItem(
     currency: item.currency,
     myRole,
     counterpartyName,
+    counterpartyProfileImageUrl: counterpartyProfile?.profileImageUrl || null,
+    counterpartyInitialsColor: counterpartyProfile?.initialsColor || null,
     expiresAt: item.expires_at,
     createdAt: item.created_at,
   };
@@ -257,14 +309,22 @@ function transformContractListItem(
 
 /**
  * Transform ContractSim party to mobile format
+ * Enriches with profile data (profileImageUrl, initialsColor) from WSIM database
  */
-function transformParty(party: ContractSimParty): Record<string, unknown> {
+function transformParty(
+  party: ContractSimParty,
+  profileMap: Map<string, ProfileData>
+): Record<string, unknown> {
+  const profile = profileMap.get(party.wallet_id);
+
   return {
     id: party.wallet_id,
     walletId: party.wallet_id,
     bankId: party.bank_id,
     role: party.role,
     displayName: party.display_name,
+    profileImageUrl: profile?.profileImageUrl || null,
+    initialsColor: profile?.initialsColor || null,
     stake: {
       amount: parseFloat(party.stake),
       currency: 'CAD',
@@ -294,12 +354,14 @@ function transformCondition(condition: ContractSimCondition): Record<string, unk
 
 /**
  * Transform ContractSim contract detail to mobile format
+ * Enriches parties with profile data (profileImageUrl, initialsColor) from WSIM database
  */
 function transformContractDetail(
   contract: ContractSimDetail,
-  userWalletId: string
+  userWalletId: string,
+  profileMap: Map<string, ProfileData>
 ): Record<string, unknown> {
-  const parties = contract.parties.map(transformParty);
+  const parties = contract.parties.map(p => transformParty(p, profileMap));
   const conditions = contract.conditions.map(transformCondition);
 
   // Determine user's role and counterparty
@@ -332,19 +394,21 @@ function transformContractDetail(
     expiresAt: contract.expires_at,
     fundingDeadline: contract.funding_deadline,
     myRole,
-    counterparty: counterparty ? transformParty(counterparty) : undefined,
+    counterparty: counterparty ? transformParty(counterparty, profileMap) : undefined,
     conditionsSummary,
   };
 }
 
 /**
  * Transform ContractSim create response to mobile format
+ * Enriches parties with profile data (profileImageUrl, initialsColor) from WSIM database
  */
 function transformCreateResponse(
   response: ContractSimCreateResponse,
-  userWalletId: string
+  userWalletId: string,
+  profileMap: Map<string, ProfileData>
 ): Record<string, unknown> {
-  const parties = response.parties.map(transformParty);
+  const parties = response.parties.map(p => transformParty(p, profileMap));
   const myParty = response.parties.find(p => p.wallet_id === userWalletId);
   const counterparty = response.parties.find(p => p.wallet_id !== userWalletId);
 
@@ -359,7 +423,7 @@ function transformCreateResponse(
     fundingDeadline: response.funding_deadline,
     createdAt: response.created_at,
     myRole: myParty?.role || 'creator',
-    counterparty: counterparty ? transformParty(counterparty) : undefined,
+    counterparty: counterparty ? transformParty(counterparty, profileMap) : undefined,
   };
 }
 
@@ -561,9 +625,14 @@ router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
       return res.status(result.status).json(result.data);
     }
 
-    // Transform response to mobile format
+    // Transform response to mobile format with profile enrichment
     const data = result.data as { contracts: ContractSimListItem[]; total: number };
-    const contracts = (data.contracts || []).map(c => transformContractListItem(c, user.walletId));
+
+    // Batch lookup all party profiles for efficient enrichment
+    const allWalletIds = (data.contracts || []).flatMap(c => c.parties?.map(p => p.wallet_id) || []);
+    const profileMap = await getUserProfiles(allWalletIds);
+
+    const contracts = (data.contracts || []).map(c => transformContractListItem(c, user.walletId, profileMap));
 
     return res.json({
       contracts,
@@ -670,8 +739,12 @@ router.get('/:contractId', requireMobileAuth, async (req: AuthenticatedRequest, 
       return res.status(result.status).json(result.data);
     }
 
-    // Transform response to mobile format
-    const contract = transformContractDetail(result.data as ContractSimDetail, user.walletId);
+    // Transform response to mobile format with profile enrichment
+    const contractData = result.data as ContractSimDetail;
+    const partyWalletIds = contractData.parties.map(p => p.wallet_id);
+    const profileMap = await getUserProfiles(partyWalletIds);
+
+    const contract = transformContractDetail(contractData, user.walletId, profileMap);
     return res.json(contract);
   } catch (error) {
     console.error(`[Contracts:${requestId}] Get contract error:`, error);
@@ -838,8 +911,12 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
       return res.status(result.status).json(result.data);
     }
 
-    // Transform response to mobile format
-    const contract = transformCreateResponse(result.data as ContractSimCreateResponse, creator.walletId);
+    // Transform response to mobile format with profile enrichment
+    const responseData = result.data as ContractSimCreateResponse;
+    const partyWalletIds = responseData.parties.map(p => p.wallet_id);
+    const profileMap = await getUserProfiles(partyWalletIds);
+
+    const contract = transformCreateResponse(responseData, creator.walletId, profileMap);
     console.log(`[Contracts:${requestId}] Contract created successfully: ${contract.id}`);
     return res.status(201).json(contract);
   } catch (error) {

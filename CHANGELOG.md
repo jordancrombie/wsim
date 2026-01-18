@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] - 2026-01-18
+
+**Contract Profile Enrichment** - Contract responses now include user profile data (images, initials colors).
+
+### Added
+- `getUserProfiles()` batch lookup helper for efficient profile data retrieval
+- Contract list items now include `counterpartyProfileImageUrl` and `counterpartyInitialsColor`
+- Contract party objects now include `profileImageUrl` and `initialsColor`
+- OpenAPI spec updated with new profile fields in Contract and ContractParty schemas
+
+### Changed
+- `transformContractListItem()` now enriches responses with counterparty profile data
+- `transformParty()` now enriches party objects with profile data
+- List, detail, and create endpoints perform batch profile lookups before transforming
+
+---
+
 ## [0.9.0] - 2026-01-16
 
 **Contract Webhook Notification Alignment** - Enhanced contract notifications per PROPOSAL_WEBHOOK_NOTIFICATIONS.md spec.
