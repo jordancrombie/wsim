@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.2] - 2026-01-19
+
+**Trusted User Verification** - Identity verification endpoints and database schema.
+
+### Added
+- `POST /api/mobile/device/register-key` - Register device public key for signature verification
+- `POST /api/mobile/verification/submit` - Submit signed verification result
+- `DELETE /api/mobile/verification` - Remove verification status (for testing)
+- `DELETE /api/mobile/account` - Delete user account (for testing)
+- New database tables: `device_keys`, `user_verifications`
+- WalletUser fields: `isVerified`, `verifiedAt`, `verificationLevel`
+- Profile endpoint now returns verification status
+
+### Security
+- Asymmetric signature verification (ECDSA-P256 / RSA-2048)
+- Device-bound keys with public key registration
+- No PII stored - only verification metadata
+
+---
+
 ## [0.9.1] - 2026-01-18
 
 **Contract Profile Enrichment** - Contract responses now include user profile data (images, initials colors).
