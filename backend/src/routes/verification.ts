@@ -100,21 +100,32 @@ router.post('/device/register-key', requireMobileAuth, async (req: Authenticated
     }
 
     // Validate keyType
-    if (!['ECDSA-P256', 'RSA-2048'].includes(keyType)) {
+    if (!['ECDSA-P256', 'RSA-2048', 'HMAC-SHA256'].includes(keyType)) {
       return res.status(400).json({
         error: 'invalid_key_type',
-        message: 'keyType must be ECDSA-P256 or RSA-2048',
+        message: 'keyType must be ECDSA-P256, RSA-2048, or HMAC-SHA256',
       });
     }
 
-    // Validate publicKey is base64
-    try {
-      Buffer.from(publicKey, 'base64');
-    } catch {
-      return res.status(400).json({
-        error: 'invalid_public_key',
-        message: 'publicKey must be valid base64',
-      });
+    // Validate publicKey format based on keyType
+    if (keyType === 'HMAC-SHA256') {
+      // HMAC keys are hex strings
+      if (!/^[a-fA-F0-9]+$/.test(publicKey)) {
+        return res.status(400).json({
+          error: 'invalid_public_key',
+          message: 'HMAC key must be valid hex string',
+        });
+      }
+    } else {
+      // Asymmetric keys are base64-encoded
+      try {
+        Buffer.from(publicKey, 'base64');
+      } catch {
+        return res.status(400).json({
+          error: 'invalid_public_key',
+          message: 'publicKey must be valid base64',
+        });
+      }
     }
 
     // Upsert device key (replace if exists for same deviceId)
@@ -219,6 +230,13 @@ async function verifySignature(
         { key: publicKeyBuffer, format: 'der', type: 'spki' },
         signatureBuffer
       );
+    } else if (deviceKey.keyType === 'HMAC-SHA256') {
+      // HMAC-SHA256: signature = SHA256(payload + ':' + key)
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(`${payload}:${deviceKey.publicKey}`)
+        .digest('hex');
+      verifyResult = signature === expectedHash;
     }
 
     // Update lastUsedAt
