@@ -44,6 +44,8 @@ tags:
     description: Contract profile lookup for ContractSim
   - name: Verification (Mobile)
     description: Identity verification for Trusted User feature
+  - name: Account (Mobile)
+    description: Account management (deletion for testing)
 
 paths:
   /api/mobile/profile:
@@ -358,7 +360,6 @@ paths:
         - Payload is signed with device's private key (ECDSA-P256 or RSA-2048)
         - Server validates signature using registered public key
         - Device key must be registered via `/api/mobile/device/register-key` first
-        - Rate limited: 5 attempts per hour per device
       operationId: submitVerification
       security:
         - bearerAuth: []
@@ -383,12 +384,87 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '429':
-          description: Rate limit exceeded (max 5 attempts per hour)
+
+  /api/mobile/verification:
+    delete:
+      tags:
+        - Verification (Mobile)
+      summary: Remove identity verification
+      description: |
+        Remove the user's identity verification status.
+
+        This resets the user to unverified state:
+        - Sets `isVerified` to false
+        - Clears `verifiedAt` and `verificationLevel`
+        - Deletes all verification records for the user
+
+        **Use case:** Testing, or user wants to re-verify with different identity.
+      operationId: removeVerification
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Verification removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Verification status removed"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: User has no verification to remove
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  # =========================================================================
+  # ACCOUNT MANAGEMENT ENDPOINTS
+  # =========================================================================
+
+  /api/mobile/account:
+    delete:
+      tags:
+        - Account (Mobile)
+      summary: Delete user account
+      description: |
+        Permanently delete the user's WSIM account and all associated data.
+
+        **This action is irreversible.** The following data will be deleted:
+        - User profile (displayName, profileImage, etc.)
+        - All device registrations and keys
+        - All verification records
+        - All BSIM enrollments
+
+        **Use case:** Testing, or user wants to completely remove their account.
+
+        **Note:** This does not affect data in external systems (BSIM, TransferSim, ContractSim).
+      operationId: deleteAccount
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Account deleted successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   # =========================================================================
   # CONTRACT ENDPOINTS (ContractSim Proxy)
