@@ -173,6 +173,9 @@ function buildProfileResponse(user: {
   profileImageKey: string | null;
   initialsColor: string | null;
   walletId: string;
+  isVerified: boolean;
+  verifiedAt: Date | null;
+  verificationLevel: string | null;
 }) {
   const displayName = getDisplayName(user);
   const initialsColor = user.initialsColor || generateInitialsColor(user.id);
@@ -192,6 +195,10 @@ function buildProfileResponse(user: {
           medium: user.profileImageUrl.replace('/avatar.jpg', '/avatar_128.jpg'),
         }
       : null,
+    // Verification status (Trusted User feature)
+    isVerified: user.isVerified,
+    verifiedAt: user.verifiedAt?.toISOString() || null,
+    verificationLevel: user.verificationLevel || 'none',
   };
 }
 
@@ -220,6 +227,10 @@ router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
         profileImageKey: true,
         initialsColor: true,
         walletId: true,
+        // Verification status (Trusted User feature)
+        isVerified: true,
+        verifiedAt: true,
+        verificationLevel: true,
       },
     });
 
@@ -295,6 +306,10 @@ router.put('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
         profileImageKey: true,
         initialsColor: true,
         walletId: true,
+        // Verification status (Trusted User feature)
+        isVerified: true,
+        verifiedAt: true,
+        verificationLevel: true,
       },
     });
 

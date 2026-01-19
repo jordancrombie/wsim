@@ -11,6 +11,7 @@ import mobileRoutes from './mobile';
 import webhookRoutes from './webhooks';
 import profileRoutes, { internalProfileRouter } from './profile';
 import contractRoutes, { internalContractsRouter } from './contracts';
+import verificationRoutes from './verification';
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use('/api/webhooks', webhookRoutes); // Internal webhooks (TransferSim, e
 router.use('/api/internal/profile', internalProfileRouter); // Internal API for TransferSim
 router.use('/api/mobile/contracts', contractRoutes); // Contract proxy API (ContractSim)
 router.use('/api/internal/contracts', internalContractsRouter); // Internal API for ContractSim
+router.use('/api/mobile', verificationRoutes); // Verification API (Trusted User feature)
 
 export default router;
