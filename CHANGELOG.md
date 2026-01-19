@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.5] - 2026-01-19
+
+### Added
+- `GET /api/mobile/profile/lookup` - Mobile-accessible endpoint to look up other users' profiles by bsimUserId + bsimId
+- Returns: displayName, profileImageUrl, initials, initialsColor, isVerified, verificationLevel
+- Enables mwsim to resolve transfer sender/recipient UUIDs with proper JWT auth
+
+---
+
 ## [0.9.4] - 2026-01-19
 
 ### Fixed

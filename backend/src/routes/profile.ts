@@ -4,13 +4,14 @@
  * API endpoints for user profile management (Phase 1 User Profile feature).
  *
  * Mobile API endpoints (JWT auth):
- * - GET    /api/mobile/profile       - Get user's profile
- * - PUT    /api/mobile/profile       - Update profile (displayName, phone)
- * - POST   /api/mobile/profile/image - Upload profile image
- * - DELETE /api/mobile/profile/image - Delete profile image
+ * - GET    /api/mobile/profile        - Get user's profile
+ * - PUT    /api/mobile/profile        - Update profile (displayName, phone)
+ * - POST   /api/mobile/profile/image  - Upload profile image
+ * - DELETE /api/mobile/profile/image  - Delete profile image
+ * - GET    /api/mobile/profile/lookup - Look up another user's profile by bsimUserId + bsimId
  *
  * Internal API endpoints (X-Internal-Api-Key auth):
- * - GET    /api/internal/profile     - Get profile by bsimUserId + bsimId
+ * - GET    /api/internal/profile      - Get profile by bsimUserId + bsimId
  */
 
 import { Router, Request, Response } from 'express';
@@ -487,6 +488,82 @@ router.delete('/image', requireMobileAuth, async (req: AuthenticatedRequest, res
     return res.status(500).json({
       error: 'server_error',
       message: 'Failed to delete image',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/profile/lookup
+ *
+ * Look up another user's profile by BSIM user ID and BSIM ID.
+ * Used by mobile app to resolve transfer sender/recipient UUIDs to display names.
+ *
+ * Query params:
+ * - bsimUserId: User's ID at the BSIM (fiUserRef)
+ * - bsimId: Bank identifier (e.g., "td-bank")
+ */
+router.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { bsimUserId, bsimId } = req.query as {
+      bsimUserId?: string;
+      bsimId?: string;
+    };
+
+    if (!bsimUserId || !bsimId) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'bsimUserId and bsimId query parameters are required',
+      });
+    }
+
+    // Find the enrollment matching this BSIM user
+    const enrollment = await prisma.bsimEnrollment.findFirst({
+      where: {
+        fiUserRef: bsimUserId,
+        bsimId: bsimId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            firstName: true,
+            lastName: true,
+            profileImageUrl: true,
+            initialsColor: true,
+            isVerified: true,
+            verificationLevel: true,
+          },
+        },
+      },
+    });
+
+    if (!enrollment) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'User not found for given bsimUserId and bsimId',
+      });
+    }
+
+    const user = enrollment.user;
+    const displayName = getDisplayName(user);
+
+    return res.json({
+      success: true,
+      profile: {
+        displayName,
+        profileImageUrl: user.profileImageUrl || null,
+        initials: generateInitials(displayName),
+        initialsColor: user.initialsColor || generateInitialsColor(user.id),
+        isVerified: user.isVerified || false,
+        verificationLevel: user.verificationLevel || 'none',
+      },
+    });
+  } catch (error) {
+    console.error('[Profile] Lookup profile error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to lookup profile',
     });
   }
 });
