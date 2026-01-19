@@ -42,6 +42,10 @@ tags:
     description: Contract proxy endpoints for ContractSim integration
   - name: Contracts (Internal)
     description: Contract profile lookup for ContractSim
+  - name: Verification (Mobile)
+    description: Identity verification for Trusted User feature
+  - name: Account (Mobile)
+    description: Account management (deletion for testing)
 
 paths:
   /api/mobile/profile:
@@ -285,6 +289,182 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  # =========================================================================
+  # DEVICE MANAGEMENT ENDPOINTS
+  # =========================================================================
+
+  /api/mobile/device/register-key:
+    post:
+      tags:
+        - Verification (Mobile)
+      summary: Register device signing key
+      description: |
+        Register a public key for device-based signature verification.
+
+        The device generates an asymmetric key pair locally:
+        - Private key stays on device (Secure Enclave/Keystore)
+        - Public key is sent to WSIM for signature verification
+
+        This is a one-time registration per device. Re-registering the same
+        deviceId will replace the existing key.
+
+        **Supported Key Types:**
+        - `ECDSA-P256`: Recommended - smaller keys, faster verification
+        - `RSA-2048`: Fallback for devices without ECDSA support
+      operationId: registerDeviceKey
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceKeyRequest'
+      responses:
+        '200':
+          description: Key registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterDeviceKeyResponse'
+        '400':
+          description: Invalid request (missing fields, invalid key format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # =========================================================================
+  # VERIFICATION ENDPOINTS (Trusted User)
+  # =========================================================================
+
+  /api/mobile/verification/submit:
+    post:
+      tags:
+        - Verification (Mobile)
+      summary: Submit identity verification
+      description: |
+        Submit a signed identity verification result from the mobile app.
+
+        The verification is performed entirely on-device (face detection, liveness check).
+        Only the signed verification result is sent to the server - no PII or photos.
+
+        **Verification Levels:**
+        - `basic`: Name matching between passport and profile (score >= 0.85)
+        - `enhanced`: Name + face comparison (score >= 0.70) + liveness check
+
+        **Security:**
+        - Payload is signed with device's private key (ECDSA-P256 or RSA-2048)
+        - Server validates signature using registered public key
+        - Device key must be registered via `/api/mobile/device/register-key` first
+      operationId: submitVerification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitVerificationRequest'
+      responses:
+        '200':
+          description: Verification processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+        '400':
+          description: Invalid request or verification failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/mobile/verification:
+    delete:
+      tags:
+        - Verification (Mobile)
+      summary: Remove identity verification
+      description: |
+        Remove the user's identity verification status.
+
+        This resets the user to unverified state:
+        - Sets `isVerified` to false
+        - Clears `verifiedAt` and `verificationLevel`
+        - Deletes all verification records for the user
+
+        **Use case:** Testing, or user wants to re-verify with different identity.
+      operationId: removeVerification
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Verification removed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Verification status removed"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: User has no verification to remove
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =========================================================================
+  # ACCOUNT MANAGEMENT ENDPOINTS
+  # =========================================================================
+
+  /api/mobile/account:
+    delete:
+      tags:
+        - Account (Mobile)
+      summary: Delete user account
+      description: |
+        Permanently delete the user's WSIM account and all associated data.
+
+        **This action is irreversible.** The following data will be deleted:
+        - User profile (displayName, profileImage, etc.)
+        - All device registrations and keys
+        - All verification records
+        - All BSIM enrollments
+
+        **Use case:** Testing, or user wants to completely remove their account.
+
+        **Note:** This does not affect data in external systems (BSIM, TransferSim, ContractSim).
+      operationId: deleteAccount
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Account deleted successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   # =========================================================================
   # CONTRACT ENDPOINTS (ContractSim Proxy)
@@ -600,6 +780,25 @@ components:
               format: uri
               description: Medium thumbnail (128x128)
               example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_128.jpg?v=1704825600"
+        isVerified:
+          type: boolean
+          description: Whether the user has completed identity verification
+          example: true
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when verification was completed
+          example: "2026-01-19T12:00:00.000Z"
+        verificationLevel:
+          type: string
+          enum: [none, basic, enhanced]
+          description: |
+            Level of identity verification completed:
+            - `none`: Not verified
+            - `basic`: Name matching only
+            - `enhanced`: Name + face + liveness verification
+          example: "enhanced"
 
     UpdateProfileRequest:
       type: object
@@ -684,6 +883,123 @@ components:
               type: string
               description: Hex color for avatar background
               example: "#4A90D9"
+
+    # Device management schemas
+    RegisterDeviceKeyRequest:
+      type: object
+      required:
+        - deviceId
+        - publicKey
+        - keyType
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+          description: Unique device identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        publicKey:
+          type: string
+          description: |
+            Base64-encoded public key. For ECDSA-P256, this is the
+            SubjectPublicKeyInfo (SPKI) DER encoding. For RSA-2048,
+            this is the PKCS#1 or SPKI DER encoding.
+          example: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+        keyType:
+          type: string
+          enum: [ECDSA-P256, RSA-2048]
+          description: Type of cryptographic key
+          example: "ECDSA-P256"
+
+    RegisterDeviceKeyResponse:
+      type: object
+      required:
+        - success
+        - registered
+        - deviceId
+      properties:
+        success:
+          type: boolean
+          example: true
+        registered:
+          type: boolean
+          description: Whether the key was registered (true) or replaced (also true)
+          example: true
+        deviceId:
+          type: string
+          format: uuid
+          description: The device ID that was registered
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    # Verification schemas (Trusted User)
+    SubmitVerificationRequest:
+      type: object
+      required:
+        - signedVerification
+      properties:
+        signedVerification:
+          $ref: '#/components/schemas/SignedVerification'
+
+    SignedVerification:
+      type: object
+      description: |
+        Client-signed verification result. The payload contains the verification
+        outcome (name match, face match, liveness) but NO PII or photos.
+      required:
+        - payload
+        - signature
+        - deviceId
+        - appVersion
+      properties:
+        payload:
+          type: string
+          description: Base64-encoded VerificationResult JSON
+          example: "eyJuYW1lTWF0Y2giOnsic2NvcmUiOjAuOTUsInBhc3NlZCI6dHJ1ZX19..."
+        signature:
+          type: string
+          description: |
+            Base64-encoded signature of payload using device's private key.
+            For ECDSA-P256: ECDSA signature with SHA-256.
+            For RSA-2048: RSA-PKCS1-v1_5 signature with SHA-256.
+          example: "MEUCIQC2Pk..."
+        deviceId:
+          type: string
+          format: uuid
+          description: Device identifier (must match registered device)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        appVersion:
+          type: string
+          description: Mobile app version
+          example: "1.9.0"
+
+    VerificationResponse:
+      type: object
+      required:
+        - success
+        - verificationId
+        - isVerified
+        - verificationLevel
+      properties:
+        success:
+          type: boolean
+          example: true
+        verificationId:
+          type: string
+          description: Unique verification record ID
+          example: "ver_abc123xyz"
+        isVerified:
+          type: boolean
+          description: Whether user is now verified
+          example: true
+        verifiedAt:
+          type: string
+          format: date-time
+          description: Timestamp of verification
+          example: "2026-01-19T12:00:00.000Z"
+        verificationLevel:
+          type: string
+          enum: [none, basic, enhanced]
+          description: Level of verification achieved
+          example: "enhanced"
 
     ErrorResponse:
       type: object
@@ -782,6 +1098,16 @@ components:
           type: boolean
         funded:
           type: boolean
+        is_verified:
+          type: boolean
+          description: Whether the party has completed identity verification (enriched by WSIM)
+          example: true
+        verification_level:
+          type: string
+          enum: [none, basic, enhanced]
+          nullable: true
+          description: Level of identity verification (enriched by WSIM)
+          example: "enhanced"
 
     CreateContractRequest:
       type: object
