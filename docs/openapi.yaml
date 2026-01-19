@@ -289,6 +289,53 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
 
   # =========================================================================
+  # DEVICE MANAGEMENT ENDPOINTS
+  # =========================================================================
+
+  /api/mobile/device/register-key:
+    post:
+      tags:
+        - Verification (Mobile)
+      summary: Register device signing key
+      description: |
+        Register a public key for device-based signature verification.
+
+        The device generates an asymmetric key pair locally:
+        - Private key stays on device (Secure Enclave/Keystore)
+        - Public key is sent to WSIM for signature verification
+
+        This is a one-time registration per device. Re-registering the same
+        deviceId will replace the existing key.
+
+        **Supported Key Types:**
+        - `ECDSA-P256`: Recommended - smaller keys, faster verification
+        - `RSA-2048`: Fallback for devices without ECDSA support
+      operationId: registerDeviceKey
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceKeyRequest'
+      responses:
+        '200':
+          description: Key registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterDeviceKeyResponse'
+        '400':
+          description: Invalid request (missing fields, invalid key format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # =========================================================================
   # VERIFICATION ENDPOINTS (Trusted User)
   # =========================================================================
 
@@ -308,8 +355,9 @@ paths:
         - `enhanced`: Name + face comparison (score >= 0.70) + liveness check
 
         **Security:**
-        - Payload is signed with device-specific HMAC key
-        - Server validates signature before processing
+        - Payload is signed with device's private key (ECDSA-P256 or RSA-2048)
+        - Server validates signature using registered public key
+        - Device key must be registered via `/api/mobile/device/register-key` first
         - Rate limited: 5 attempts per hour per device
       operationId: submitVerification
       security:
@@ -760,6 +808,52 @@ components:
               description: Hex color for avatar background
               example: "#4A90D9"
 
+    # Device management schemas
+    RegisterDeviceKeyRequest:
+      type: object
+      required:
+        - deviceId
+        - publicKey
+        - keyType
+      properties:
+        deviceId:
+          type: string
+          format: uuid
+          description: Unique device identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        publicKey:
+          type: string
+          description: |
+            Base64-encoded public key. For ECDSA-P256, this is the
+            SubjectPublicKeyInfo (SPKI) DER encoding. For RSA-2048,
+            this is the PKCS#1 or SPKI DER encoding.
+          example: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+        keyType:
+          type: string
+          enum: [ECDSA-P256, RSA-2048]
+          description: Type of cryptographic key
+          example: "ECDSA-P256"
+
+    RegisterDeviceKeyResponse:
+      type: object
+      required:
+        - success
+        - registered
+        - deviceId
+      properties:
+        success:
+          type: boolean
+          example: true
+        registered:
+          type: boolean
+          description: Whether the key was registered (true) or replaced (also true)
+          example: true
+        deviceId:
+          type: string
+          format: uuid
+          description: The device ID that was registered
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
     # Verification schemas (Trusted User)
     SubmitVerificationRequest:
       type: object
@@ -786,8 +880,11 @@ components:
           example: "eyJuYW1lTWF0Y2giOnsic2NvcmUiOjAuOTUsInBhc3NlZCI6dHJ1ZX19..."
         signature:
           type: string
-          description: HMAC-SHA256 signature of payload using device key
-          example: "a1b2c3d4e5f6..."
+          description: |
+            Base64-encoded signature of payload using device's private key.
+            For ECDSA-P256: ECDSA signature with SHA-256.
+            For RSA-2048: RSA-PKCS1-v1_5 signature with SHA-256.
+          example: "MEUCIQC2Pk..."
         deviceId:
           type: string
           format: uuid
