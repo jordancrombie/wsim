@@ -42,6 +42,8 @@ tags:
     description: Contract proxy endpoints for ContractSim integration
   - name: Contracts (Internal)
     description: Contract profile lookup for ContractSim
+  - name: Verification (Mobile)
+    description: Identity verification for Trusted User feature
 
 paths:
   /api/mobile/profile:
@@ -281,6 +283,60 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =========================================================================
+  # VERIFICATION ENDPOINTS (Trusted User)
+  # =========================================================================
+
+  /api/mobile/verification/submit:
+    post:
+      tags:
+        - Verification (Mobile)
+      summary: Submit identity verification
+      description: |
+        Submit a signed identity verification result from the mobile app.
+
+        The verification is performed entirely on-device (face detection, liveness check).
+        Only the signed verification result is sent to the server - no PII or photos.
+
+        **Verification Levels:**
+        - `basic`: Name matching between passport and profile (score >= 0.85)
+        - `enhanced`: Name + face comparison (score >= 0.70) + liveness check
+
+        **Security:**
+        - Payload is signed with device-specific HMAC key
+        - Server validates signature before processing
+        - Rate limited: 5 attempts per hour per device
+      operationId: submitVerification
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitVerificationRequest'
+      responses:
+        '200':
+          description: Verification processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+        '400':
+          description: Invalid request or verification failed validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: Rate limit exceeded (max 5 attempts per hour)
           content:
             application/json:
               schema:
@@ -600,6 +656,25 @@ components:
               format: uri
               description: Medium thumbnail (128x128)
               example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_128.jpg?v=1704825600"
+        isVerified:
+          type: boolean
+          description: Whether the user has completed identity verification
+          example: true
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when verification was completed
+          example: "2026-01-19T12:00:00.000Z"
+        verificationLevel:
+          type: string
+          enum: [none, basic, enhanced]
+          description: |
+            Level of identity verification completed:
+            - `none`: Not verified
+            - `basic`: Name matching only
+            - `enhanced`: Name + face + liveness verification
+          example: "enhanced"
 
     UpdateProfileRequest:
       type: object
@@ -684,6 +759,74 @@ components:
               type: string
               description: Hex color for avatar background
               example: "#4A90D9"
+
+    # Verification schemas (Trusted User)
+    SubmitVerificationRequest:
+      type: object
+      required:
+        - signedVerification
+      properties:
+        signedVerification:
+          $ref: '#/components/schemas/SignedVerification'
+
+    SignedVerification:
+      type: object
+      description: |
+        Client-signed verification result. The payload contains the verification
+        outcome (name match, face match, liveness) but NO PII or photos.
+      required:
+        - payload
+        - signature
+        - deviceId
+        - appVersion
+      properties:
+        payload:
+          type: string
+          description: Base64-encoded VerificationResult JSON
+          example: "eyJuYW1lTWF0Y2giOnsic2NvcmUiOjAuOTUsInBhc3NlZCI6dHJ1ZX19..."
+        signature:
+          type: string
+          description: HMAC-SHA256 signature of payload using device key
+          example: "a1b2c3d4e5f6..."
+        deviceId:
+          type: string
+          format: uuid
+          description: Device identifier (must match registered device)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        appVersion:
+          type: string
+          description: Mobile app version
+          example: "1.9.0"
+
+    VerificationResponse:
+      type: object
+      required:
+        - success
+        - verificationId
+        - isVerified
+        - verificationLevel
+      properties:
+        success:
+          type: boolean
+          example: true
+        verificationId:
+          type: string
+          description: Unique verification record ID
+          example: "ver_abc123xyz"
+        isVerified:
+          type: boolean
+          description: Whether user is now verified
+          example: true
+        verifiedAt:
+          type: string
+          format: date-time
+          description: Timestamp of verification
+          example: "2026-01-19T12:00:00.000Z"
+        verificationLevel:
+          type: string
+          enum: [none, basic, enhanced]
+          description: Level of verification achieved
+          example: "enhanced"
 
     ErrorResponse:
       type: object
@@ -782,6 +925,16 @@ components:
           type: boolean
         funded:
           type: boolean
+        is_verified:
+          type: boolean
+          description: Whether the party has completed identity verification (enriched by WSIM)
+          example: true
+        verification_level:
+          type: string
+          enum: [none, basic, enhanced]
+          nullable: true
+          description: Level of identity verification (enriched by WSIM)
+          example: "enhanced"
 
     CreateContractRequest:
       type: object
