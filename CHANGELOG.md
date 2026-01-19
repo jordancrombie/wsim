@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.3] - 2026-01-19
+
+### Added
+- HMAC-SHA256 key type support for device key registration
+- HMAC keys validated as hex strings (not base64)
+- HMAC signature verification: `SHA256(payload + ':' + key)`
+
+---
+
 ## [0.9.2] - 2026-01-19
 
 **Trusted User Verification** - Identity verification endpoints and database schema.
