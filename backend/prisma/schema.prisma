@@ -30,6 +30,11 @@ model WalletUser {
   profileImageKey String?  // S3 key for deletion/replacement
   initialsColor   String?  // Background color for initials avatar fallback
 
+  // Identity verification (Trusted User feature)
+  isVerified        Boolean   @default(false)
+  verifiedAt        DateTime?
+  verificationLevel String?   // "none" | "basic" | "enhanced"
+
   // Relationships
   enrollments           BsimEnrollment[]
   walletCards           WalletCard[]
@@ -38,6 +43,8 @@ model WalletUser {
   mobileDevices         MobileDevice[]
   mobileRefreshTokens   MobileRefreshToken[]
   mobilePaymentRequests MobilePaymentRequest[]
+  deviceKeys            DeviceKey[]
+  verifications         UserVerification[]
 }
 
 // =============================================================================
@@ -446,4 +453,41 @@ model NotificationLog {
   @@index([sourceId]) // For idempotency checks
   @@index([status, createdAt]) // For monitoring/cleanup
   @@map("notification_logs")
+}
+
+// =============================================================================
+// IDENTITY VERIFICATION (Trusted User Feature)
+// =============================================================================
+
+model DeviceKey {
+  id           String      @id @default(cuid())
+  userId       String
+  user         WalletUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId     String      @unique
+  publicKey    String      // Base64-encoded SPKI public key
+  keyType      String      // "ECDSA-P256" or "RSA-2048"
+  registeredAt DateTime    @default(now())
+  lastUsedAt   DateTime?
+
+  @@index([userId])
+  @@map("device_keys")
+}
+
+model UserVerification {
+  id                String      @id @default(cuid())
+  userId            String
+  user              WalletUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId          String
+  verificationLevel String      // "basic" | "enhanced"
+  documentType      String      // "PASSPORT"
+  issuingCountry    String      // 3-letter ISO code
+  nameMatchScore    Float
+  faceMatchScore    Float?
+  livenessPassed    Boolean?
+  verifiedAt        DateTime
+  expiresAt         DateTime
+  createdAt         DateTime    @default(now())
+
+  @@index([userId])
+  @@map("user_verifications")
 }
