@@ -8,7 +8,7 @@
  * - PUT    /api/mobile/profile        - Update profile (displayName, phone)
  * - POST   /api/mobile/profile/image  - Upload profile image
  * - DELETE /api/mobile/profile/image  - Delete profile image
- * - GET    /api/mobile/profile/lookup - Look up another user's profile by bsimUserId + bsimId
+ * - GET    /api/mobile/profile/lookup - Look up another user's profile by walletId or bsimUserId + bsimId
  *
  * Internal API endpoints (X-Internal-Api-Key auth):
  * - GET    /api/internal/profile      - Get profile by bsimUserId + bsimId
@@ -495,57 +495,92 @@ router.delete('/image', requireMobileAuth, async (req: AuthenticatedRequest, res
 /**
  * GET /api/mobile/profile/lookup
  *
- * Look up another user's profile by BSIM user ID and BSIM ID.
- * Used by mobile app to resolve transfer sender/recipient UUIDs to display names.
+ * Look up another user's profile.
+ * Used by mobile app to resolve user identifiers to display names.
  *
- * Query params:
- * - bsimUserId: User's ID at the BSIM (fiUserRef)
- * - bsimId: Bank identifier (e.g., "td-bank")
+ * Query params (one of the following):
+ * - walletId: WSIM wallet ID (for contracts)
+ * - bsimUserId + bsimId: User's ID at the BSIM + bank identifier (for transfers)
  */
 router.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { bsimUserId, bsimId } = req.query as {
+    const { walletId, bsimUserId, bsimId } = req.query as {
+      walletId?: string;
       bsimUserId?: string;
       bsimId?: string;
     };
 
-    if (!bsimUserId || !bsimId) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        message: 'bsimUserId and bsimId query parameters are required',
-      });
-    }
+    let user: {
+      id: string;
+      displayName: string | null;
+      firstName: string | null;
+      lastName: string | null;
+      profileImageUrl: string | null;
+      initialsColor: string | null;
+      isVerified: boolean;
+      verificationLevel: string | null;
+    } | null = null;
 
-    // Find the enrollment matching this BSIM user
-    const enrollment = await prisma.bsimEnrollment.findFirst({
-      where: {
-        fiUserRef: bsimUserId,
-        bsimId: bsimId,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            displayName: true,
-            firstName: true,
-            lastName: true,
-            profileImageUrl: true,
-            initialsColor: true,
-            isVerified: true,
-            verificationLevel: true,
+    if (walletId) {
+      // Lookup by WSIM wallet ID
+      user = await prisma.walletUser.findUnique({
+        where: { walletId },
+        select: {
+          id: true,
+          displayName: true,
+          firstName: true,
+          lastName: true,
+          profileImageUrl: true,
+          initialsColor: true,
+          isVerified: true,
+          verificationLevel: true,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: 'User not found for given walletId',
+        });
+      }
+    } else if (bsimUserId && bsimId) {
+      // Lookup by BSIM enrollment
+      const enrollment = await prisma.bsimEnrollment.findFirst({
+        where: {
+          fiUserRef: bsimUserId,
+          bsimId: bsimId,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              displayName: true,
+              firstName: true,
+              lastName: true,
+              profileImageUrl: true,
+              initialsColor: true,
+              isVerified: true,
+              verificationLevel: true,
+            },
           },
         },
-      },
-    });
+      });
 
-    if (!enrollment) {
-      return res.status(404).json({
-        error: 'not_found',
-        message: 'User not found for given bsimUserId and bsimId',
+      if (!enrollment) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: 'User not found for given bsimUserId and bsimId',
+        });
+      }
+
+      user = enrollment.user;
+    } else {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'Either walletId or both bsimUserId and bsimId query parameters are required',
       });
     }
 
-    const user = enrollment.user;
     const displayName = getDisplayName(user);
 
     return res.json({

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.6] - 2026-01-19
+
+### Changed
+- Profile lookup endpoint now accepts `walletId` as alternative to `bsimUserId + bsimId`
+- Enables mwsim to resolve contract counterparties by WSIM wallet ID
+
+---
+
 ## [0.9.5] - 2026-01-19
 
 ### Added
