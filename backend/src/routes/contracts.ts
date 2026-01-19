@@ -223,8 +223,11 @@ interface ContractSimCreateResponse {
 // =============================================================================
 
 interface ProfileData {
+  displayName: string;
   profileImageUrl: string | null;
   initialsColor: string | null;
+  isVerified: boolean;
+  verificationLevel: string | null;
 }
 
 /**
@@ -241,8 +244,13 @@ async function getUserProfiles(walletIds: string[]): Promise<Map<string, Profile
     where: { walletId: { in: uniqueWalletIds } },
     select: {
       walletId: true,
+      displayName: true,
+      firstName: true,
+      lastName: true,
       profileImageUrl: true,
       initialsColor: true,
+      isVerified: true,
+      verificationLevel: true,
     },
   });
 
@@ -250,8 +258,11 @@ async function getUserProfiles(walletIds: string[]): Promise<Map<string, Profile
     users.map(u => [
       u.walletId,
       {
+        displayName: getDisplayName(u),
         profileImageUrl: u.profileImageUrl,
         initialsColor: u.initialsColor,
+        isVerified: u.isVerified,
+        verificationLevel: u.verificationLevel,
       },
     ])
   );
@@ -263,7 +274,7 @@ async function getUserProfiles(walletIds: string[]): Promise<Map<string, Profile
 
 /**
  * Transform ContractSim list item to mobile format
- * Enriches with profile data (profileImageUrl, initialsColor) from WSIM database
+ * Enriches with profile data (displayName, profileImageUrl, initialsColor, verification) from WSIM database
  */
 function transformContractListItem(
   item: ContractSimListItem,
@@ -272,7 +283,6 @@ function transformContractListItem(
 ): Record<string, unknown> {
   // Determine user's role and counterparty from parties array
   let myRole = 'creator';
-  let counterpartyName = 'Unknown';
   let counterpartyWalletId: string | undefined;
 
   if (item.parties && item.parties.length >= 2) {
@@ -283,12 +293,11 @@ function transformContractListItem(
       myRole = myParty.role;
     }
     if (counterparty) {
-      counterpartyName = counterparty.display_name || 'Unknown';
       counterpartyWalletId = counterparty.wallet_id;
     }
   }
 
-  // Get counterparty profile data
+  // Get counterparty profile data from WSIM (authoritative source)
   const counterpartyProfile = counterpartyWalletId ? profileMap.get(counterpartyWalletId) : undefined;
 
   return {
@@ -299,9 +308,11 @@ function transformContractListItem(
     totalPot: parseFloat(item.total_pot),
     currency: item.currency,
     myRole,
-    counterpartyName,
+    counterpartyName: counterpartyProfile?.displayName || 'Unknown',
     counterpartyProfileImageUrl: counterpartyProfile?.profileImageUrl || null,
     counterpartyInitialsColor: counterpartyProfile?.initialsColor || null,
+    counterpartyIsVerified: counterpartyProfile?.isVerified || false,
+    counterpartyVerificationLevel: counterpartyProfile?.verificationLevel || 'none',
     expiresAt: item.expires_at,
     createdAt: item.created_at,
   };
@@ -309,7 +320,7 @@ function transformContractListItem(
 
 /**
  * Transform ContractSim party to mobile format
- * Enriches with profile data (profileImageUrl, initialsColor) from WSIM database
+ * Enriches with profile data (displayName, profileImageUrl, initialsColor, verification) from WSIM database
  */
 function transformParty(
   party: ContractSimParty,
@@ -322,9 +333,11 @@ function transformParty(
     walletId: party.wallet_id,
     bankId: party.bank_id,
     role: party.role,
-    displayName: party.display_name,
+    displayName: profile?.displayName || party.display_name,
     profileImageUrl: profile?.profileImageUrl || null,
     initialsColor: profile?.initialsColor || null,
+    isVerified: profile?.isVerified || false,
+    verificationLevel: profile?.verificationLevel || 'none',
     stake: {
       amount: parseFloat(party.stake),
       currency: 'CAD',

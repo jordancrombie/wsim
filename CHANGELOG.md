@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.7] - 2026-01-19
+
+### Fixed
+- Contract responses now include `displayName` resolved from WSIM database (was using stale ContractSim data)
+- Added `counterpartyIsVerified` and `counterpartyVerificationLevel` to contract list items
+- Added `isVerified` and `verificationLevel` to party objects in contract details
+- WSIM is now the authoritative source for all profile data in contract responses
+
+---
+
 ## [0.9.6] - 2026-01-19
 
 ### Changed
