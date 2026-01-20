@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.8] - 2026-01-19
+
+### Fixed
+- Profile lookup now falls back to `fiUserRef` (BSIM user ID) if `walletId` not found
+- Fixes 404 errors when mwsim passes fiUserRef as walletId for transfer resolution
+
+---
+
 ## [0.9.7] - 2026-01-19
 
 ### Fixed

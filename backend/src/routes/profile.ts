@@ -522,7 +522,7 @@ router.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: 
     } | null = null;
 
     if (walletId) {
-      // Lookup by WSIM wallet ID
+      // Lookup by WSIM wallet ID first
       user = await prisma.walletUser.findUnique({
         where: { walletId },
         select: {
@@ -536,6 +536,32 @@ router.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: 
           verificationLevel: true,
         },
       });
+
+      // Fallback: try looking up by fiUserRef if walletId not found
+      // This handles cases where mwsim passes fiUserRef as walletId
+      if (!user) {
+        const enrollment = await prisma.bsimEnrollment.findFirst({
+          where: { fiUserRef: walletId },
+          include: {
+            user: {
+              select: {
+                id: true,
+                displayName: true,
+                firstName: true,
+                lastName: true,
+                profileImageUrl: true,
+                initialsColor: true,
+                isVerified: true,
+                verificationLevel: true,
+              },
+            },
+          },
+        });
+
+        if (enrollment) {
+          user = enrollment.user;
+        }
+      }
 
       if (!user) {
         return res.status(404).json({
