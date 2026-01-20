@@ -21,7 +21,7 @@ info:
     - **BSIM** - Bank Simulator (account/card management)
     - **TransferSim** - Payment network (P2P transfers)
     - **mwsim** - Mobile app (iOS/Android client)
-  version: 0.8.0
+  version: 0.9.8
   contact:
     name: WSIM Team
   license:
@@ -223,6 +223,88 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/profile/lookup:
+    get:
+      tags:
+        - Profile (Mobile)
+      summary: Look up another user's profile
+      description: |
+        Look up another user's profile by identifier. Supports multiple lookup methods:
+
+        **Option 1: By walletId** (for contracts)
+        ```
+        ?walletId=<wsim-wallet-id>
+        ```
+
+        **Option 2: By BSIM user** (for transfers)
+        ```
+        ?bsimUserId=<fiUserRef>&bsimId=<bank-id>
+        ```
+
+        **Fallback behavior:** If `walletId` is provided but not found, WSIM will also
+        try looking up by `fiUserRef` in the enrollments table. This handles cases where
+        transfer data passes BSIM user IDs instead of WSIM wallet IDs.
+
+        **For mwsim team:** When resolving transfer recipients, prefer using
+        `bsimUserId` + `bsimId` since transfer data contains BSIM user IDs (fiUserRef),
+        not WSIM wallet IDs.
+      operationId: lookupProfile
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: walletId
+          in: query
+          description: |
+            WSIM wallet ID. If not found, will also try fiUserRef lookup.
+          schema:
+            type: string
+          example: "d7c61f16-b228-482e-956b-c409d80e47b3"
+        - name: bsimUserId
+          in: query
+          description: User's ID at the BSIM (fiUserRef from enrollment). Requires bsimId.
+          schema:
+            type: string
+          example: "86c5ca19-bb28-4891-870d-d1843f2bda8d"
+        - name: bsimId
+          in: query
+          description: Bank identifier. Required when using bsimUserId.
+          schema:
+            type: string
+          example: "bsim"
+      responses:
+        '200':
+          description: Profile found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileLookupResponse'
+        '400':
+          description: Missing required parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "invalid_request"
+                message: "Either walletId or both bsimUserId and bsimId query parameters are required"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "not_found"
+                message: "User not found for given walletId"
         '500':
           description: Server error
           content:
@@ -837,6 +919,52 @@ components:
               format: uri
               example: "https://cdn.banksim.ca/users/WLLT-ABC123/avatar_128.jpg?v=1704825600"
 
+    ProfileLookupResponse:
+      type: object
+      required:
+        - success
+        - profile
+      properties:
+        success:
+          type: boolean
+          example: true
+        profile:
+          type: object
+          required:
+            - displayName
+            - initials
+            - initialsColor
+            - isVerified
+            - verificationLevel
+          properties:
+            displayName:
+              type: string
+              description: User's display name
+              example: "Mobile Two"
+            profileImageUrl:
+              type: string
+              format: uri
+              nullable: true
+              description: Full-size profile image URL
+              example: "https://cdn.banksim.ca/users/5e528361-xxx/avatar.jpg"
+            initials:
+              type: string
+              description: Two-letter initials
+              example: "MT"
+            initialsColor:
+              type: string
+              description: Hex color for avatar background
+              example: "#039BE5"
+            isVerified:
+              type: boolean
+              description: Whether the user has completed identity verification
+              example: false
+            verificationLevel:
+              type: string
+              enum: [none, basic, enhanced]
+              description: Level of identity verification
+              example: "none"
+
     InternalProfileResponse:
       type: object
       required:
@@ -906,8 +1034,12 @@ components:
           example: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
         keyType:
           type: string
-          enum: [ECDSA-P256, RSA-2048]
-          description: Type of cryptographic key
+          enum: [ECDSA-P256, RSA-2048, HMAC-SHA256]
+          description: |
+            Type of cryptographic key:
+            - `ECDSA-P256`: Recommended - smaller keys, faster verification
+            - `RSA-2048`: Fallback for devices without ECDSA support
+            - `HMAC-SHA256`: Simple hash-based verification (testing/development)
           example: "ECDSA-P256"
 
     RegisterDeviceKeyResponse:
