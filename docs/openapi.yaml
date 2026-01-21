@@ -21,7 +21,7 @@ info:
     - **BSIM** - Bank Simulator (account/card management)
     - **TransferSim** - Payment network (P2P transfers)
     - **mwsim** - Mobile app (iOS/Android client)
-  version: 0.9.8
+  version: 0.9.9
   contact:
     name: WSIM Team
   license:
@@ -248,6 +248,13 @@ paths:
         ?bsimUserId=<fiUserRef>&bsimId=<bank-id>
         ```
 
+        **Option 3: By alias** (for recipient lookup)
+        ```
+        ?alias=@username
+        ?alias=user@example.com
+        ```
+        Aliases are resolved via TransferSim's internal alias API and local email lookup.
+
         **Fallback behavior:** If `walletId` is provided but not found, WSIM will also
         try looking up by `fiUserRef` in the enrollments table. This handles cases where
         transfer data passes BSIM user IDs instead of WSIM wallet IDs.
@@ -278,6 +285,20 @@ paths:
           schema:
             type: string
           example: "bsim"
+        - name: alias
+          in: query
+          description: |
+            User alias (@username, email, etc.). Resolved via TransferSim's internal
+            alias API with local email lookup fallback.
+          schema:
+            type: string
+          examples:
+            username:
+              value: "@johndoe"
+              summary: Username with @ prefix
+            email:
+              value: "john@example.com"
+              summary: Full email address
       responses:
         '200':
           description: Profile found
@@ -293,7 +314,7 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 error: "invalid_request"
-                message: "Either walletId or both bsimUserId and bsimId query parameters are required"
+                message: "One of walletId, alias, or both bsimUserId and bsimId query parameters are required"
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.9] - 2026-01-20
+
+### Added
+- Profile lookup endpoint now accepts `alias` parameter for recipient lookup
+- Aliases resolved via TransferSim's internal alias API with local email fallback
+- Supports `@username`, `username`, and `email@example.com` formats
+
+---
+
 ## [0.9.8] - 2026-01-19
 
 ### Fixed

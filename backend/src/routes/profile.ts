@@ -8,7 +8,7 @@
  * - PUT    /api/mobile/profile        - Update profile (displayName, phone)
  * - POST   /api/mobile/profile/image  - Upload profile image
  * - DELETE /api/mobile/profile/image  - Delete profile image
- * - GET    /api/mobile/profile/lookup - Look up another user's profile by walletId or bsimUserId + bsimId
+ * - GET    /api/mobile/profile/lookup - Look up another user's profile by walletId, bsimUserId + bsimId, or alias
  *
  * Internal API endpoints (X-Internal-Api-Key auth):
  * - GET    /api/internal/profile      - Get profile by bsimUserId + bsimId
@@ -159,6 +159,124 @@ function getDisplayName(user: { displayName: string | null; firstName: string | 
     return user.displayName;
   }
   return `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
+}
+
+/**
+ * Resolve alias to user info (userId, walletId, displayName)
+ *
+ * Resolution strategy:
+ * 1. Try local email lookup (backwards compatibility for email-based aliases)
+ * 2. If not found, call TransferSim's internal alias API
+ * 3. Use returned userId + bsimId to find user via BsimEnrollment
+ *
+ * @param alias - User alias (@username, email, etc.)
+ */
+async function resolveAlias(alias: string): Promise<{
+  found: boolean;
+  walletId?: string;
+  userId?: string;
+  displayName?: string;
+}> {
+  // Strip @ prefix if present
+  const cleanAlias = alias.startsWith('@') ? alias.slice(1) : alias;
+
+  // Strategy 1: Try local email lookup first (backwards compatibility)
+  const userByEmail = await prisma.walletUser.findFirst({
+    where: {
+      OR: [
+        { email: cleanAlias },                      // Full email address
+        { email: `${cleanAlias}@banksim.ca` },      // @username -> username@banksim.ca
+        { email: `${cleanAlias}@example.com` },     // Allow short usernames in dev
+        { email: { startsWith: `${cleanAlias}@` } }, // Match any email starting with the alias
+      ],
+    },
+    select: {
+      id: true,
+      walletId: true,
+      displayName: true,
+      firstName: true,
+      lastName: true,
+    },
+  });
+
+  if (userByEmail) {
+    console.log(`[Profile:resolveAlias] Found user by email lookup: ${userByEmail.walletId}`);
+    return {
+      found: true,
+      walletId: userByEmail.walletId,
+      userId: userByEmail.id,
+      displayName: getDisplayName(userByEmail),
+    };
+  }
+
+  // Strategy 2: Call TransferSim's internal alias API
+  console.log(`[Profile:resolveAlias] Email lookup failed, trying TransferSim for alias: ${alias}`);
+
+  try {
+    const transferSimUrl = `${env.TRANSFERSIM_API_URL}/api/internal/aliases/resolve`;
+    const response = await fetch(transferSimUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Api-Key': env.TRANSFERSIM_API_KEY,
+      },
+      body: JSON.stringify({ alias }),
+    });
+
+    if (!response.ok) {
+      console.log(`[Profile:resolveAlias] TransferSim alias lookup failed: ${response.status}`);
+      return { found: false };
+    }
+
+    const aliasData = await response.json() as {
+      found: boolean;
+      userId?: string;      // BSIM user ID (fiUserRef)
+      bsimId?: string;      // Bank ID
+      displayName?: string;
+    };
+
+    if (!aliasData.found || !aliasData.userId || !aliasData.bsimId) {
+      console.log(`[Profile:resolveAlias] TransferSim alias not found or incomplete`);
+      return { found: false };
+    }
+
+    console.log(`[Profile:resolveAlias] TransferSim found alias: userId=${aliasData.userId}, bsimId=${aliasData.bsimId}`);
+
+    // Strategy 3: Look up WSIM user via BsimEnrollment
+    const enrollment = await prisma.bsimEnrollment.findFirst({
+      where: {
+        fiUserRef: aliasData.userId,
+        bsimId: aliasData.bsimId,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            walletId: true,
+            displayName: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!enrollment?.user) {
+      console.log(`[Profile:resolveAlias] No WSIM enrollment found for TransferSim user`);
+      return { found: false };
+    }
+
+    console.log(`[Profile:resolveAlias] Found WSIM user via enrollment: ${enrollment.user.walletId}`);
+    return {
+      found: true,
+      walletId: enrollment.user.walletId,
+      userId: enrollment.user.id,
+      displayName: aliasData.displayName || getDisplayName(enrollment.user),
+    };
+  } catch (error) {
+    console.error(`[Profile:resolveAlias] TransferSim API error:`, error);
+    return { found: false };
+  }
 }
 
 /**
@@ -501,13 +619,15 @@ router.delete('/image', requireMobileAuth, async (req: AuthenticatedRequest, res
  * Query params (one of the following):
  * - walletId: WSIM wallet ID (for contracts)
  * - bsimUserId + bsimId: User's ID at the BSIM + bank identifier (for transfers)
+ * - alias: User alias (@username, email) - resolved via TransferSim
  */
 router.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { walletId, bsimUserId, bsimId } = req.query as {
+    const { walletId, bsimUserId, bsimId, alias } = req.query as {
       walletId?: string;
       bsimUserId?: string;
       bsimId?: string;
+      alias?: string;
     };
 
     let user: {
@@ -600,10 +720,42 @@ router.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: 
       }
 
       user = enrollment.user;
+    } else if (alias) {
+      // Lookup by alias via TransferSim
+      const aliasResolved = await resolveAlias(alias);
+
+      if (!aliasResolved.found || !aliasResolved.userId) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: `User not found for alias: ${alias}`,
+        });
+      }
+
+      // Fetch full profile for the resolved user
+      user = await prisma.walletUser.findUnique({
+        where: { id: aliasResolved.userId },
+        select: {
+          id: true,
+          displayName: true,
+          firstName: true,
+          lastName: true,
+          profileImageUrl: true,
+          initialsColor: true,
+          isVerified: true,
+          verificationLevel: true,
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          error: 'not_found',
+          message: `User not found for alias: ${alias}`,
+        });
+      }
     } else {
       return res.status(400).json({
         error: 'invalid_request',
-        message: 'Either walletId or both bsimUserId and bsimId query parameters are required',
+        message: 'One of walletId, alias, or both bsimUserId and bsimId query parameters are required',
       });
     }
 
