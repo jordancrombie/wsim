@@ -1,0 +1,1637 @@
+openapi: 3.0.3
+info:
+  title: WSIM Agent Commerce API
+  description: |
+    WSIM Agent Commerce API - Enables AI agents to make authenticated purchases on behalf of users.
+
+    ## Overview
+
+    This API supports the SimToolBox Agent Commerce Protocol (SACP), allowing AI agents to:
+    - Authenticate using OAuth 2.0 client credentials
+    - Request payment tokens for purchases
+    - Handle step-up authorization for transactions exceeding limits
+
+    ## Authentication Methods
+
+    ### 1. Agent OAuth (Client Credentials)
+    For AI agent-to-service communication:
+    - Agents obtain tokens via `POST /api/agent/v1/oauth/token` using client credentials
+    - Include `Authorization: Bearer <access_token>` in subsequent requests
+    - Tokens are short-lived (1 hour) and scoped to agent permissions
+
+    ### 2. Mobile JWT (Bearer)
+    For mobile app agent management under `/api/mobile/agents/*`:
+    - Standard WSIM mobile authentication
+    - Users manage their agents via mwsim app
+
+    ### 3. Token Introspection
+    For merchants (SSIM) to validate agent tokens:
+    - Call `POST /api/agent/v1/oauth/introspect` with the agent's token
+    - Returns agent context, permissions, and spending limits
+
+    ## Related Documents
+
+    - [WSIM_REQUIREMENTS.md](https://github.com/jordancrombie/agents/blob/main/docs/teams/WSIM_REQUIREMENTS.md)
+    - [PROTOCOL_DESIGN.md](https://github.com/jordancrombie/agents/blob/main/docs/PROTOCOL_DESIGN.md)
+    - [MWSIM_REQUIREMENTS.md](./MWSIM_REQUIREMENTS.md)
+
+  version: 0.1.0
+  contact:
+    name: WSIM Team
+
+servers:
+  - url: https://wsim.banksim.ca
+    description: Production
+  - url: http://localhost:3003
+    description: Local development
+
+tags:
+  - name: OAuth
+    description: Agent OAuth 2.0 endpoints (client credentials flow)
+  - name: Payments
+    description: Payment token issuance for agent purchases
+  - name: Agent Management
+    description: Mobile app endpoints for registering and managing agents
+  - name: Step-Up
+    description: Step-up authorization endpoints for high-value transactions
+  - name: Webhooks
+    description: Webhook payload schemas for agent events
+
+paths:
+  # =============================================================================
+  # OAuth Endpoints (Agent Authentication)
+  # =============================================================================
+  /api/agent/v1/oauth/token:
+    post:
+      tags:
+        - OAuth
+      summary: Get agent access token
+      description: |
+        OAuth 2.0 token endpoint using client credentials grant.
+
+        Agents use their `client_id` and `client_secret` to obtain an access token.
+        The token is used for subsequent API calls to merchants and WSIM.
+      operationId: getAgentToken
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - grant_type
+                - client_id
+                - client_secret
+              properties:
+                grant_type:
+                  type: string
+                  enum: [client_credentials]
+                  description: Must be "client_credentials"
+                client_id:
+                  type: string
+                  description: Agent client ID (e.g., "agent_abc123def456")
+                  example: agent_abc123def456
+                client_secret:
+                  type: string
+                  description: Agent client secret
+                  example: sk_agent_xxxxxxxxxxxxxxxxxxxx
+                scope:
+                  type: string
+                  description: Optional scope restriction
+                  example: "payments:read payments:write"
+      responses:
+        '200':
+          description: Token issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+        '403':
+          description: Agent suspended or delegation expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /api/agent/v1/oauth/introspect:
+    post:
+      tags:
+        - OAuth
+      summary: Introspect agent token
+      description: |
+        Token introspection endpoint for merchants (SSIM) to validate agent tokens.
+
+        Returns full agent context including:
+        - Agent identity and permissions
+        - Owner information
+        - Spending limits and current usage
+        - Token validity and expiration
+
+        **Caching**: Results may be cached for up to 60 seconds (see Q18).
+      operationId: introspectAgentToken
+      security:
+        - basicAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: The agent access token to introspect
+      responses:
+        '200':
+          description: Token introspection result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntrospectionResponse'
+        '401':
+          description: Invalid introspection credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/agent/v1/oauth/revoke:
+    post:
+      tags:
+        - OAuth
+      summary: Revoke agent token
+      description: |
+        Revoke an agent's access token. Use when:
+        - User revokes agent access
+        - Agent is compromised
+        - Session should be terminated
+      operationId: revokeAgentToken
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  description: The agent access token to revoke
+                client_id:
+                  type: string
+                  description: Agent client ID
+                client_secret:
+                  type: string
+                  description: Agent client secret
+      responses:
+        '200':
+          description: Token revoked successfully
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  # =============================================================================
+  # Payment Endpoints
+  # =============================================================================
+  /api/agent/v1/payments/token:
+    post:
+      tags:
+        - Payments
+      summary: Request payment token
+      description: |
+        Request a payment token for a purchase. The token can be used with the
+        payment network (NSIM) to complete the transaction.
+
+        **Spending Limit Check**:
+        - If amount is within per-transaction limit: Token issued immediately
+        - If amount exceeds limit: Step-up authorization required
+
+        **Step-Up Flow**:
+        When step-up is required, the response includes `step_up_required: true`
+        and a `step_up_id`. The agent should:
+        1. Present step-up information to the user (or wait for push notification)
+        2. Poll `GET /api/agent/v1/payments/:paymentId/status` for approval
+        3. Once approved, a new payment token is issued
+
+        **Payment Method Selection**:
+        - If `payment_method_id` is omitted, uses user's default payment method
+        - For step-up approvals, user can select a different payment method
+      operationId: requestPaymentToken
+      security:
+        - agentBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentTokenRequest'
+      responses:
+        '200':
+          description: Payment token issued or step-up required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PaymentTokenResponse'
+                  - $ref: '#/components/schemas/StepUpRequiredResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid or expired agent token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Agent suspended or over spending limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/agent/v1/payments/{paymentId}/status:
+    get:
+      tags:
+        - Payments
+      summary: Check payment status
+      description: |
+        Check the status of a payment request, particularly useful for:
+        - Polling during step-up authorization
+        - Verifying payment completion
+
+        **Polling Guidance**:
+        - Poll every 2-5 seconds during step-up wait
+        - Stop polling after 15 minutes (step-up expiration)
+        - Use webhook subscription for real-time updates (Phase 2)
+      operationId: getPaymentStatus
+      security:
+        - agentBearerAuth: []
+      parameters:
+        - name: paymentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Payment request ID
+      responses:
+        '200':
+          description: Payment status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentStatusResponse'
+        '404':
+          description: Payment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/agent/v1/payments/methods:
+    get:
+      tags:
+        - Payments
+      summary: List available payment methods
+      description: |
+        Returns all payment methods available to the agent for purchases.
+        This includes all cards enrolled in the owner's wallet.
+
+        The `is_default` flag indicates the user's default payment method
+        which is used for auto-approved transactions.
+      operationId: listPaymentMethods
+      security:
+        - agentBearerAuth: []
+      responses:
+        '200':
+          description: List of payment methods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodsResponse'
+        '401':
+          description: Invalid or expired agent token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # Agent Management Endpoints (Mobile)
+  # =============================================================================
+  /api/mobile/agents:
+    post:
+      tags:
+        - Agent Management
+      summary: Register new agent
+      description: |
+        Register a new AI agent. The user must authenticate via mobile app
+        and provide agent configuration including permissions and spending limits.
+
+        **Response includes one-time credentials**:
+        The `client_secret` is only returned once. Users must copy it immediately.
+        If lost, use the rotate-secret endpoint to generate a new one.
+      operationId: registerAgent
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterAgentRequest'
+      responses:
+        '201':
+          description: Agent registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterAgentResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+    get:
+      tags:
+        - Agent Management
+      summary: List user's agents
+      description: Returns all agents registered by the authenticated user.
+      operationId: listAgents
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/agents/{agentId}:
+    get:
+      tags:
+        - Agent Management
+      summary: Get agent details
+      description: |
+        Returns detailed information about a specific agent, including:
+        - Configuration and permissions
+        - Spending limits and current usage
+        - Recent activity summary
+      operationId: getAgent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent ID
+      responses:
+        '200':
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDetailResponse'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Agent Management
+      summary: Update agent settings
+      description: |
+        Update agent configuration. Supports partial updates.
+
+        **Updatable fields**:
+        - name, description
+        - permissions
+        - spending_limits
+        - status (active/suspended)
+      operationId: updateAgent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentRequest'
+      responses:
+        '200':
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDetailResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Agent Management
+      summary: Revoke agent
+      description: |
+        Permanently revoke an agent. This action:
+        - Invalidates all active tokens
+        - Prevents new authentications
+        - Cannot be undone (must re-register)
+      operationId: revokeAgent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent ID
+      responses:
+        '204':
+          description: Agent revoked
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/agents/{agentId}/rotate-secret:
+    post:
+      tags:
+        - Agent Management
+      summary: Rotate agent secret
+      description: |
+        Generate a new client secret for the agent. The old secret is
+        immediately invalidated.
+
+        **Use cases**:
+        - Secret may have been compromised
+        - Regular security rotation
+        - User wants to revoke access from a specific agent instance
+
+        **Important**: The new secret is only returned once.
+      operationId: rotateAgentSecret
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent ID
+      responses:
+        '200':
+          description: New credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateSecretResponse'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/agents/{agentId}/transactions:
+    get:
+      tags:
+        - Agent Management
+      summary: Get agent transactions
+      description: |
+        Returns transaction history for the agent.
+        Supports filtering by date range and status.
+      operationId: getAgentTransactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Agent ID
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Start date (ISO 8601)
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: End date (ISO 8601)
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, completed, failed, refunded]
+          description: Filter by status
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+          description: Max results to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Pagination offset
+      responses:
+        '200':
+          description: Transaction list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionListResponse'
+        '404':
+          description: Agent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # Step-Up Endpoints (Mobile)
+  # =============================================================================
+  /api/mobile/step-up/{stepUpId}:
+    get:
+      tags:
+        - Step-Up
+      summary: Get step-up details
+      description: |
+        Get details of a pending step-up authorization request.
+        Used by mobile app to display approval screen.
+      operationId: getStepUp
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stepUpId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Step-up request ID
+      responses:
+        '200':
+          description: Step-up details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepUpDetailResponse'
+        '404':
+          description: Step-up not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/step-up/{stepUpId}/approve:
+    post:
+      tags:
+        - Step-Up
+      summary: Approve step-up request
+      description: |
+        Approve a step-up authorization request. Requires biometric
+        authentication on the mobile device.
+
+        **Payment method selection**:
+        Optionally include `payment_method_id` to use a different card
+        than the default.
+      operationId: approveStepUp
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stepUpId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Step-up request ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveStepUpRequest'
+      responses:
+        '200':
+          description: Step-up approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepUpApprovalResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Step-up not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Step-up already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/step-up/{stepUpId}/reject:
+    post:
+      tags:
+        - Step-Up
+      summary: Reject step-up request
+      description: Reject a step-up authorization request.
+      operationId: rejectStepUp
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: stepUpId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Step-up request ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectStepUpRequest'
+      responses:
+        '200':
+          description: Step-up rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StepUpRejectionResponse'
+        '404':
+          description: Step-up not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Step-up already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Mobile app JWT authentication
+
+    agentBearerAuth:
+      type: http
+      scheme: bearer
+      description: Agent OAuth access token
+
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Basic auth for introspection (client_id:client_secret)
+
+  schemas:
+    # =========================================================================
+    # OAuth Schemas
+    # =========================================================================
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: The agent access token
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          enum: [Bearer]
+          description: Token type (always "Bearer")
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+          example: 3600
+        scope:
+          type: string
+          description: Granted scopes
+          example: "payments:read payments:write"
+
+    IntrospectionResponse:
+      type: object
+      required:
+        - active
+      properties:
+        active:
+          type: boolean
+          description: Whether the token is valid and active
+        client_id:
+          type: string
+          description: Agent client ID
+          example: agent_abc123def456
+        agent_id:
+          type: string
+          description: Internal agent UUID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        owner_id:
+          type: string
+          description: WSIM user ID of agent owner (UUID)
+          example: "660e8400-e29b-41d4-a716-446655440001"
+        agent_name:
+          type: string
+          description: Human-readable agent name
+          example: "My Shopping Assistant"
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [browse, cart, purchase, history]
+          description: Agent permissions
+          example: ["browse", "cart", "purchase"]
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        spending_usage:
+          $ref: '#/components/schemas/SpendingUsage'
+        exp:
+          type: integer
+          description: Token expiration (Unix timestamp)
+          example: 1705858800
+        iat:
+          type: integer
+          description: Token issued at (Unix timestamp)
+          example: 1705855200
+
+    OAuthErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_request
+            - invalid_client
+            - invalid_grant
+            - unauthorized_client
+            - unsupported_grant_type
+            - delegation_expired
+          description: OAuth 2.0 error code
+        error_description:
+          type: string
+          description: Human-readable error description
+          example: "Agent delegation has expired. User must re-authorize."
+
+    # =========================================================================
+    # Payment Schemas
+    # =========================================================================
+    PaymentTokenRequest:
+      type: object
+      required:
+        - merchant_id
+        - amount
+        - currency
+      properties:
+        merchant_id:
+          type: string
+          description: Merchant identifier (SSIM store ID)
+          example: "store_xyz789"
+        session_id:
+          type: string
+          description: Checkout session ID from merchant
+          example: "sess_abc123"
+        amount:
+          type: number
+          format: decimal
+          description: Transaction amount
+          example: 156.48
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          description: ISO 4217 currency code
+          example: "CAD"
+        payment_method_id:
+          type: string
+          description: Specific payment method to use (optional, defaults to user's default)
+          example: "pm_card_visa_1234"
+        items:
+          type: array
+          description: Cart items (for step-up display)
+          items:
+            $ref: '#/components/schemas/CartItem'
+        mandate_type:
+          type: string
+          enum: [cart, intent, none]
+          description: Type of mandate (Phase 2)
+          default: cart
+        callback_url:
+          type: string
+          format: uri
+          description: URL for step-up result callback (optional)
+
+    CartItem:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Canadian Maple Syrup"
+        quantity:
+          type: integer
+          example: 2
+        price:
+          type: number
+          format: decimal
+          example: 24.99
+
+    PaymentTokenResponse:
+      type: object
+      required:
+        - payment_id
+        - payment_token
+        - status
+        - expires_at
+      properties:
+        payment_id:
+          type: string
+          description: Payment request ID
+          example: "pay_abc123xyz789"
+        payment_token:
+          type: string
+          description: Token to use with NSIM for payment
+          example: "pt_live_xxxxxxxxxxxx"
+        status:
+          type: string
+          enum: [approved]
+          description: Payment status
+        expires_at:
+          type: string
+          format: date-time
+          description: Token expiration
+          example: "2026-01-21T15:30:00Z"
+
+    StepUpRequiredResponse:
+      type: object
+      required:
+        - payment_id
+        - status
+        - step_up_required
+        - step_up_id
+        - step_up_expires_at
+        - reason
+      properties:
+        payment_id:
+          type: string
+          description: Payment request ID
+          example: "pay_abc123xyz789"
+        status:
+          type: string
+          enum: [awaiting_authorization]
+          description: Payment status
+        step_up_required:
+          type: boolean
+          enum: [true]
+          description: Indicates step-up is required
+        step_up_id:
+          type: string
+          description: Step-up request ID for tracking
+          example: "stepup_xyz789abc123"
+        step_up_expires_at:
+          type: string
+          format: date-time
+          description: Step-up expiration (15 minutes)
+          example: "2026-01-21T15:15:00Z"
+        reason:
+          type: string
+          description: Human-readable reason for step-up
+          example: "Amount exceeds per-transaction limit of $100.00 CAD"
+
+    PaymentStatusResponse:
+      type: object
+      required:
+        - payment_id
+        - status
+      properties:
+        payment_id:
+          type: string
+          example: "pay_abc123xyz789"
+        status:
+          type: string
+          enum:
+            - pending
+            - awaiting_authorization
+            - approved
+            - rejected
+            - expired
+            - completed
+            - failed
+          description: Current payment status
+        payment_token:
+          type: string
+          description: Payment token (only present when approved)
+        step_up_id:
+          type: string
+          description: Step-up ID (if awaiting authorization)
+        reason:
+          type: string
+          description: Status reason (for rejected/failed)
+        updated_at:
+          type: string
+          format: date-time
+
+    PaymentMethodsResponse:
+      type: object
+      required:
+        - payment_methods
+      properties:
+        payment_methods:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentMethod'
+
+    PaymentMethod:
+      type: object
+      required:
+        - id
+        - type
+        - last_four
+        - brand
+        - is_default
+      properties:
+        id:
+          type: string
+          description: Payment method ID
+          example: "pm_card_visa_1234"
+        type:
+          type: string
+          enum: [card]
+          description: Payment method type
+        brand:
+          type: string
+          enum: [visa, mastercard, amex]
+          description: Card brand
+          example: "visa"
+        last_four:
+          type: string
+          description: Last 4 digits of card
+          example: "4242"
+        exp_month:
+          type: integer
+          description: Expiration month
+          example: 12
+        exp_year:
+          type: integer
+          description: Expiration year
+          example: 2027
+        is_default:
+          type: boolean
+          description: Whether this is the user's default payment method
+          example: true
+
+    # =========================================================================
+    # Agent Management Schemas
+    # =========================================================================
+    RegisterAgentRequest:
+      type: object
+      required:
+        - name
+        - permissions
+        - spending_limits
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Human-readable agent name
+          example: "My Shopping Assistant"
+        description:
+          type: string
+          maxLength: 500
+          description: Optional description
+          example: "Helps me buy groceries and household items"
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [browse, cart, purchase, history]
+          description: Agent permissions
+          example: ["browse", "cart", "purchase"]
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimitsInput'
+
+    SpendingLimitsInput:
+      type: object
+      properties:
+        per_transaction:
+          type: number
+          format: decimal
+          description: Max per-transaction (auto-approve threshold)
+          example: 50.00
+        daily:
+          type: number
+          format: decimal
+          description: Daily spending limit
+          example: 200.00
+        monthly:
+          type: number
+          format: decimal
+          description: Monthly spending limit
+          example: 500.00
+        currency:
+          type: string
+          pattern: "^[A-Z]{3}$"
+          default: "CAD"
+          description: Currency for limits
+          example: "CAD"
+
+    SpendingLimits:
+      type: object
+      required:
+        - per_transaction
+        - daily
+        - monthly
+        - currency
+      properties:
+        per_transaction:
+          type: number
+          format: decimal
+          example: 50.00
+        daily:
+          type: number
+          format: decimal
+          example: 200.00
+        monthly:
+          type: number
+          format: decimal
+          example: 500.00
+        currency:
+          type: string
+          example: "CAD"
+
+    SpendingUsage:
+      type: object
+      properties:
+        today:
+          type: number
+          format: decimal
+          description: Amount spent today (resets at midnight EST/EDT)
+          example: 45.67
+        this_month:
+          type: number
+          format: decimal
+          description: Amount spent this month
+          example: 245.50
+        last_transaction:
+          type: string
+          format: date-time
+          description: Timestamp of last transaction
+
+    RegisterAgentResponse:
+      type: object
+      required:
+        - agent
+        - credentials
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentSummary'
+        credentials:
+          type: object
+          required:
+            - client_id
+            - client_secret
+          properties:
+            client_id:
+              type: string
+              description: Agent client ID
+              example: "agent_abc123def456"
+            client_secret:
+              type: string
+              description: Agent client secret (shown once!)
+              example: "sk_agent_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          description: One-time credentials (secret not shown again)
+
+    AgentSummary:
+      type: object
+      required:
+        - id
+        - name
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        client_id:
+          type: string
+          example: "agent_abc123def456"
+        name:
+          type: string
+          example: "My Shopping Assistant"
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended, revoked]
+          example: "active"
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+
+    AgentListResponse:
+      type: object
+      required:
+        - agents
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentSummary'
+
+    AgentDetailResponse:
+      type: object
+      required:
+        - agent
+      properties:
+        agent:
+          allOf:
+            - $ref: '#/components/schemas/AgentSummary'
+            - type: object
+              properties:
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                  example: ["browse", "cart", "purchase"]
+                spending_limits:
+                  $ref: '#/components/schemas/SpendingLimits'
+                spending_usage:
+                  $ref: '#/components/schemas/SpendingUsage'
+
+    UpdateAgentRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [browse, cart, purchase, history]
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimitsInput'
+        status:
+          type: string
+          enum: [active, suspended]
+          description: Set to "suspended" to temporarily disable
+
+    RotateSecretResponse:
+      type: object
+      required:
+        - client_id
+        - client_secret
+      properties:
+        client_id:
+          type: string
+          description: Agent client ID (unchanged)
+          example: "agent_abc123def456"
+        client_secret:
+          type: string
+          description: New client secret (shown once!)
+          example: "sk_agent_yyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+        rotated_at:
+          type: string
+          format: date-time
+
+    # =========================================================================
+    # Transaction Schemas
+    # =========================================================================
+    TransactionListResponse:
+      type: object
+      required:
+        - transactions
+        - pagination
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Transaction:
+      type: object
+      required:
+        - id
+        - amount
+        - currency
+        - merchant_name
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          example: "tx_abc123"
+        amount:
+          type: number
+          format: decimal
+          example: 45.67
+        currency:
+          type: string
+          example: "CAD"
+        merchant_id:
+          type: string
+          example: "store_xyz789"
+        merchant_name:
+          type: string
+          example: "Regal Moose"
+        status:
+          type: string
+          enum: [pending, completed, failed, refunded]
+          example: "completed"
+        approval_type:
+          type: string
+          enum: [auto, step_up]
+          description: How transaction was approved
+          example: "auto"
+        payment_method_last_four:
+          type: string
+          example: "4242"
+        created_at:
+          type: string
+          format: date-time
+
+    Pagination:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 42
+        limit:
+          type: integer
+          example: 20
+        offset:
+          type: integer
+          example: 0
+        has_more:
+          type: boolean
+          example: true
+
+    # =========================================================================
+    # Step-Up Schemas
+    # =========================================================================
+    StepUpDetailResponse:
+      type: object
+      required:
+        - step_up
+      properties:
+        step_up:
+          type: object
+          required:
+            - id
+            - agent_id
+            - agent_name
+            - merchant_name
+            - amount
+            - currency
+            - reason
+            - status
+            - expires_at
+          properties:
+            id:
+              type: string
+              example: "stepup_xyz789abc123"
+            agent_id:
+              type: string
+              example: "550e8400-e29b-41d4-a716-446655440000"
+            agent_name:
+              type: string
+              example: "My Shopping Assistant"
+            merchant_id:
+              type: string
+              example: "store_xyz789"
+            merchant_name:
+              type: string
+              example: "Regal Moose"
+            amount:
+              type: number
+              format: decimal
+              example: 156.48
+            currency:
+              type: string
+              example: "CAD"
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CartItem'
+            reason:
+              type: string
+              example: "Amount exceeds per-transaction limit of $100.00 CAD"
+            status:
+              type: string
+              enum: [pending, approved, rejected, expired]
+              example: "pending"
+            created_at:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+              example: "2026-01-21T15:15:00Z"
+            available_payment_methods:
+              type: array
+              description: Payment methods user can select for this purchase
+              items:
+                $ref: '#/components/schemas/PaymentMethod'
+
+    ApproveStepUpRequest:
+      type: object
+      required:
+        - consent
+      properties:
+        consent:
+          type: boolean
+          enum: [true]
+          description: User consents to the transaction
+        payment_method_id:
+          type: string
+          description: Override payment method (optional)
+          example: "pm_card_visa_1234"
+
+    RejectStepUpRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional rejection reason
+          example: "I didn't authorize this purchase"
+
+    StepUpApprovalResponse:
+      type: object
+      required:
+        - status
+        - payment_id
+      properties:
+        status:
+          type: string
+          enum: [approved]
+        payment_id:
+          type: string
+          description: Payment request ID (now approved)
+          example: "pay_abc123xyz789"
+        approved_at:
+          type: string
+          format: date-time
+
+    StepUpRejectionResponse:
+      type: object
+      required:
+        - status
+        - payment_id
+      properties:
+        status:
+          type: string
+          enum: [rejected]
+        payment_id:
+          type: string
+          example: "pay_abc123xyz789"
+        rejected_at:
+          type: string
+          format: date-time
+
+    # =========================================================================
+    # Webhook Schemas (for documentation)
+    # =========================================================================
+    StepUpWebhookPayload:
+      type: object
+      description: |
+        Webhook/push notification payload sent to mwsim when step-up is required.
+        This is sent via APNs push notification.
+      required:
+        - type
+        - step_up_id
+        - agent_id
+        - agent_name
+        - merchant_name
+        - amount
+        - currency
+        - reason
+        - expires_at
+      properties:
+        type:
+          type: string
+          enum: [agent.step_up]
+          description: Notification type
+        step_up_id:
+          type: string
+          example: "stepup_xyz789abc123"
+        agent_id:
+          type: string
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        agent_name:
+          type: string
+          example: "My Shopping Assistant"
+        merchant_name:
+          type: string
+          example: "Regal Moose"
+        amount:
+          type: number
+          format: decimal
+          example: 156.48
+        currency:
+          type: string
+          example: "CAD"
+        reason:
+          type: string
+          example: "Exceeds per-transaction limit"
+        expires_at:
+          type: string
+          format: date-time
+          example: "2026-01-21T15:15:00Z"
+
+    AgentTransactionWebhookPayload:
+      type: object
+      description: Webhook payload for completed agent transactions
+      required:
+        - type
+        - agent_id
+        - transaction_id
+        - amount
+        - currency
+        - merchant_name
+        - status
+      properties:
+        type:
+          type: string
+          enum: [agent.transaction]
+        agent_id:
+          type: string
+        agent_name:
+          type: string
+        transaction_id:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        merchant_name:
+          type: string
+        status:
+          type: string
+          enum: [completed, failed]
+        approval_type:
+          type: string
+          enum: [auto, step_up]
+
+    # =========================================================================
+    # Error Schemas
+    # =========================================================================
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: "AGENT_NOT_FOUND"
+            message:
+              type: string
+              description: Human-readable error message
+              example: "Agent not found"
+            details:
+              type: object
+              description: Additional error context
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+            - fields
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_ERROR]
+            message:
+              type: string
+              example: "Validation failed"
+            fields:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    example: "spending_limits.per_transaction"
+                  message:
+                    type: string
+                    example: "Must be a positive number"
