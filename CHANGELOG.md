@@ -9,6 +9,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] - 2026-01-21
+
+**Agent Commerce Protocol (SACP)** - AI agents can now make purchases on behalf of users with spending controls and step-up authorization.
+
+### Added
+
+#### Database Schema (4 new models)
+- `Agent` - AI agent registration with OAuth credentials and spending limits
+- `AgentAccessToken` - OAuth access token tracking for revocation
+- `AgentTransaction` - Transaction history for spending limit calculations
+- `StepUpRequest` - Step-up authorization requests for high-value purchases
+
+#### Agent OAuth Endpoints (`/api/agent/v1/oauth/*`)
+- `POST /token` - OAuth 2.0 client credentials grant for agents
+- `POST /introspect` - Token introspection for merchants (SSIM)
+- `POST /revoke` - Token revocation
+
+#### Payment Token API (`/api/agent/v1/payments/*`)
+- `POST /token` - Request payment token (may trigger step-up)
+- `GET /:paymentId/status` - Check payment or step-up status
+- `GET /methods` - List available payment methods with spending info
+
+#### Agent Management (`/api/mobile/agents/*`)
+- `POST /` - Register new agent (returns client credentials)
+- `GET /` - List user's agents with usage stats
+- `GET /:id` - Get agent details and remaining limits
+- `PATCH /:id` - Update agent settings
+- `DELETE /:id` - Revoke agent
+- `POST /:id/rotate-secret` - Rotate client secret (revokes all tokens)
+- `GET /:id/transactions` - Get agent transaction history
+
+#### Step-Up Authorization (`/api/mobile/step-up/*`)
+- `GET /` - List pending step-up requests
+- `GET /:stepUpId` - Get step-up details for approval screen
+- `POST /:stepUpId/approve` - Approve step-up (select payment method)
+- `POST /:stepUpId/reject` - Reject step-up
+
+#### Services
+- `agent-auth.ts` - Token generation, validation, introspection
+- `spending-limits.ts` - EST timezone-aware spending limit calculations
+
+#### Notification Types
+- `agent.step_up` - Push notification for step-up approval
+- `agent.transaction` - Agent transaction completed
+- `agent.limit_warning` - Approaching spending limit
+- `agent.suspended` - Agent auto-suspended
+
+### Environment Variables (New)
+```
+AGENT_JWT_SECRET         - JWT signing key for agent tokens (REQUIRED in production)
+AGENT_ACCESS_TOKEN_EXPIRY - Token expiry in seconds (default: 3600)
+PAYMENT_TOKEN_SECRET     - JWT signing key for payment tokens (REQUIRED in production)
+PAYMENT_TOKEN_EXPIRY     - Payment token expiry (default: 300)
+STEP_UP_EXPIRY_MINUTES   - Step-up request expiry (default: 15)
+DAILY_LIMIT_RESET_TIMEZONE - Timezone for daily limit reset (default: America/Toronto)
+INTROSPECTION_CLIENT_ID  - Client ID for merchant introspection (default: ssim_introspect)
+INTROSPECTION_CLIENT_SECRET - Client secret for merchant introspection (REQUIRED in production)
+```
+
+### Dependencies
+- Added `nanoid@^5.0.0` for client ID generation
+- Added `luxon@^3.4.0` for timezone handling
+
+### Database Migration Required
+```bash
+npx prisma migrate deploy
+```
+
+Creates 4 new tables: `agents`, `agent_access_tokens`, `agent_transactions`, `step_up_requests`
+
+### Documentation
+- OpenAPI spec: `docs/sacp/openapi-agent.yaml`
+- mwsim requirements: `docs/sacp/MWSIM_REQUIREMENTS.md`
+
+---
+
 ## [0.9.9] - 2026-01-20
 
 ### Added

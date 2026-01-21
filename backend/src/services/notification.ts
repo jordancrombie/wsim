@@ -92,7 +92,12 @@ export type NotificationType =
   | 'contract.settled'
   | 'contract.disputed'
   | 'contract.expired'
-  | 'contract.cancelled';
+  | 'contract.cancelled'
+  // Agent Commerce notification types (SACP)
+  | 'agent.step_up'        // Step-up approval needed for agent purchase
+  | 'agent.transaction'    // Agent transaction completed
+  | 'agent.limit_warning'  // Approaching spending limit
+  | 'agent.suspended';     // Agent auto-suspended
 
 /**
  * Deep link parameters for navigation
@@ -101,6 +106,8 @@ export type NotificationType =
 export interface DeepLinkParams {
   transferId?: string;
   contractId?: string;
+  stepUpId?: string;
+  agentId?: string;
 }
 
 /**

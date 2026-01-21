@@ -66,6 +66,18 @@ export const env = {
   // Support multiple origins for passkey verification (frontend + auth-server popup)
   WEBAUTHN_ORIGINS: process.env.WEBAUTHN_ORIGINS?.split(',') ||
     (process.env.WEBAUTHN_ORIGIN ? [process.env.WEBAUTHN_ORIGIN] : ['http://localhost:3004']),
+
+  // Agent Commerce (SACP)
+  AGENT_JWT_SECRET: process.env.AGENT_JWT_SECRET || 'dev-agent-jwt-secret-change-in-production',
+  AGENT_ACCESS_TOKEN_EXPIRY: parseInt(process.env.AGENT_ACCESS_TOKEN_EXPIRY || '3600', 10), // 1 hour
+  PAYMENT_TOKEN_SECRET: process.env.PAYMENT_TOKEN_SECRET || 'dev-payment-token-secret-change-in-production',
+  PAYMENT_TOKEN_EXPIRY: parseInt(process.env.PAYMENT_TOKEN_EXPIRY || '300', 10), // 5 minutes
+  STEP_UP_EXPIRY_MINUTES: parseInt(process.env.STEP_UP_EXPIRY_MINUTES || '15', 10),
+  DAILY_LIMIT_RESET_TIMEZONE: process.env.DAILY_LIMIT_RESET_TIMEZONE || 'America/Toronto',
+
+  // Introspection credentials for merchants (SSIM)
+  INTROSPECTION_CLIENT_ID: process.env.INTROSPECTION_CLIENT_ID || 'ssim_introspect',
+  INTROSPECTION_CLIENT_SECRET: process.env.INTROSPECTION_CLIENT_SECRET || 'dev-introspection-secret-change-in-production',
 };
 
 // Validate required env vars in production
@@ -77,6 +89,9 @@ export function validateEnv(): void {
       'SESSION_SECRET',
       'ENCRYPTION_KEY',
       'MOBILE_JWT_SECRET',
+      'AGENT_JWT_SECRET',
+      'PAYMENT_TOKEN_SECRET',
+      'INTROSPECTION_CLIENT_SECRET',
     ];
 
     const missing = required.filter(key => !process.env[key]);

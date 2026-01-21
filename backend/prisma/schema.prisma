@@ -45,6 +45,7 @@ model WalletUser {
   mobilePaymentRequests MobilePaymentRequest[]
   deviceKeys            DeviceKey[]
   verifications         UserVerification[]
+  agents                Agent[]
 }
 
 // =============================================================================
@@ -490,4 +491,151 @@ model UserVerification {
 
   @@index([userId])
   @@map("user_verifications")
+}
+
+// =============================================================================
+// AGENT COMMERCE (SACP - SimToolBox Agent Commerce Protocol)
+// =============================================================================
+// AI agents that can make purchases on behalf of users with spending controls
+
+model Agent {
+  id                  String   @id @default(uuid())
+  userId              String
+  user                WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Client credentials (OAuth 2.0 client credentials flow)
+  clientId            String   @unique  // Format: "agent_{nanoid(12)}"
+  clientSecretHash    String             // bcrypt hashed secret
+
+  // Agent metadata
+  name                String             // User-friendly name
+  description         String?
+
+  // Permissions (what the agent can do)
+  permissions         String[]           // ["browse", "cart", "purchase", "history"]
+
+  // Spending limits (in user's currency)
+  perTransactionLimit Decimal  @db.Decimal(15, 2)  // Max per single transaction
+  dailyLimit          Decimal  @db.Decimal(15, 2)  // Max per day (resets at midnight EST)
+  monthlyLimit        Decimal  @db.Decimal(15, 2)  // Max per calendar month
+  limitCurrency       String   @default("CAD")
+
+  // Status
+  status              String   @default("active") // "active", "suspended", "revoked"
+
+  // Timestamps
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  lastUsedAt          DateTime?
+  secretRotatedAt     DateTime?  // Track when secret was last rotated
+
+  // Relationships
+  accessTokens        AgentAccessToken[]
+  transactions        AgentTransaction[]
+  stepUpRequests      StepUpRequest[]
+
+  @@index([userId])
+  @@index([clientId])
+  @@map("agents")
+}
+
+model AgentAccessToken {
+  id          String    @id @default(uuid())
+  agentId     String
+  agent       Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // Token identifier (SHA-256 hash for revocation lookup)
+  tokenHash   String    @unique
+
+  // Token metadata
+  scope       String?              // Space-separated scopes if restricted
+  issuedAt    DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  @@index([agentId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("agent_access_tokens")
+}
+
+model AgentTransaction {
+  id                    String    @id @default(uuid())
+  agentId               String
+  agent                 Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // Transaction details
+  amount                Decimal   @db.Decimal(15, 2)
+  currency              String    @default("CAD")
+  merchantId            String
+  merchantName          String?
+  sessionId             String?   // Merchant checkout session ID
+
+  // Payment method used
+  paymentMethodId       String?   // WalletCard ID
+  paymentMethodLastFour String?   // Last 4 digits for display
+
+  // Status
+  status                String    @default("pending") // "pending", "completed", "failed", "refunded"
+  approvalType          String?   // "auto" or "step_up"
+
+  // For spending limit calculation (period boundaries)
+  dailyPeriodStart      DateTime  // Start of day in EST
+  monthlyPeriodStart    DateTime  // Start of month
+
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
+
+  // Link to step-up if required
+  stepUpId              String?   @unique
+  stepUp                StepUpRequest? @relation(fields: [stepUpId], references: [id])
+
+  @@index([agentId])
+  @@index([agentId, dailyPeriodStart])
+  @@index([agentId, monthlyPeriodStart])
+  @@index([status])
+  @@map("agent_transactions")
+}
+
+model StepUpRequest {
+  id                        String    @id @default(uuid())
+  agentId                   String
+  agent                     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  // Payment request details
+  amount                    Decimal   @db.Decimal(15, 2)
+  currency                  String
+  merchantId                String
+  merchantName              String?
+  sessionId                 String?   // Merchant checkout session ID
+
+  // Cart items for display (JSON array)
+  items                     Json?     // Array of { name, quantity, price }
+
+  // Reason for step-up
+  reason                    String    // Human-readable reason
+  triggerType               String    // "per_transaction", "daily_limit", "monthly_limit"
+
+  // Status
+  status                    String    @default("pending") // "pending", "approved", "rejected", "expired"
+
+  // Payment method (can be changed during approval)
+  requestedPaymentMethodId  String?   // Originally requested
+  approvedPaymentMethodId   String?   // What user approved with
+
+  // Timestamps
+  createdAt                 DateTime  @default(now())
+  expiresAt                 DateTime  // 15 minutes from creation
+  resolvedAt                DateTime?
+
+  // Result
+  rejectionReason           String?
+
+  // Back-reference to transaction (created after approval)
+  transaction               AgentTransaction?
+
+  @@index([agentId])
+  @@index([status, expiresAt])
+  @@map("step_up_requests")
 }
