@@ -758,6 +758,316 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # =============================================================================
+  # Pairing Code Endpoints (Mobile)
+  # =============================================================================
+  /api/mobile/pairing-codes:
+    post:
+      tags:
+        - Access Request
+      summary: Generate pairing code
+      description: |
+        Generate a pairing code for agent binding. The code is used by AI agents
+        to request access to the user's wallet.
+
+        **Flow**:
+        1. User generates code in mwsim
+        2. User gives code to their AI agent
+        3. Agent submits code via `/api/agent/v1/access-request`
+        4. User receives push notification to approve
+
+        **Security**:
+        - Codes expire after 24 hours
+        - Each user can have max 3 active codes
+        - Code is single-use (consumed on first access request)
+      operationId: generatePairingCode
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Pairing code generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairingCodeResponse'
+        '429':
+          description: Too many active codes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # Access Request Endpoints (Agent-Facing)
+  # =============================================================================
+  /api/agent/v1/access-request:
+    post:
+      tags:
+        - Access Request
+      summary: Request wallet access
+      description: |
+        AI agent requests access to a user's wallet using a pairing code.
+        The user will receive a push notification to approve/reject the request.
+
+        **Flow**:
+        1. Agent submits pairing code + requested permissions/limits
+        2. WSIM validates code and sends push notification to user
+        3. Agent polls `/api/agent/v1/access-request/{id}` for status
+        4. On approval, credentials are returned
+
+        **Expiration**: Access requests expire after 24 hours.
+      operationId: createAccessRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessRequestCreate'
+      responses:
+        '201':
+          description: Access request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestCreatedResponse'
+        '400':
+          description: Invalid pairing code or request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Pairing code not found or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/agent/v1/access-request/{requestId}:
+    get:
+      tags:
+        - Access Request
+      summary: Check access request status
+      description: |
+        Poll for access request status. Returns credentials when approved.
+
+        **Polling Guidance**:
+        - Poll every 5-10 seconds
+        - Stop after 24 hours (request expiration)
+        - Use exponential backoff if getting rate limited
+      operationId: getAccessRequestStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Access request ID
+      responses:
+        '200':
+          description: Access request status
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AccessRequestPendingResponse'
+                  - $ref: '#/components/schemas/AccessRequestApprovedResponse'
+                  - $ref: '#/components/schemas/AccessRequestRejectedResponse'
+        '404':
+          description: Access request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/agent/v1/access-request/{requestId}/qr:
+    get:
+      tags:
+        - Access Request
+      summary: Get QR code for access request
+      description: |
+        Get QR code data for display. User scans with mwsim to approve.
+
+        **QR Content**: Contains request ID and WSIM endpoint for mwsim to call.
+      operationId: getAccessRequestQR
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Access request ID
+      responses:
+        '200':
+          description: QR code data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestQRResponse'
+        '404':
+          description: Access request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # Access Request Endpoints (Mobile)
+  # =============================================================================
+  /api/mobile/access-requests:
+    get:
+      tags:
+        - Access Request
+      summary: List pending access requests
+      description: |
+        List all pending access requests for the authenticated user.
+        Used by mwsim to show the "Needs Your Attention" section.
+      operationId: listAccessRequests
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, approved, rejected, expired]
+            default: pending
+          description: Filter by status
+      responses:
+        '200':
+          description: List of access requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestListResponse'
+
+  /api/mobile/access-requests/{requestId}:
+    get:
+      tags:
+        - Access Request
+      summary: Get access request details
+      description: |
+        Get details of an access request for the approval screen.
+        Shows agent name, requested permissions, and spending limits.
+      operationId: getAccessRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Access request ID
+      responses:
+        '200':
+          description: Access request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestDetailResponse'
+        '404':
+          description: Access request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/access-requests/{requestId}/approve:
+    post:
+      tags:
+        - Access Request
+      summary: Approve access request
+      description: |
+        Approve an agent's access request. User can modify (decrease) the
+        spending limits before approving.
+
+        **Biometric Required**: mwsim should require Face ID/Touch ID before calling.
+
+        **Limit Modification**: User can only DECREASE limits, not increase.
+      operationId: approveAccessRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Access request ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveAccessRequestInput'
+      responses:
+        '200':
+          description: Access request approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestApprovalResponse'
+        '400':
+          description: Invalid request (e.g., increased limits)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Access request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Access request already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/access-requests/{requestId}/reject:
+    post:
+      tags:
+        - Access Request
+      summary: Reject access request
+      description: Reject an agent's access request.
+      operationId: rejectAccessRequest
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Access request ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectAccessRequestInput'
+      responses:
+        '200':
+          description: Access request rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessRequestRejectionResponse'
+        '404':
+          description: Access request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Access request already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 # =============================================================================
 # Components
 # =============================================================================
@@ -1635,3 +1945,391 @@ components:
                   message:
                     type: string
                     example: "Must be a positive number"
+
+    # =========================================================================
+    # Pairing Code & Access Request Schemas
+    # =========================================================================
+    PairingCodeResponse:
+      type: object
+      required:
+        - code
+        - expires_at
+      properties:
+        code:
+          type: string
+          description: Pairing code to give to AI agent
+          example: "WSIM-ABC123-XYZ789"
+        expires_at:
+          type: string
+          format: date-time
+          description: Code expiration (24 hours from creation)
+          example: "2026-01-22T15:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+
+    AccessRequestCreate:
+      type: object
+      required:
+        - pairing_code
+        - agent_name
+        - permissions
+        - spending_limits
+      properties:
+        pairing_code:
+          type: string
+          description: Pairing code from user
+          example: "WSIM-ABC123-XYZ789"
+        agent_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Human-readable agent name
+          example: "My Shopping Assistant"
+        description:
+          type: string
+          maxLength: 500
+          description: Optional description
+          example: "Helps me buy groceries and household items"
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [browse, cart, purchase, history]
+          description: Requested permissions
+          example: ["browse", "cart", "purchase"]
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimitsInput'
+        delivery:
+          type: string
+          enum: [push, qr]
+          default: push
+          description: How to deliver approval request (push notification or QR)
+
+    AccessRequestCreatedResponse:
+      type: object
+      required:
+        - request_id
+        - status
+        - expires_at
+      properties:
+        request_id:
+          type: string
+          description: Access request ID for polling
+          example: "ar_abc123xyz789"
+        status:
+          type: string
+          enum: [pending]
+        expires_at:
+          type: string
+          format: date-time
+          description: Request expiration (24 hours)
+          example: "2026-01-22T15:00:00Z"
+        poll_url:
+          type: string
+          format: uri
+          description: URL to poll for status
+          example: "https://wsim.banksim.ca/api/agent/v1/access-request/ar_abc123xyz789"
+
+    AccessRequestPendingResponse:
+      type: object
+      required:
+        - request_id
+        - status
+        - expires_at
+      properties:
+        request_id:
+          type: string
+          example: "ar_abc123xyz789"
+        status:
+          type: string
+          enum: [pending]
+        expires_at:
+          type: string
+          format: date-time
+        time_remaining_seconds:
+          type: integer
+          description: Seconds until expiration
+          example: 86400
+
+    AccessRequestApprovedResponse:
+      type: object
+      required:
+        - request_id
+        - status
+        - credentials
+        - agent_id
+        - permissions
+        - spending_limits
+      properties:
+        request_id:
+          type: string
+          example: "ar_abc123xyz789"
+        status:
+          type: string
+          enum: [approved]
+        credentials:
+          type: object
+          required:
+            - client_id
+            - client_secret
+            - token_endpoint
+          properties:
+            client_id:
+              type: string
+              description: Agent client ID
+              example: "agent_abc123def456"
+            client_secret:
+              type: string
+              description: Agent client secret
+              example: "sk_agent_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            token_endpoint:
+              type: string
+              format: uri
+              description: OAuth token endpoint
+              example: "https://wsim.banksim.ca/api/agent/v1/oauth/token"
+        agent_id:
+          type: string
+          description: Agent UUID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Granted permissions (may be subset of requested)
+          example: ["browse", "cart", "purchase"]
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        approved_at:
+          type: string
+          format: date-time
+
+    AccessRequestRejectedResponse:
+      type: object
+      required:
+        - request_id
+        - status
+      properties:
+        request_id:
+          type: string
+          example: "ar_abc123xyz789"
+        status:
+          type: string
+          enum: [rejected, expired]
+        reason:
+          type: string
+          description: Rejection reason (if provided)
+          example: "User declined the request"
+        rejected_at:
+          type: string
+          format: date-time
+
+    AccessRequestQRResponse:
+      type: object
+      required:
+        - request_id
+        - qr_data
+        - qr_url
+      properties:
+        request_id:
+          type: string
+          example: "ar_abc123xyz789"
+        qr_data:
+          type: string
+          description: Data to encode in QR code
+          example: "wsim://access-request/ar_abc123xyz789"
+        qr_url:
+          type: string
+          format: uri
+          description: URL that opens mwsim with approval screen
+          example: "https://wsim.banksim.ca/m/access-request/ar_abc123xyz789"
+        expires_at:
+          type: string
+          format: date-time
+
+    AccessRequestListResponse:
+      type: object
+      required:
+        - access_requests
+      properties:
+        access_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessRequestSummary'
+
+    AccessRequestSummary:
+      type: object
+      required:
+        - id
+        - agent_name
+        - status
+        - created_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          example: "ar_abc123xyz789"
+        agent_name:
+          type: string
+          example: "My Shopping Assistant"
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired]
+        requested_permissions:
+          type: array
+          items:
+            type: string
+          example: ["browse", "cart", "purchase"]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        time_remaining_seconds:
+          type: integer
+
+    AccessRequestDetailResponse:
+      type: object
+      required:
+        - access_request
+      properties:
+        access_request:
+          type: object
+          required:
+            - id
+            - agent_name
+            - status
+            - requested_permissions
+            - requested_limits
+            - expires_at
+          properties:
+            id:
+              type: string
+              example: "ar_abc123xyz789"
+            agent_name:
+              type: string
+              example: "My Shopping Assistant"
+            agent_description:
+              type: string
+            status:
+              type: string
+              enum: [pending, approved, rejected, expired]
+            requested_permissions:
+              type: array
+              items:
+                type: string
+              example: ["browse", "cart", "purchase"]
+            requested_limits:
+              $ref: '#/components/schemas/SpendingLimits'
+            created_at:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+            time_remaining_seconds:
+              type: integer
+
+    ApproveAccessRequestInput:
+      type: object
+      required:
+        - consent
+      properties:
+        consent:
+          type: boolean
+          enum: [true]
+          description: User consents to agent access
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [browse, cart, purchase, history]
+          description: Granted permissions (must be subset of requested)
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimitsInput'
+          description: Modified limits (can only decrease, not increase)
+
+    RejectAccessRequestInput:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional rejection reason
+          example: "I don't recognize this agent"
+
+    AccessRequestApprovalResponse:
+      type: object
+      required:
+        - status
+        - agent_id
+      properties:
+        status:
+          type: string
+          enum: [approved]
+        agent_id:
+          type: string
+          description: Created agent UUID
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        agent_name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+        spending_limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        approved_at:
+          type: string
+          format: date-time
+
+    AccessRequestRejectionResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [rejected]
+        rejected_at:
+          type: string
+          format: date-time
+
+    # =========================================================================
+    # Access Request Notification Schema
+    # =========================================================================
+    AccessRequestWebhookPayload:
+      type: object
+      description: Push notification payload for agent access requests
+      required:
+        - type
+        - request_id
+        - agent_name
+        - requested_permissions
+        - requested_limits
+        - expires_at
+      properties:
+        type:
+          type: string
+          enum: [agent.access_request]
+          description: Notification type
+        request_id:
+          type: string
+          example: "ar_abc123xyz789"
+        agent_name:
+          type: string
+          example: "My Shopping Assistant"
+        agent_description:
+          type: string
+        requested_permissions:
+          type: array
+          items:
+            type: string
+          example: ["browse", "cart", "purchase"]
+        requested_limits:
+          $ref: '#/components/schemas/SpendingLimits'
+        expires_at:
+          type: string
+          format: date-time
+          example: "2026-01-22T15:00:00Z"
