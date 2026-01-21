@@ -97,7 +97,8 @@ export type NotificationType =
   | 'agent.step_up'        // Step-up approval needed for agent purchase
   | 'agent.transaction'    // Agent transaction completed
   | 'agent.limit_warning'  // Approaching spending limit
-  | 'agent.suspended';     // Agent auto-suspended
+  | 'agent.suspended'      // Agent auto-suspended
+  | 'agent.access_request'; // Agent requesting access credentials
 
 /**
  * Deep link parameters for navigation
@@ -108,6 +109,7 @@ export interface DeepLinkParams {
   contractId?: string;
   stepUpId?: string;
   agentId?: string;
+  accessRequestId?: string;
 }
 
 /**

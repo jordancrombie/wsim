@@ -18,6 +18,7 @@ import agentOAuthRoutes from './agent-oauth';
 import agentPaymentsRoutes from './agent-payments';
 import agentManagementRoutes from './agent-management';
 import stepUpRoutes from './step-up';
+import { mobileAccessRequestRouter, agentAccessRequestRouter } from './access-request';
 
 const router = Router();
 
@@ -44,5 +45,7 @@ router.use('/api/agent/v1/oauth', agentOAuthRoutes);     // Agent OAuth endpoint
 router.use('/api/agent/v1/payments', agentPaymentsRoutes); // Agent payment token API
 router.use('/api/mobile/agents', agentManagementRoutes); // Mobile app agent management
 router.use('/api/mobile/step-up', stepUpRoutes);         // Mobile step-up approval
+router.use('/api/mobile/access-requests', mobileAccessRequestRouter); // Mobile access request management
+router.use('/api/agent/v1', agentAccessRequestRouter);   // Agent access request endpoints
 
 export default router;

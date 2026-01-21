@@ -46,6 +46,7 @@ model WalletUser {
   deviceKeys            DeviceKey[]
   verifications         UserVerification[]
   agents                Agent[]
+  pairingCodes          PairingCode[]
 }
 
 // =============================================================================
@@ -533,6 +534,7 @@ model Agent {
   accessTokens        AgentAccessToken[]
   transactions        AgentTransaction[]
   stepUpRequests      StepUpRequest[]
+  accessRequest       AccessRequest?     @relation("AccessRequestAgent")
 
   @@index([userId])
   @@index([clientId])
@@ -638,4 +640,79 @@ model StepUpRequest {
   @@index([agentId])
   @@index([status, expiresAt])
   @@map("step_up_requests")
+}
+
+// =============================================================================
+// AGENT ACCESS REQUESTS (Agent-Initiated Credential Flow)
+// =============================================================================
+
+model PairingCode {
+  id        String   @id @default(uuid())
+  userId    String
+  user      WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The actual pairing code (format: WSIM-XXXXXX-XXXXXX)
+  code      String   @unique
+
+  // Status tracking
+  status    String   @default("active") // "active", "used", "expired"
+  usedAt    DateTime?
+
+  // Timestamps
+  createdAt DateTime @default(now())
+  expiresAt DateTime // 24 hours from creation
+
+  // Back-reference to access request that used this code
+  accessRequest AccessRequest?
+
+  @@index([userId])
+  @@index([code])
+  @@index([status, expiresAt])
+  @@map("pairing_codes")
+}
+
+model AccessRequest {
+  id              String   @id @default(uuid())
+
+  // Pairing code used to create this request
+  pairingCodeId   String   @unique
+  pairingCode     PairingCode @relation(fields: [pairingCodeId], references: [id], onDelete: Cascade)
+
+  // Agent details (provided by the requesting agent)
+  agentName       String
+  agentDescription String?
+
+  // Requested permissions and limits
+  requestedPermissions String[]           // ["browse", "cart", "purchase"]
+  requestedPerTransaction Decimal @db.Decimal(15, 2)
+  requestedDailyLimit     Decimal @db.Decimal(15, 2)
+  requestedMonthlyLimit   Decimal @db.Decimal(15, 2)
+  requestedCurrency       String  @default("CAD")
+
+  // Delivery method
+  deliveryMethod  String   @default("push") // "push", "qr"
+
+  // Status
+  status          String   @default("pending") // "pending", "approved", "rejected", "expired"
+
+  // Granted permissions and limits (may differ from requested - user can decrease)
+  grantedPermissions      String[] @default([])
+  grantedPerTransaction   Decimal? @db.Decimal(15, 2)
+  grantedDailyLimit       Decimal? @db.Decimal(15, 2)
+  grantedMonthlyLimit     Decimal? @db.Decimal(15, 2)
+
+  // Result
+  rejectionReason String?
+
+  // Back-reference to created agent (populated after approval)
+  agentId         String?  @unique
+  agent           Agent?   @relation("AccessRequestAgent", fields: [agentId], references: [id])
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime // 24 hours from creation
+  resolvedAt      DateTime?
+
+  @@index([status, expiresAt])
+  @@map("access_requests")
 }

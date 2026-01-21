@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Agent-Initiated Credential Flow (Access Request)
+- `PairingCode` model - User-generated codes for agent binding (WSIM-XXXXXX-XXXXXX format, 24h expiry)
+- `AccessRequest` model - Agent access request tracking with approval workflow
+
+#### Pairing Code Endpoints (`/api/mobile/pairing-codes`)
+- `POST /` - Generate pairing code (max 3 active per user)
+
+#### Access Request Endpoints - Mobile (`/api/mobile/access-requests/*`)
+- `GET /` - List pending access requests
+- `GET /:id` - Get access request details for approval screen
+- `POST /:id/approve` - Approve with optional limit decreases (biometric required)
+- `POST /:id/reject` - Reject with optional reason
+
+#### Access Request Endpoints - Agent (`/api/agent/v1/*`)
+- `POST /access-request` - Create access request using pairing code
+- `GET /access-request/:id` - Poll for request status (returns credentials on approval)
+- `GET /access-request/:id/qr` - Get QR code data for in-person binding
+
+#### Notification Types
+- `agent.access_request` - Push notification for new access request approval
+
+#### Deep Link Support
+- Added `accessRequestId` to DeepLinkParams for notification navigation
+
+### Database Migration Required
+```bash
+npx prisma migrate deploy
+```
+
+Creates 2 additional tables: `pairing_codes`, `access_requests`
+
 ---
 
 ## [1.0.0] - 2026-01-21
