@@ -252,9 +252,14 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
 router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { userId } = req;
+    const includeRevoked = req.query.include_revoked === 'true';
 
     const agents = await prisma.agent.findMany({
-      where: { userId: userId! },
+      where: {
+        userId: userId!,
+        // Exclude revoked agents by default
+        ...(includeRevoked ? {} : { status: { not: 'revoked' } }),
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,

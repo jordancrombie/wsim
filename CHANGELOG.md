@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.4] - 2026-01-22
+
+### Fixed
+- **Token expiry parsing**: Added `parseDuration()` to support "1h", "5m" format for `AGENT_ACCESS_TOKEN_EXPIRY` and `PAYMENT_TOKEN_EXPIRY` (was incorrectly parsing "1h" as 1 second)
+- **Minimum expiry validation**: Enforces 60s minimum for access tokens, 30s for payment tokens
+- **Snake_case API responses**: All SACP endpoints now return snake_case keys matching OpenAPI spec
+- **Agent list filtering**: `GET /api/mobile/agents` now excludes revoked agents by default (use `?include_revoked=true` to include)
+
+### Changed
+- Updated `.env.example` with SACP configuration documentation
+
+---
+
 ## [1.0.3] - 2026-01-22
 
 ### Fixed
