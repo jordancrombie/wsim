@@ -30,6 +30,10 @@ import {
   getRemainingLimits,
   formatCurrency,
 } from '../services/spending-limits';
+import {
+  dispatchAgentDeactivated,
+  dispatchAgentSecretRotated,
+} from '../services/webhook-dispatch';
 
 const router = Router();
 
@@ -532,6 +536,18 @@ router.patch('/:id', requireMobileAuth, async (req: AuthenticatedRequest, res: R
 
     console.log(`[Agent] Updated agent ${id} for user ${userId}`);
 
+    // Dispatch webhook if agent was suspended
+    if (status === 'suspended' && agent.status !== 'suspended') {
+      dispatchAgentDeactivated(
+        updatedAgent.id,
+        updatedAgent.clientId,
+        'suspended',
+        'Owner suspended agent'
+      ).catch((err) => {
+        console.error('[Agent] Webhook dispatch error:', err);
+      });
+    }
+
     return res.json({
       id: updatedAgent.id,
       client_id: updatedAgent.clientId,
@@ -595,6 +611,16 @@ router.delete('/:id', requireMobileAuth, async (req: AuthenticatedRequest, res: 
     });
 
     console.log(`[Agent] Revoked agent ${id} for user ${userId}`);
+
+    // Dispatch webhook notification (fire and forget)
+    dispatchAgentDeactivated(
+      agent.id,
+      agent.clientId,
+      'revoked',
+      'Owner revoked agent'
+    ).catch((err) => {
+      console.error('[Agent] Webhook dispatch error:', err);
+    });
 
     return res.json({
       success: true,
@@ -663,6 +689,14 @@ router.post('/:id/rotate-secret', requireMobileAuth, async (req: AuthenticatedRe
     });
 
     console.log(`[Agent] Rotated secret for agent ${id}`);
+
+    // Dispatch webhook notification (fire and forget)
+    dispatchAgentSecretRotated(
+      agent.id,
+      agent.clientId
+    ).catch((err) => {
+      console.error('[Agent] Webhook dispatch error:', err);
+    });
 
     return res.json({
       client_id: agent.clientId,

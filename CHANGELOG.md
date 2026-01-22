@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.5] - 2026-01-22
+
+### Added
+
+#### Webhook Notifications for Token Revocations
+- **MerchantWebhook model** - Store webhook registrations for merchants (SSIM)
+- **WebhookDeliveryLog model** - Track webhook delivery attempts with status codes and errors
+
+#### Webhook API (`/api/agent/v1/webhooks`)
+- `POST /` - Register/update webhook subscription (requires introspection credentials)
+- `GET /` - Get current webhook registration
+- `DELETE /` - Unregister webhook
+- `GET /logs` - Get recent delivery logs
+- `POST /test` - Send test event
+
+#### Webhook Events
+- `token.revoked` - Fired when an agent access token is explicitly revoked
+- `agent.deactivated` - Fired when an agent is suspended or revoked by owner
+- `agent.secret_rotated` - Fired when an agent's client secret is rotated
+
+#### Security
+- HMAC-SHA256 webhook signatures with timestamp for replay protection
+- Headers: `X-Webhook-Timestamp`, `X-Webhook-Signature: sha256={signature}`
+- Signature payload: `{timestamp}.{json_body}`
+
+### Database Migration Required
+```bash
+npx prisma migrate deploy
+```
+
+Creates 2 new tables: `merchant_webhooks`, `webhook_delivery_logs`
+
+---
+
 ## [1.0.4] - 2026-01-22
 
 ### Fixed

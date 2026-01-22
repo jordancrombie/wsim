@@ -642,6 +642,56 @@ model StepUpRequest {
   @@map("step_up_requests")
 }
 
+model MerchantWebhook {
+  id              String    @id @default(uuid())
+
+  // Merchant identification (matches introspection client)
+  merchantId      String    @unique  // e.g., "ssim_introspect"
+
+  // Webhook configuration
+  webhookUrl      String              // HTTPS endpoint to receive events
+  webhookSecret   String              // HMAC-SHA256 signing secret
+
+  // Events to receive (e.g., ["token.revoked", "agent.deactivated"])
+  events          String[]
+
+  // Status
+  enabled         Boolean   @default(true)
+
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Delivery tracking
+  deliveryLogs    WebhookDeliveryLog[]
+
+  @@map("merchant_webhooks")
+}
+
+model WebhookDeliveryLog {
+  id              String    @id @default(uuid())
+  webhookId       String
+  webhook         MerchantWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  // Event details
+  eventType       String              // e.g., "token.revoked"
+  payload         Json                // Full payload sent
+
+  // Delivery result
+  statusCode      Int?                // HTTP response code (null if failed to connect)
+  responseBody    String?             // Response body (truncated)
+  error           String?             // Error message if delivery failed
+
+  // Timing
+  attemptedAt     DateTime  @default(now())
+  durationMs      Int?                // How long the request took
+
+  @@index([webhookId])
+  @@index([eventType])
+  @@index([attemptedAt])
+  @@map("webhook_delivery_logs")
+}
+
 // =============================================================================
 // AGENT ACCESS REQUESTS (Agent-Initiated Credential Flow)
 // =============================================================================

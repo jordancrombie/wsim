@@ -17,6 +17,7 @@ import verificationRoutes from './verification';
 import agentOAuthRoutes from './agent-oauth';
 import agentPaymentsRoutes from './agent-payments';
 import agentManagementRoutes from './agent-management';
+import agentWebhooksRoutes from './agent-webhooks';
 import stepUpRoutes from './step-up';
 import { mobileAccessRequestRouter, agentAccessRequestRouter } from './access-request';
 
@@ -43,6 +44,7 @@ router.use('/api/mobile', verificationRoutes); // Verification API (Trusted User
 // Agent Commerce (SACP) routes
 router.use('/api/agent/v1/oauth', agentOAuthRoutes);     // Agent OAuth endpoints
 router.use('/api/agent/v1/payments', agentPaymentsRoutes); // Agent payment token API
+router.use('/api/agent/v1/webhooks', agentWebhooksRoutes); // Merchant webhook management
 router.use('/api/mobile/agents', agentManagementRoutes); // Mobile app agent management
 router.use('/api/mobile/step-up', stepUpRoutes);         // Mobile step-up approval
 router.use('/api/mobile/access-requests', mobileAccessRequestRouter); // Mobile access request management

@@ -21,6 +21,7 @@ import {
   verifyAgentAccessToken,
 } from '../services/agent-auth';
 import { getSpendingUsage } from '../services/spending-limits';
+import { dispatchTokenRevoked } from '../services/webhook-dispatch';
 
 const router = Router();
 
@@ -202,11 +203,26 @@ router.post('/revoke', async (req: Request, res: Response) => {
       }
     }
 
+    // Get token payload for webhook dispatch (before revoking)
+    const payload = verifyAgentAccessToken(token);
+
     // Revoke the token
     const tokenHash = getTokenHash(token);
     await revokeToken(tokenHash);
 
     console.log('[Agent OAuth] Token revoked');
+
+    // Dispatch webhook notification (fire and forget)
+    if (payload) {
+      dispatchTokenRevoked(
+        tokenHash,
+        payload.sub,
+        payload.client_id,
+        'explicit_revocation'
+      ).catch((err) => {
+        console.error('[Agent OAuth] Webhook dispatch error:', err);
+      });
+    }
 
     return res.status(200).json({ revoked: true });
   } catch (error) {
