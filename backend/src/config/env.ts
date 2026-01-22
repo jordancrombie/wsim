@@ -78,6 +78,9 @@ export const env = {
   // Introspection credentials for merchants (SSIM)
   INTROSPECTION_CLIENT_ID: process.env.INTROSPECTION_CLIENT_ID || 'ssim_introspect',
   INTROSPECTION_CLIENT_SECRET: process.env.INTROSPECTION_CLIENT_SECRET || 'dev-introspection-secret-change-in-production',
+
+  // Access Request settings
+  MAX_ACTIVE_PAIRING_CODES: parseInt(process.env.MAX_ACTIVE_PAIRING_CODES || (process.env.NODE_ENV === 'production' ? '10' : '30'), 10),
 };
 
 // Validate required env vars in production

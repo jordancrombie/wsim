@@ -101,7 +101,10 @@ mobileAccessRequestRouter.post('/pairing-codes', requireMobileAuth, async (req: 
   try {
     const { userId } = req;
 
-    // Check for existing active codes (max 3)
+    // Check for existing active codes
+    const { env } = await import('../config/env');
+    const maxCodes = env.MAX_ACTIVE_PAIRING_CODES;
+
     const activeCodes = await prisma.pairingCode.count({
       where: {
         userId: userId!,
@@ -110,10 +113,10 @@ mobileAccessRequestRouter.post('/pairing-codes', requireMobileAuth, async (req: 
       },
     });
 
-    if (activeCodes >= 3) {
+    if (activeCodes >= maxCodes) {
       return res.status(429).json({
         error: 'too_many_codes',
-        message: 'Maximum of 3 active pairing codes allowed',
+        message: `Maximum of ${maxCodes} active pairing codes allowed`,
       });
     }
 
