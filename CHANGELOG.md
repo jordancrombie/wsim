@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.3] - 2026-01-22
+
+### Fixed
+- Fixed agent access request route path (`/api/agent/v1/` → `/api/agent/v1/access-request`)
+
+---
+
 ## [1.0.2] - 2026-01-22
 
 ### Changed

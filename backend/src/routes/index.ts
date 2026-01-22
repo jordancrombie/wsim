@@ -46,6 +46,6 @@ router.use('/api/agent/v1/payments', agentPaymentsRoutes); // Agent payment toke
 router.use('/api/mobile/agents', agentManagementRoutes); // Mobile app agent management
 router.use('/api/mobile/step-up', stepUpRoutes);         // Mobile step-up approval
 router.use('/api/mobile/access-requests', mobileAccessRequestRouter); // Mobile access request management
-router.use('/api/agent/v1', agentAccessRequestRouter);   // Agent access request endpoints
+router.use('/api/agent/v1/access-request', agentAccessRequestRouter);   // Agent access request endpoints
 
 export default router;
