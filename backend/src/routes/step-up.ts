@@ -145,41 +145,39 @@ router.get('/:stepUpId', requireMobileAuth, async (req: AuthenticatedRequest, re
     const timeRemainingSeconds = Math.floor(timeRemainingMs / 1000);
 
     return res.json({
-      id: stepUp.id,
-      status: stepUp.status,
-      agent: {
-        id: stepUp.agent.id,
-        name: stepUp.agent.name,
-      },
-      purchase: {
+      step_up: {
+        id: stepUp.id,
+        status: stepUp.status,
+        agent_id: stepUp.agent.id,
+        agent_name: stepUp.agent.name,
         amount: stepUp.amount.toString(),
         currency: stepUp.currency,
-        merchantId: stepUp.merchantId,
-        merchantName: stepUp.merchantName,
-        sessionId: stepUp.sessionId,
+        merchant_id: stepUp.merchantId,
+        merchant_name: stepUp.merchantName,
+        session_id: stepUp.sessionId,
         items: stepUp.items,
+        reason: stepUp.reason,
+        trigger_type: stepUp.triggerType,
+        expires_at: stepUp.expiresAt.toISOString(),
+        time_remaining_seconds: timeRemainingSeconds,
+        created_at: stepUp.createdAt.toISOString(),
       },
-      reason: stepUp.reason,
-      triggerType: stepUp.triggerType,
-      limits: {
-        perTransaction: stepUp.agent.perTransactionLimit.toString(),
+      spending_limits: {
+        per_transaction: stepUp.agent.perTransactionLimit.toString(),
         daily: stepUp.agent.dailyLimit.toString(),
         monthly: stepUp.agent.monthlyLimit.toString(),
         currency: stepUp.agent.limitCurrency,
       },
-      paymentMethods: paymentMethods.map(pm => ({
+      available_payment_methods: paymentMethods.map(pm => ({
         id: pm.id,
         type: pm.cardType,
-        lastFour: pm.lastFour,
-        cardholderName: pm.cardholderName,
-        expiryMonth: pm.expiryMonth,
-        expiryYear: pm.expiryYear,
-        isDefault: pm.isDefault,
+        last_four: pm.lastFour,
+        cardholder_name: pm.cardholderName,
+        exp_month: pm.expiryMonth,
+        exp_year: pm.expiryYear,
+        is_default: pm.isDefault,
       })),
-      requestedPaymentMethodId: stepUp.requestedPaymentMethodId,
-      expiresAt: stepUp.expiresAt.toISOString(),
-      timeRemainingSeconds,
-      createdAt: stepUp.createdAt.toISOString(),
+      requested_payment_method_id: stepUp.requestedPaymentMethodId,
     });
   } catch (error) {
     console.error('[Step-Up] Get error:', error);
@@ -333,14 +331,14 @@ router.post('/:stepUpId/approve', requireMobileAuth, async (req: AuthenticatedRe
     console.log(`[Step-Up] Approved step-up ${stepUpId} for agent ${stepUp.agent.name}`);
 
     return res.json({
-      success: true,
-      transactionId: result.id,
-      paymentMethod: {
+      status: 'approved',
+      transaction_id: result.id,
+      payment_method: {
         id: paymentMethod.id,
         type: paymentMethod.cardType,
-        lastFour: paymentMethod.lastFour,
+        last_four: paymentMethod.lastFour,
       },
-      message: 'Step-up approved. Agent can now complete the purchase.',
+      approved_at: new Date().toISOString(),
     });
   } catch (error) {
     console.error('[Step-Up] Approve error:', error);
@@ -418,8 +416,8 @@ router.post('/:stepUpId/reject', requireMobileAuth, async (req: AuthenticatedReq
     console.log(`[Step-Up] Rejected step-up ${stepUpId} for agent ${stepUp.agent.name}`);
 
     return res.json({
-      success: true,
-      message: 'Step-up request rejected',
+      status: 'rejected',
+      rejected_at: new Date().toISOString(),
     });
   } catch (error) {
     console.error('[Step-Up] Reject error:', error);
@@ -469,21 +467,19 @@ router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
     });
 
     return res.json({
-      stepUps: stepUps.map(su => ({
+      step_ups: stepUps.map(su => ({
         id: su.id,
-        agent: {
-          id: su.agent.id,
-          name: su.agent.name,
-        },
+        agent_id: su.agent.id,
+        agent_name: su.agent.name,
         amount: su.amount.toString(),
         currency: su.currency,
-        merchantId: su.merchantId,
-        merchantName: su.merchantName,
+        merchant_id: su.merchantId,
+        merchant_name: su.merchantName,
         reason: su.reason,
-        triggerType: su.triggerType,
-        expiresAt: su.expiresAt.toISOString(),
-        timeRemainingSeconds: Math.floor(Math.max(0, su.expiresAt.getTime() - Date.now()) / 1000),
-        createdAt: su.createdAt.toISOString(),
+        trigger_type: su.triggerType,
+        expires_at: su.expiresAt.toISOString(),
+        time_remaining_seconds: Math.floor(Math.max(0, su.expiresAt.getTime() - Date.now()) / 1000),
+        created_at: su.createdAt.toISOString(),
       })),
     });
   } catch (error) {

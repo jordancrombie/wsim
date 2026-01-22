@@ -4,6 +4,32 @@ import path from 'path';
 // Load .env file
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
+/**
+ * Parse a duration string (e.g., "1h", "30m", "3600") to seconds.
+ * Supports: s (seconds), m (minutes), h (hours), d (days)
+ * Plain numbers are treated as seconds.
+ */
+function parseDuration(value: string | undefined, defaultSeconds: number): number {
+  if (!value) return defaultSeconds;
+
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)\s*(s|m|h|d)?$/i);
+  if (!match) {
+    console.warn(`[Config] Invalid duration format "${value}", using default ${defaultSeconds}s`);
+    return defaultSeconds;
+  }
+
+  const num = parseFloat(match[1]);
+  const unit = (match[2] || 's').toLowerCase();
+
+  switch (unit) {
+    case 's': return Math.floor(num);
+    case 'm': return Math.floor(num * 60);
+    case 'h': return Math.floor(num * 3600);
+    case 'd': return Math.floor(num * 86400);
+    default: return Math.floor(num);
+  }
+}
+
 export const env = {
   // Server
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -69,9 +95,9 @@ export const env = {
 
   // Agent Commerce (SACP)
   AGENT_JWT_SECRET: process.env.AGENT_JWT_SECRET || 'dev-agent-jwt-secret-change-in-production',
-  AGENT_ACCESS_TOKEN_EXPIRY: parseInt(process.env.AGENT_ACCESS_TOKEN_EXPIRY || '3600', 10), // 1 hour
+  AGENT_ACCESS_TOKEN_EXPIRY: parseDuration(process.env.AGENT_ACCESS_TOKEN_EXPIRY, 3600), // 1 hour (supports "1h", "3600", etc.)
   PAYMENT_TOKEN_SECRET: process.env.PAYMENT_TOKEN_SECRET || 'dev-payment-token-secret-change-in-production',
-  PAYMENT_TOKEN_EXPIRY: parseInt(process.env.PAYMENT_TOKEN_EXPIRY || '300', 10), // 5 minutes
+  PAYMENT_TOKEN_EXPIRY: parseDuration(process.env.PAYMENT_TOKEN_EXPIRY, 300), // 5 minutes (supports "5m", "300", etc.)
   STEP_UP_EXPIRY_MINUTES: parseInt(process.env.STEP_UP_EXPIRY_MINUTES || '15', 10),
   DAILY_LIMIT_RESET_TIMEZONE: process.env.DAILY_LIMIT_RESET_TIMEZONE || 'America/Toronto',
 
@@ -107,5 +133,23 @@ export function validateEnv(): void {
     if (env.ENCRYPTION_KEY.length !== 32) {
       throw new Error('ENCRYPTION_KEY must be exactly 32 characters (256 bits)');
     }
+  }
+
+  // Always validate token expiry minimums (prevents misconfiguration)
+  const MIN_ACCESS_TOKEN_EXPIRY = 60; // 1 minute minimum
+  const MIN_PAYMENT_TOKEN_EXPIRY = 30; // 30 seconds minimum
+
+  if (env.AGENT_ACCESS_TOKEN_EXPIRY < MIN_ACCESS_TOKEN_EXPIRY) {
+    console.warn(
+      `[Config] AGENT_ACCESS_TOKEN_EXPIRY (${env.AGENT_ACCESS_TOKEN_EXPIRY}s) is below minimum (${MIN_ACCESS_TOKEN_EXPIRY}s). Using minimum.`
+    );
+    env.AGENT_ACCESS_TOKEN_EXPIRY = MIN_ACCESS_TOKEN_EXPIRY;
+  }
+
+  if (env.PAYMENT_TOKEN_EXPIRY < MIN_PAYMENT_TOKEN_EXPIRY) {
+    console.warn(
+      `[Config] PAYMENT_TOKEN_EXPIRY (${env.PAYMENT_TOKEN_EXPIRY}s) is below minimum (${MIN_PAYMENT_TOKEN_EXPIRY}s). Using minimum.`
+    );
+    env.PAYMENT_TOKEN_EXPIRY = MIN_PAYMENT_TOKEN_EXPIRY;
   }
 }

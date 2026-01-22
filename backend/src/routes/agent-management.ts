@@ -221,20 +221,20 @@ router.post('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respo
     // Return credentials (secret shown only once!)
     return res.status(201).json({
       id: agent.id,
-      clientId: agent.clientId,
-      clientSecret, // Only returned on creation!
+      client_id: agent.clientId,
+      client_secret: clientSecret, // Only returned on creation!
       name: agent.name,
       description: agent.description,
       permissions: agent.permissions,
-      spendingLimits: {
-        perTransaction: agent.perTransactionLimit.toString(),
+      spending_limits: {
+        per_transaction: agent.perTransactionLimit.toString(),
         daily: agent.dailyLimit.toString(),
         monthly: agent.monthlyLimit.toString(),
         currency: agent.limitCurrency,
       },
       status: agent.status,
-      createdAt: agent.createdAt.toISOString(),
-      message: 'Save the clientSecret now - it will not be shown again!',
+      created_at: agent.createdAt.toISOString(),
+      message: 'Save the client_secret now - it will not be shown again!',
     });
   } catch (error) {
     console.error('[Agent] Create error:', error);
@@ -279,23 +279,23 @@ router.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Respon
 
         return {
           id: agent.id,
-          clientId: agent.clientId,
+          client_id: agent.clientId,
           name: agent.name,
           description: agent.description,
           permissions: agent.permissions,
-          spendingLimits: {
-            perTransaction: agent.perTransactionLimit.toString(),
+          spending_limits: {
+            per_transaction: agent.perTransactionLimit.toString(),
             daily: agent.dailyLimit.toString(),
             monthly: agent.monthlyLimit.toString(),
             currency: agent.limitCurrency,
           },
-          currentUsage: {
+          spending_usage: {
             daily: usage.daily.toString(),
             monthly: usage.monthly.toString(),
           },
           status: agent.status,
-          createdAt: agent.createdAt.toISOString(),
-          lastUsedAt: agent.lastUsedAt?.toISOString() || null,
+          created_at: agent.createdAt.toISOString(),
+          last_used_at: agent.lastUsedAt?.toISOString() || null,
         };
       })
     );
@@ -361,29 +361,29 @@ router.get('/:id', requireMobileAuth, async (req: AuthenticatedRequest, res: Res
 
     return res.json({
       id: agent.id,
-      clientId: agent.clientId,
+      client_id: agent.clientId,
       name: agent.name,
       description: agent.description,
       permissions: agent.permissions,
-      spendingLimits: {
-        perTransaction: agent.perTransactionLimit.toString(),
+      spending_limits: {
+        per_transaction: agent.perTransactionLimit.toString(),
         daily: agent.dailyLimit.toString(),
         monthly: agent.monthlyLimit.toString(),
         currency: agent.limitCurrency,
       },
-      currentUsage: {
+      spending_usage: {
         daily: usage.daily.toString(),
         monthly: usage.monthly.toString(),
       },
-      remainingLimits: {
+      remaining_limits: {
         daily: remaining.dailyRemaining.toString(),
         monthly: remaining.monthlyRemaining.toString(),
       },
       status: agent.status,
-      createdAt: agent.createdAt.toISOString(),
-      updatedAt: agent.updatedAt.toISOString(),
-      lastUsedAt: agent.lastUsedAt?.toISOString() || null,
-      secretRotatedAt: agent.secretRotatedAt?.toISOString() || null,
+      created_at: agent.createdAt.toISOString(),
+      updated_at: agent.updatedAt.toISOString(),
+      last_used_at: agent.lastUsedAt?.toISOString() || null,
+      secret_rotated_at: agent.secretRotatedAt?.toISOString() || null,
     });
   } catch (error) {
     console.error('[Agent] Get error:', error);
@@ -529,18 +529,18 @@ router.patch('/:id', requireMobileAuth, async (req: AuthenticatedRequest, res: R
 
     return res.json({
       id: updatedAgent.id,
-      clientId: updatedAgent.clientId,
+      client_id: updatedAgent.clientId,
       name: updatedAgent.name,
       description: updatedAgent.description,
       permissions: updatedAgent.permissions,
-      spendingLimits: {
-        perTransaction: updatedAgent.perTransactionLimit.toString(),
+      spending_limits: {
+        per_transaction: updatedAgent.perTransactionLimit.toString(),
         daily: updatedAgent.dailyLimit.toString(),
         monthly: updatedAgent.monthlyLimit.toString(),
         currency: updatedAgent.limitCurrency,
       },
       status: updatedAgent.status,
-      updatedAt: updatedAgent.updatedAt.toISOString(),
+      updated_at: updatedAgent.updatedAt.toISOString(),
     });
   } catch (error) {
     console.error('[Agent] Update error:', error);
@@ -660,10 +660,10 @@ router.post('/:id/rotate-secret', requireMobileAuth, async (req: AuthenticatedRe
     console.log(`[Agent] Rotated secret for agent ${id}`);
 
     return res.json({
-      clientId: agent.clientId,
-      clientSecret: newClientSecret, // Only returned on rotation!
-      rotatedAt: new Date().toISOString(),
-      message: 'Save the new clientSecret now - it will not be shown again! All existing tokens have been revoked.',
+      client_id: agent.clientId,
+      client_secret: newClientSecret, // Only returned on rotation!
+      rotated_at: new Date().toISOString(),
+      message: 'Save the new client_secret now - it will not be shown again! All existing tokens have been revoked.',
     });
   } catch (error) {
     console.error('[Agent] Rotate secret error:', error);
@@ -743,20 +743,20 @@ router.get('/:id/transactions', requireMobileAuth, async (req: AuthenticatedRequ
         id: tx.id,
         amount: tx.amount.toString(),
         currency: tx.currency,
-        merchantId: tx.merchantId,
-        merchantName: tx.merchantName,
-        sessionId: tx.sessionId,
-        paymentMethodLastFour: tx.paymentMethodLastFour,
+        merchant_id: tx.merchantId,
+        merchant_name: tx.merchantName,
+        session_id: tx.sessionId,
+        payment_method_last_four: tx.paymentMethodLastFour,
         status: tx.status,
-        approvalType: tx.approvalType,
-        createdAt: tx.createdAt.toISOString(),
-        completedAt: tx.completedAt?.toISOString() || null,
+        approval_type: tx.approvalType,
+        created_at: tx.createdAt.toISOString(),
+        completed_at: tx.completedAt?.toISOString() || null,
       })),
       pagination: {
         total,
         limit: limitNum,
         offset: offsetNum,
-        hasMore: offsetNum + limitNum < total,
+        has_more: offsetNum + limitNum < total,
       },
     });
   } catch (error) {
