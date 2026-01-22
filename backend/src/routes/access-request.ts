@@ -169,7 +169,7 @@ mobileAccessRequestRouter.post('/pairing-codes', requireMobileAuth, async (req: 
  * GET /api/mobile/access-requests
  * List access requests for the user
  */
-mobileAccessRequestRouter.get('/access-requests', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+mobileAccessRequestRouter.get('/', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { userId } = req;
     const status = req.query.status as string || 'pending';
@@ -223,7 +223,7 @@ mobileAccessRequestRouter.get('/access-requests', requireMobileAuth, async (req:
  * GET /api/mobile/access-requests/:requestId
  * Get access request details for approval screen
  */
-mobileAccessRequestRouter.get('/access-requests/:requestId', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+mobileAccessRequestRouter.get('/:requestId', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { userId } = req;
     const { requestId } = req.params;
@@ -294,7 +294,7 @@ mobileAccessRequestRouter.get('/access-requests/:requestId', requireMobileAuth, 
  * POST /api/mobile/access-requests/:requestId/approve
  * Approve an access request and create the agent
  */
-mobileAccessRequestRouter.post('/access-requests/:requestId/approve', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+mobileAccessRequestRouter.post('/:requestId/approve', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { userId } = req;
     const { requestId } = req.params;
@@ -460,7 +460,7 @@ mobileAccessRequestRouter.post('/access-requests/:requestId/approve', requireMob
  * POST /api/mobile/access-requests/:requestId/reject
  * Reject an access request
  */
-mobileAccessRequestRouter.post('/access-requests/:requestId/reject', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+mobileAccessRequestRouter.post('/:requestId/reject', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { userId } = req;
     const { requestId } = req.params;

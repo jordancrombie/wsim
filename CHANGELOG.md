@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.0.1] - 2026-01-22
+
+### Fixed
+- Fixed doubled route paths in access-request.ts (`/api/mobile/access-requests/access-requests` → `/api/mobile/access-requests`)
+
 ### Added
 
 #### Agent-Initiated Credential Flow (Access Request)
