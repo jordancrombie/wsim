@@ -564,10 +564,10 @@ agentAccessRequestRouter.post('/', async (req: Request, res: Response) => {
 
     // Validate permissions
     const validPermissions = ['browse', 'cart', 'purchase', 'history'];
-    if (!Array.isArray(permissions) || !permissions.every(p => validPermissions.includes(p))) {
+    if (!Array.isArray(permissions) || permissions.length === 0 || !permissions.every(p => validPermissions.includes(p))) {
       return res.status(400).json({
         error: 'invalid_request',
-        error_description: 'permissions must be an array of valid permission strings',
+        error_description: `permissions must be an array containing at least one of: ${validPermissions.join(', ')}`,
       });
     }
 

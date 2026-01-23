@@ -36,7 +36,7 @@ function getOpenApiSpec(): object {
       openapi: '3.0.3',
       info: {
         title: 'WSIM Agent Commerce API',
-        version: '1.0.7',
+        version: '1.0.8',
         description: 'OpenAPI spec not available - check server configuration',
       },
       paths: {},
@@ -72,7 +72,7 @@ router.get('/agent-api', (req: Request, res: Response) => {
     provider: {
       name: 'WSIM',
       description: 'Wallet Simulator - Digital wallet for AI agent commerce',
-      version: '1.0.7',
+      version: '1.0.8',
       logo_url: `${baseUrl}/logo.png`,
     },
 

@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.8] - 2026-01-23
+
+### Improved
+
+#### API Documentation & Error Messages
+- Improved error messages for access request validation - now lists valid permissions (`browse`, `cart`, `purchase`, `history`)
+- OpenAPI spec: Mark `spending_limits.per_transaction`, `spending_limits.daily`, and `spending_limits.monthly` as required in `SpendingLimitsInput` schema
+- OpenAPI spec: Added complete working example for `AccessRequestCreate` schema
+- Added inline documentation for permissions explaining what each one allows
+
+### Fixed
+- Access request endpoint now properly rejects empty permissions array
+
+---
+
 ## [1.0.7] - 2026-01-22
 
 ### Added

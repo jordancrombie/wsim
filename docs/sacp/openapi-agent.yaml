@@ -35,7 +35,7 @@ info:
     - [PROTOCOL_DESIGN.md](https://github.com/jordancrombie/agents/blob/main/docs/PROTOCOL_DESIGN.md)
     - [MWSIM_REQUIREMENTS.md](./MWSIM_REQUIREMENTS.md)
 
-  version: 1.0.7
+  version: 1.0.8
   contact:
     name: WSIM Team
 
@@ -1421,6 +1421,10 @@ components:
 
     SpendingLimitsInput:
       type: object
+      required:
+        - per_transaction
+        - daily
+        - monthly
       properties:
         per_transaction:
           type: number
@@ -1435,7 +1439,7 @@ components:
         monthly:
           type: number
           format: decimal
-          description: Monthly spending limit
+          description: Monthly spending limit (REQUIRED)
           example: 500.00
         currency:
           type: string
@@ -1972,6 +1976,12 @@ components:
 
     AccessRequestCreate:
       type: object
+      description: |
+        Request body for creating an agent access request.
+
+        **Valid permissions**: browse, cart, purchase, history
+
+        **Required spending_limits**: per_transaction, daily, monthly (all required)
       required:
         - pairing_code
         - agent_name
@@ -1998,7 +2008,12 @@ components:
           items:
             type: string
             enum: [browse, cart, purchase, history]
-          description: Requested permissions
+          description: |
+            Requested permissions. Must include at least one of:
+            - browse: View products and catalog
+            - cart: Create and manage shopping carts
+            - purchase: Complete purchases (requires spending limits)
+            - history: View transaction history
           example: ["browse", "cart", "purchase"]
         spending_limits:
           $ref: '#/components/schemas/SpendingLimitsInput'
@@ -2007,6 +2022,17 @@ components:
           enum: [push, qr]
           default: push
           description: How to deliver approval request (push notification or QR)
+      example:
+        pairing_code: "WSIM-ABC123-XYZ789"
+        agent_name: "My Shopping Assistant"
+        description: "Helps me buy groceries and household items"
+        permissions: ["browse", "cart", "purchase"]
+        spending_limits:
+          per_transaction: 50.00
+          daily: 200.00
+          monthly: 500.00
+          currency: "CAD"
+        delivery: "push"
 
     AccessRequestCreatedResponse:
       type: object
