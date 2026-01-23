@@ -35,7 +35,7 @@ info:
     - [PROTOCOL_DESIGN.md](https://github.com/jordancrombie/agents/blob/main/docs/PROTOCOL_DESIGN.md)
     - [MWSIM_REQUIREMENTS.md](./MWSIM_REQUIREMENTS.md)
 
-  version: 1.0.8
+  version: 1.0.9
   contact:
     name: WSIM Team
 
@@ -228,10 +228,10 @@ paths:
 
         **Step-Up Flow**:
         When step-up is required, the response includes `step_up_required: true`
-        and a `step_up_id`. The agent should:
+        and a `poll_url`. The agent should:
         1. Present step-up information to the user (or wait for push notification)
-        2. Poll `GET /api/agent/v1/payments/:paymentId/status` for approval
-        3. Once approved, a new payment token is issued
+        2. Poll the `poll_url` (e.g., `GET /api/agent/v1/payments/{payment_id}/status`) every 2-5 seconds
+        3. Once approved, the status response includes the `payment_token`
 
         **Payment Method Selection**:
         - If `payment_method_id` is omitted, uses user's default payment method
@@ -1279,10 +1279,11 @@ components:
         - step_up_id
         - step_up_expires_at
         - reason
+        - poll_url
       properties:
         payment_id:
           type: string
-          description: Payment request ID
+          description: Payment request ID (use this in the poll_url)
           example: "pay_abc123xyz789"
         status:
           type: string
@@ -1305,6 +1306,13 @@ components:
           type: string
           description: Human-readable reason for step-up
           example: "Amount exceeds per-transaction limit of $100.00 CAD"
+        poll_url:
+          type: string
+          format: uri
+          description: |
+            URL to poll for payment status. Poll every 2-5 seconds until
+            status changes from 'awaiting_authorization' to 'approved' or 'rejected'.
+          example: "https://wsim.banksim.ca/api/agent/v1/payments/pay_abc123xyz789/status"
 
     PaymentStatusResponse:
       type: object

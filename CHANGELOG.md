@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.9] - 2026-01-23
+
+### Added
+
+#### Step-Up Response Improvements
+- Added `poll_url` field to step-up response - agents no longer need to construct the polling URL
+- Added `status: 'awaiting_authorization'` to match OpenAPI spec
+- Changed `payment_id` to return the step-up ID (so agents can poll using the same ID)
+
+### Fixed
+- Fixed typo in OpenAPI spec docs: `:paymentId` → `{payment_id}` in step-up flow documentation
+- Clarified that agents should poll `poll_url` for status updates
+
+---
+
 ## [1.0.8] - 2026-01-23
 
 ### Improved

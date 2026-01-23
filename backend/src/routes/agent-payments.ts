@@ -346,12 +346,14 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
       console.log(`[Agent Payments] Step-up required for agent ${agent.clientId}: ${limitResult.reason}`);
 
       return res.status(200).json({
+        payment_id: stepUp.id, // Use step_up_id as the payment_id for polling
+        status: 'awaiting_authorization',
         step_up_required: true,
         step_up_id: stepUp.id,
-        payment_id: null,
+        step_up_expires_at: stepUp.expiresAt.toISOString(),
         reason: limitResult.reason,
         trigger_type: limitResult.triggerType,
-        expires_at: stepUp.expiresAt.toISOString(),
+        poll_url: `${env.APP_URL}/api/agent/v1/payments/${stepUp.id}/status`,
       });
     }
 
