@@ -35,13 +35,15 @@ info:
     - [PROTOCOL_DESIGN.md](https://github.com/jordancrombie/agents/blob/main/docs/PROTOCOL_DESIGN.md)
     - [MWSIM_REQUIREMENTS.md](./MWSIM_REQUIREMENTS.md)
 
-  version: 0.1.0
+  version: 1.0.7
   contact:
     name: WSIM Team
 
 servers:
   - url: https://wsim.banksim.ca
     description: Production
+  - url: https://wsim-dev.banksim.ca
+    description: Development
   - url: http://localhost:3003
     description: Local development
 

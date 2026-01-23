@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-01-22
+
+### Added
+
+#### Well-Known Discovery Endpoints
+- `/.well-known/openapi.json` - OpenAPI 3.0 specification (JSON format)
+- `/.well-known/agent-api` - Agent API discovery document
+- `/.well-known/oauth-authorization-server` - OAuth server metadata (RFC 8414)
+
+### Purpose
+Enable external AI agents to discover WSIM's capabilities programmatically:
+- Registration method (pairing code flow)
+- OAuth endpoints (token, introspect, revoke)
+- Available APIs (payments, access requests)
+- Supported permissions and spending limits
+
+### Technical Details
+- OpenAPI spec served from `docs/sacp/openapi-agent.yaml`
+- Spec cached at startup for performance
+- Cache-Control headers for appropriate caching (1h for specs, 5m for discovery)
+- Updated OpenAPI version to 1.0.6, added dev server URL
+
+### Dependencies
+- Added `js-yaml` for parsing YAML spec
+
+---
+
 ## [1.0.6] - 2026-01-22
 
 ### Fixed

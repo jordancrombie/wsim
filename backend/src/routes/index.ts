@@ -12,6 +12,7 @@ import webhookRoutes from './webhooks';
 import profileRoutes, { internalProfileRouter } from './profile';
 import contractRoutes, { internalContractsRouter } from './contracts';
 import verificationRoutes from './verification';
+import wellKnownRoutes from './well-known';
 
 // Agent Commerce (SACP)
 import agentOAuthRoutes from './agent-oauth';
@@ -22,6 +23,9 @@ import stepUpRoutes from './step-up';
 import { mobileAccessRequestRouter, agentAccessRequestRouter } from './access-request';
 
 const router = Router();
+
+// Well-known discovery endpoints (RFC-compliant)
+router.use('/.well-known', wellKnownRoutes);
 
 // Mount route modules
 router.use('/health', healthRoutes);

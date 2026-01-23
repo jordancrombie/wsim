@@ -1,6 +1,6 @@
 {
   "name": "wsim-backend",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "WSIM Wallet Simulator - Backend API Server",
   "main": "dist/index.js",
   "scripts": {
@@ -36,6 +36,7 @@
     "express": "^5.2.1",
     "express-session": "^1.18.2",
     "helmet": "^8.1.0",
+    "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.3",
     "luxon": "^3.7.2",
     "multer": "^2.0.2",
@@ -51,6 +52,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/express-session": "^1.18.2",
+    "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/luxon": "^3.7.1",
     "@types/multer": "^2.0.0",
