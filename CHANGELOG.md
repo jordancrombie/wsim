@@ -9,6 +9,234 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.7] - 2026-01-22
+
+### Added
+
+#### Well-Known Discovery Endpoints
+- `/.well-known/openapi.json` - OpenAPI 3.0 specification (JSON format)
+- `/.well-known/agent-api` - Agent API discovery document
+- `/.well-known/oauth-authorization-server` - OAuth server metadata (RFC 8414)
+
+### Purpose
+Enable external AI agents to discover WSIM's capabilities programmatically:
+- Registration method (pairing code flow)
+- OAuth endpoints (token, introspect, revoke)
+- Available APIs (payments, access requests)
+- Supported permissions and spending limits
+
+### Technical Details
+- OpenAPI spec served from `docs/sacp/openapi-agent.yaml`
+- Spec cached at startup for performance
+- Cache-Control headers for appropriate caching (1h for specs, 5m for discovery)
+- Updated OpenAPI version to 1.0.6, added dev server URL
+
+### Dependencies
+- Added `js-yaml` for parsing YAML spec
+
+---
+
+## [1.0.6] - 2026-01-22
+
+### Fixed
+
+#### Agent Payment Token Missing BSIM Card Token (Q30)
+- **Critical bug fix**: Agent payment tokens now include `card_token` from BSIM
+- Previously, agent payment JWT only included `wallet_card_token`, causing BSIM to reject payments with "Invalid card token"
+- Added `requestBsimCardToken()` helper to request card tokens from BSIM (same pattern as human wallet flow)
+- Both direct payment and step-up approval flows now request BSIM card token before generating JWT
+- Updated walletCards query to include enrollment (needed for BSIM wallet credentials)
+
+### Technical Details
+- Added BSIM provider helpers (`getBsimProviders()`, `getBsimApiUrl()`) to agent-payments.ts
+- Card token is merchant/amount-scoped and requested fresh for each transaction
+- Error handling returns `payment_provider_error` if BSIM is unreachable
+
+### Deployment Notes
+- **Deploy WSIM first**, then SSIM can extract `card_token` from JWT
+- No database migration required
+- SSIM must be updated to extract both `wallet_card_token` and `card_token` from payment JWT
+
+---
+
+## [1.0.5] - 2026-01-22
+
+### Added
+
+#### Webhook Notifications for Token Revocations
+- **MerchantWebhook model** - Store webhook registrations for merchants (SSIM)
+- **WebhookDeliveryLog model** - Track webhook delivery attempts with status codes and errors
+
+#### Webhook API (`/api/agent/v1/webhooks`)
+- `POST /` - Register/update webhook subscription (requires introspection credentials)
+- `GET /` - Get current webhook registration
+- `DELETE /` - Unregister webhook
+- `GET /logs` - Get recent delivery logs
+- `POST /test` - Send test event
+
+#### Webhook Events
+- `token.revoked` - Fired when an agent access token is explicitly revoked
+- `agent.deactivated` - Fired when an agent is suspended or revoked by owner
+- `agent.secret_rotated` - Fired when an agent's client secret is rotated
+
+#### Security
+- HMAC-SHA256 webhook signatures with timestamp for replay protection
+- Headers: `X-Webhook-Timestamp`, `X-Webhook-Signature: sha256={signature}`
+- Signature payload: `{timestamp}.{json_body}`
+
+### Database Migration Required
+```bash
+npx prisma migrate deploy
+```
+
+Creates 2 new tables: `merchant_webhooks`, `webhook_delivery_logs`
+
+---
+
+## [1.0.4] - 2026-01-22
+
+### Fixed
+- **Token expiry parsing**: Added `parseDuration()` to support "1h", "5m" format for `AGENT_ACCESS_TOKEN_EXPIRY` and `PAYMENT_TOKEN_EXPIRY` (was incorrectly parsing "1h" as 1 second)
+- **Minimum expiry validation**: Enforces 60s minimum for access tokens, 30s for payment tokens
+- **Snake_case API responses**: All SACP endpoints now return snake_case keys matching OpenAPI spec
+- **Agent list filtering**: `GET /api/mobile/agents` now excludes revoked agents by default (use `?include_revoked=true` to include)
+
+### Changed
+- Updated `.env.example` with SACP configuration documentation
+
+---
+
+## [1.0.3] - 2026-01-22
+
+### Fixed
+- Fixed agent access request route path (`/api/agent/v1/` → `/api/agent/v1/access-request`)
+
+---
+
+## [1.0.2] - 2026-01-22
+
+### Changed
+- Made max active pairing codes configurable via `MAX_ACTIVE_PAIRING_CODES` env var
+- Default: 30 in dev, 10 in production (was hardcoded to 3)
+
+---
+
+## [1.0.1] - 2026-01-22
+
+### Fixed
+- Fixed doubled route paths in access-request.ts (`/api/mobile/access-requests/access-requests` → `/api/mobile/access-requests`)
+
+### Added
+
+#### Agent-Initiated Credential Flow (Access Request)
+- `PairingCode` model - User-generated codes for agent binding (WSIM-XXXXXX-XXXXXX format, 24h expiry)
+- `AccessRequest` model - Agent access request tracking with approval workflow
+
+#### Pairing Code Endpoints (`/api/mobile/pairing-codes`)
+- `POST /` - Generate pairing code (max 3 active per user)
+
+#### Access Request Endpoints - Mobile (`/api/mobile/access-requests/*`)
+- `GET /` - List pending access requests
+- `GET /:id` - Get access request details for approval screen
+- `POST /:id/approve` - Approve with optional limit decreases (biometric required)
+- `POST /:id/reject` - Reject with optional reason
+
+#### Access Request Endpoints - Agent (`/api/agent/v1/*`)
+- `POST /access-request` - Create access request using pairing code
+- `GET /access-request/:id` - Poll for request status (returns credentials on approval)
+- `GET /access-request/:id/qr` - Get QR code data for in-person binding
+
+#### Notification Types
+- `agent.access_request` - Push notification for new access request approval
+
+#### Deep Link Support
+- Added `accessRequestId` to DeepLinkParams for notification navigation
+
+### Database Migration Required
+```bash
+npx prisma migrate deploy
+```
+
+Creates 2 additional tables: `pairing_codes`, `access_requests`
+
+---
+
+## [1.0.0] - 2026-01-21
+
+**Agent Commerce Protocol (SACP)** - AI agents can now make purchases on behalf of users with spending controls and step-up authorization.
+
+### Added
+
+#### Database Schema (4 new models)
+- `Agent` - AI agent registration with OAuth credentials and spending limits
+- `AgentAccessToken` - OAuth access token tracking for revocation
+- `AgentTransaction` - Transaction history for spending limit calculations
+- `StepUpRequest` - Step-up authorization requests for high-value purchases
+
+#### Agent OAuth Endpoints (`/api/agent/v1/oauth/*`)
+- `POST /token` - OAuth 2.0 client credentials grant for agents
+- `POST /introspect` - Token introspection for merchants (SSIM)
+- `POST /revoke` - Token revocation
+
+#### Payment Token API (`/api/agent/v1/payments/*`)
+- `POST /token` - Request payment token (may trigger step-up)
+- `GET /:paymentId/status` - Check payment or step-up status
+- `GET /methods` - List available payment methods with spending info
+
+#### Agent Management (`/api/mobile/agents/*`)
+- `POST /` - Register new agent (returns client credentials)
+- `GET /` - List user's agents with usage stats
+- `GET /:id` - Get agent details and remaining limits
+- `PATCH /:id` - Update agent settings
+- `DELETE /:id` - Revoke agent
+- `POST /:id/rotate-secret` - Rotate client secret (revokes all tokens)
+- `GET /:id/transactions` - Get agent transaction history
+
+#### Step-Up Authorization (`/api/mobile/step-up/*`)
+- `GET /` - List pending step-up requests
+- `GET /:stepUpId` - Get step-up details for approval screen
+- `POST /:stepUpId/approve` - Approve step-up (select payment method)
+- `POST /:stepUpId/reject` - Reject step-up
+
+#### Services
+- `agent-auth.ts` - Token generation, validation, introspection
+- `spending-limits.ts` - EST timezone-aware spending limit calculations
+
+#### Notification Types
+- `agent.step_up` - Push notification for step-up approval
+- `agent.transaction` - Agent transaction completed
+- `agent.limit_warning` - Approaching spending limit
+- `agent.suspended` - Agent auto-suspended
+
+### Environment Variables (New)
+```
+AGENT_JWT_SECRET         - JWT signing key for agent tokens (REQUIRED in production)
+AGENT_ACCESS_TOKEN_EXPIRY - Token expiry in seconds (default: 3600)
+PAYMENT_TOKEN_SECRET     - JWT signing key for payment tokens (REQUIRED in production)
+PAYMENT_TOKEN_EXPIRY     - Payment token expiry (default: 300)
+STEP_UP_EXPIRY_MINUTES   - Step-up request expiry (default: 15)
+DAILY_LIMIT_RESET_TIMEZONE - Timezone for daily limit reset (default: America/Toronto)
+INTROSPECTION_CLIENT_ID  - Client ID for merchant introspection (default: ssim_introspect)
+INTROSPECTION_CLIENT_SECRET - Client secret for merchant introspection (REQUIRED in production)
+```
+
+### Dependencies
+- Added `nanoid@^5.0.0` for client ID generation
+- Added `luxon@^3.4.0` for timezone handling
+
+### Database Migration Required
+```bash
+npx prisma migrate deploy
+```
+
+Creates 4 new tables: `agents`, `agent_access_tokens`, `agent_transactions`, `step_up_requests`
+
+### Documentation
+- OpenAPI spec: `docs/sacp/openapi-agent.yaml`
+- mwsim requirements: `docs/sacp/MWSIM_REQUIREMENTS.md`
+
+---
+
 ## [0.9.9] - 2026-01-20
 
 ### Added

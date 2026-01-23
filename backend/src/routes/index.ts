@@ -12,8 +12,20 @@ import webhookRoutes from './webhooks';
 import profileRoutes, { internalProfileRouter } from './profile';
 import contractRoutes, { internalContractsRouter } from './contracts';
 import verificationRoutes from './verification';
+import wellKnownRoutes from './well-known';
+
+// Agent Commerce (SACP)
+import agentOAuthRoutes from './agent-oauth';
+import agentPaymentsRoutes from './agent-payments';
+import agentManagementRoutes from './agent-management';
+import agentWebhooksRoutes from './agent-webhooks';
+import stepUpRoutes from './step-up';
+import { mobileAccessRequestRouter, agentAccessRequestRouter } from './access-request';
 
 const router = Router();
+
+// Well-known discovery endpoints (RFC-compliant)
+router.use('/.well-known', wellKnownRoutes);
 
 // Mount route modules
 router.use('/health', healthRoutes);
@@ -32,5 +44,14 @@ router.use('/api/internal/profile', internalProfileRouter); // Internal API for 
 router.use('/api/mobile/contracts', contractRoutes); // Contract proxy API (ContractSim)
 router.use('/api/internal/contracts', internalContractsRouter); // Internal API for ContractSim
 router.use('/api/mobile', verificationRoutes); // Verification API (Trusted User feature)
+
+// Agent Commerce (SACP) routes
+router.use('/api/agent/v1/oauth', agentOAuthRoutes);     // Agent OAuth endpoints
+router.use('/api/agent/v1/payments', agentPaymentsRoutes); // Agent payment token API
+router.use('/api/agent/v1/webhooks', agentWebhooksRoutes); // Merchant webhook management
+router.use('/api/mobile/agents', agentManagementRoutes); // Mobile app agent management
+router.use('/api/mobile/step-up', stepUpRoutes);         // Mobile step-up approval
+router.use('/api/mobile/access-requests', mobileAccessRequestRouter); // Mobile access request management
+router.use('/api/agent/v1/access-request', agentAccessRequestRouter);   // Agent access request endpoints
 
 export default router;
