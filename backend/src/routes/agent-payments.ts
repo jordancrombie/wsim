@@ -14,6 +14,7 @@ import jwt from 'jsonwebtoken';
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
+import { decrypt } from '../utils/crypto';
 import {
   verifyAgentAccessToken,
   isTokenRevoked,
@@ -26,6 +27,118 @@ import {
   getSpendingUsage,
 } from '../services/spending-limits';
 import { sendNotificationToUser } from '../services/notification';
+
+// =============================================================================
+// BSIM PROVIDER HELPERS (for requesting card tokens)
+// =============================================================================
+
+interface BsimProviderConfig {
+  bsimId: string;
+  name: string;
+  issuer: string;
+  apiUrl?: string;
+  clientId: string;
+  clientSecret: string;
+}
+
+function getBsimProviders(): BsimProviderConfig[] {
+  try {
+    return JSON.parse(env.BSIM_PROVIDERS);
+  } catch {
+    console.warn('[Agent Payments] Failed to parse BSIM_PROVIDERS');
+    return [];
+  }
+}
+
+function getBsimApiUrl(provider: BsimProviderConfig): string {
+  if (provider.apiUrl) return provider.apiUrl;
+
+  const url = new URL(provider.issuer);
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    url.port = '3001';
+    return url.origin;
+  }
+  if (url.hostname.startsWith('auth-')) {
+    url.hostname = url.hostname.replace('auth-', '');
+  } else if (url.hostname.startsWith('auth.')) {
+    url.hostname = url.hostname.replace('auth.', '');
+  }
+  return url.origin;
+}
+
+interface BsimCardTokenResult {
+  token: string;
+  tokenId: string;
+  expiresAt: string;
+}
+
+/**
+ * Request a card token from BSIM for payment processing
+ * This is required for BSIM to authorize the payment
+ */
+async function requestBsimCardToken(
+  paymentMethod: {
+    bsimCardRef: string;
+    enrollment: {
+      bsimId: string;
+      walletCredential: string;
+    };
+  },
+  merchantId: string,
+  amount: Decimal,
+  currency: string
+): Promise<BsimCardTokenResult> {
+  const providers = getBsimProviders();
+  const provider = providers.find(p => p.bsimId === paymentMethod.enrollment.bsimId);
+
+  if (!provider) {
+    throw new Error(`No provider config for ${paymentMethod.enrollment.bsimId}`);
+  }
+
+  // Decrypt wallet credential
+  const walletCredential = decrypt(paymentMethod.enrollment.walletCredential);
+
+  // Request card token from BSIM
+  const apiUrl = getBsimApiUrl(provider);
+  const tokenUrl = `${apiUrl}/api/wallet/tokens`;
+
+  console.log(`[Agent Payments] Requesting card token from ${tokenUrl}`);
+
+  const bsimResponse = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${walletCredential}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      cardId: paymentMethod.bsimCardRef,
+      merchantId,
+      amount: amount.toNumber(),
+      currency,
+    }),
+  });
+
+  if (!bsimResponse.ok) {
+    const errorText = await bsimResponse.text();
+    console.error(`[Agent Payments] BSIM token request failed: ${bsimResponse.status} - ${errorText}`);
+    throw new Error(`Failed to get card token from BSIM: ${bsimResponse.status}`);
+  }
+
+  const tokenData = await bsimResponse.json() as {
+    token: string;
+    tokenId: string;
+    expiresAt: string;
+    cardInfo: { lastFour: string; cardType: string };
+  };
+
+  console.log(`[Agent Payments] Got card token from BSIM: ${tokenData.tokenId.substring(0, 8)}...`);
+
+  return {
+    token: tokenData.token,
+    tokenId: tokenData.tokenId,
+    expiresAt: tokenData.expiresAt,
+  };
+}
 
 const router = Router();
 
@@ -119,7 +232,7 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
       });
     }
 
-    // Fetch agent
+    // Fetch agent with wallet cards and their enrollments (needed for BSIM card token)
     const agent = await prisma.agent.findUnique({
       where: { id: agentPayload!.sub },
       include: {
@@ -128,6 +241,7 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
             walletCards: {
               where: { isActive: true },
               orderBy: { isDefault: 'desc' },
+              include: { enrollment: true },
             },
           },
         },
@@ -241,6 +355,23 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
       });
     }
 
+    // Request BSIM card token for payment authorization
+    let bsimCardToken: BsimCardTokenResult;
+    try {
+      bsimCardToken = await requestBsimCardToken(
+        paymentMethod,
+        merchant_id,
+        amountDecimal,
+        currency
+      );
+    } catch (bsimError) {
+      console.error('[Agent Payments] Failed to get BSIM card token:', bsimError);
+      return res.status(502).json({
+        error: 'payment_provider_error',
+        error_description: 'Failed to initialize payment with card issuer',
+      });
+    }
+
     // Create transaction record
     const periodBoundaries = getPeriodBoundaries();
 
@@ -261,7 +392,7 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
       },
     });
 
-    // Generate payment token
+    // Generate payment token with both wallet and BSIM card tokens
     const paymentToken = jwt.sign(
       {
         payment_id: transaction.id,
@@ -272,6 +403,7 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
         currency,
         payment_method_id: paymentMethod.id,
         wallet_card_token: paymentMethod.walletCardToken,
+        card_token: bsimCardToken.token,
       },
       env.PAYMENT_TOKEN_SECRET,
       {
@@ -363,13 +495,31 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
 
       // If approved, include payment token info
       if (stepUp.status === 'approved' && stepUp.transaction) {
-        // Get payment method
+        // Get payment method with enrollment (needed for BSIM card token)
         const paymentMethod = await prisma.walletCard.findUnique({
           where: { id: stepUp.approvedPaymentMethodId || stepUp.requestedPaymentMethodId! },
+          include: { enrollment: true },
         });
 
         if (paymentMethod) {
-          // Generate payment token
+          // Request BSIM card token for payment authorization
+          let bsimCardToken: BsimCardTokenResult;
+          try {
+            bsimCardToken = await requestBsimCardToken(
+              paymentMethod,
+              stepUp.merchantId,
+              stepUp.amount,
+              stepUp.currency
+            );
+          } catch (bsimError) {
+            console.error('[Agent Payments] Failed to get BSIM card token for step-up:', bsimError);
+            // Return step-up status without payment token - agent should retry
+            response.error = 'payment_provider_error';
+            response.error_description = 'Failed to initialize payment with card issuer. Please retry.';
+            return res.json(response);
+          }
+
+          // Generate payment token with both wallet and BSIM card tokens
           const paymentToken = jwt.sign(
             {
               payment_id: stepUp.transaction.id,
@@ -380,6 +530,7 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
               currency: stepUp.currency,
               payment_method_id: paymentMethod.id,
               wallet_card_token: paymentMethod.walletCardToken,
+              card_token: bsimCardToken.token,
             },
             env.PAYMENT_TOKEN_SECRET,
             {

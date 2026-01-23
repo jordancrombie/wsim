@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.6] - 2026-01-22
+
+### Fixed
+
+#### Agent Payment Token Missing BSIM Card Token (Q30)
+- **Critical bug fix**: Agent payment tokens now include `card_token` from BSIM
+- Previously, agent payment JWT only included `wallet_card_token`, causing BSIM to reject payments with "Invalid card token"
+- Added `requestBsimCardToken()` helper to request card tokens from BSIM (same pattern as human wallet flow)
+- Both direct payment and step-up approval flows now request BSIM card token before generating JWT
+- Updated walletCards query to include enrollment (needed for BSIM wallet credentials)
+
+### Technical Details
+- Added BSIM provider helpers (`getBsimProviders()`, `getBsimApiUrl()`) to agent-payments.ts
+- Card token is merchant/amount-scoped and requested fresh for each transaction
+- Error handling returns `payment_provider_error` if BSIM is unreachable
+
+### Deployment Notes
+- **Deploy WSIM first**, then SSIM can extract `card_token` from JWT
+- No database migration required
+- SSIM must be updated to extract both `wallet_card_token` and `card_token` from payment JWT
+
+---
+
 ## [1.0.5] - 2026-01-22
 
 ### Added
