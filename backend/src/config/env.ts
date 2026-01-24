@@ -9,6 +9,53 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
  * Supports: s (seconds), m (minutes), h (hours), d (days)
  * Plain numbers are treated as seconds.
  */
+/**
+ * Introspection client configuration
+ */
+export interface IntrospectionClient {
+  clientId: string;
+  clientSecret: string;
+}
+
+/**
+ * Parse INTROSPECTION_CLIENTS JSON array.
+ * Falls back to legacy single-client env vars for backward compatibility.
+ */
+function parseIntrospectionClients(): IntrospectionClient[] {
+  const jsonValue = process.env.INTROSPECTION_CLIENTS;
+
+  if (jsonValue) {
+    try {
+      const clients = JSON.parse(jsonValue) as IntrospectionClient[];
+      if (Array.isArray(clients) && clients.length > 0) {
+        // Validate each client has required fields
+        const validClients = clients.filter(c => c.clientId && c.clientSecret);
+        if (validClients.length > 0) {
+          console.log(`[Config] Loaded ${validClients.length} introspection client(s)`);
+          return validClients;
+        }
+      }
+    } catch (err) {
+      console.error('[Config] Failed to parse INTROSPECTION_CLIENTS JSON:', err);
+    }
+  }
+
+  // Fallback to legacy single-client config
+  const legacyId = process.env.INTROSPECTION_CLIENT_ID;
+  const legacySecret = process.env.INTROSPECTION_CLIENT_SECRET;
+
+  if (legacyId && legacySecret) {
+    console.log('[Config] Using legacy single introspection client config');
+    return [{ clientId: legacyId, clientSecret: legacySecret }];
+  }
+
+  // Development fallback
+  return [{
+    clientId: 'ssim_introspect',
+    clientSecret: 'dev-introspection-secret-change-in-production',
+  }];
+}
+
 function parseDuration(value: string | undefined, defaultSeconds: number): number {
   if (!value) return defaultSeconds;
 
@@ -101,9 +148,10 @@ export const env = {
   STEP_UP_EXPIRY_MINUTES: parseInt(process.env.STEP_UP_EXPIRY_MINUTES || '15', 10),
   DAILY_LIMIT_RESET_TIMEZONE: process.env.DAILY_LIMIT_RESET_TIMEZONE || 'America/Toronto',
 
-  // Introspection credentials for merchants (SSIM)
-  INTROSPECTION_CLIENT_ID: process.env.INTROSPECTION_CLIENT_ID || 'ssim_introspect',
-  INTROSPECTION_CLIENT_SECRET: process.env.INTROSPECTION_CLIENT_SECRET || 'dev-introspection-secret-change-in-production',
+  // Introspection credentials for merchants (SSIM, Regalmoose, etc.)
+  // New: JSON array of clients via INTROSPECTION_CLIENTS env var
+  // Legacy: Single client via INTROSPECTION_CLIENT_ID/SECRET (backwards compatible)
+  INTROSPECTION_CLIENTS: parseIntrospectionClients(),
 
   // Access Request settings
   MAX_ACTIVE_PAIRING_CODES: parseInt(process.env.MAX_ACTIVE_PAIRING_CODES || (process.env.NODE_ENV === 'production' ? '10' : '30'), 10),
@@ -120,7 +168,7 @@ export function validateEnv(): void {
       'MOBILE_JWT_SECRET',
       'AGENT_JWT_SECRET',
       'PAYMENT_TOKEN_SECRET',
-      'INTROSPECTION_CLIENT_SECRET',
+      // Note: INTROSPECTION_CLIENTS is validated separately (has dev fallback)
     ];
 
     const missing = required.filter(key => !process.env[key]);

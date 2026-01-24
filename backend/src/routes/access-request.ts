@@ -165,6 +165,126 @@ mobileAccessRequestRouter.post('/pairing-codes', requireMobileAuth, async (req: 
 });
 
 // =============================================================================
+// CLAIM DEVICE AUTHORIZATION CODE (Mobile)
+// =============================================================================
+
+/**
+ * POST /api/mobile/device-codes/claim
+ * Claim a device authorization code (RFC 8628)
+ *
+ * The user enters the code displayed by the agent, and we link it to their account.
+ */
+mobileAccessRequestRouter.post('/device-codes/claim', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+    const { user_code } = req.body;
+
+    if (!user_code) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'user_code is required',
+      });
+    }
+
+    // Normalize the code (uppercase, trim whitespace)
+    const normalizedCode = user_code.toUpperCase().trim();
+
+    // Find the pairing code
+    const pairingCode = await prisma.pairingCode.findUnique({
+      where: { code: normalizedCode },
+      include: {
+        accessRequest: true,
+      },
+    });
+
+    if (!pairingCode) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Invalid code. Please check and try again.',
+      });
+    }
+
+    // Check if this is a device authorization code (has empty userId placeholder)
+    if (pairingCode.userId !== '') {
+      // This is a user-generated pairing code, not a device authorization code
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'This code is not a device authorization code',
+      });
+    }
+
+    if (pairingCode.status !== 'active') {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'This code has already been used',
+      });
+    }
+
+    if (pairingCode.expiresAt < new Date()) {
+      await prisma.pairingCode.update({
+        where: { id: pairingCode.id },
+        data: { status: 'expired' },
+      });
+      return res.status(400).json({
+        error: 'expired',
+        message: 'This code has expired',
+      });
+    }
+
+    // Find the associated access request
+    const accessRequest = pairingCode.accessRequest;
+    if (!accessRequest || accessRequest.status !== 'pending_claim') {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'No pending authorization for this code',
+      });
+    }
+
+    // Update pairing code to link to this user and mark access request as pending
+    await prisma.$transaction(async (tx) => {
+      // Link pairing code to user
+      await tx.pairingCode.update({
+        where: { id: pairingCode.id },
+        data: { userId: userId! },
+      });
+
+      // Update access request to pending (awaiting approval)
+      await tx.accessRequest.update({
+        where: { id: accessRequest.id },
+        data: { status: 'pending' },
+      });
+    });
+
+    console.log(`[Device Auth] Code ${normalizedCode} claimed by user ${userId}`);
+
+    // Return the access request details for approval screen
+    return res.json({
+      access_request: {
+        id: accessRequest.id,
+        agent_name: accessRequest.agentName,
+        agent_description: accessRequest.agentDescription,
+        requested_permissions: accessRequest.requestedPermissions,
+        requested_limits: {
+          per_transaction: accessRequest.requestedPerTransaction.toString(),
+          daily: accessRequest.requestedDailyLimit.toString(),
+          monthly: accessRequest.requestedMonthlyLimit.toString(),
+          currency: accessRequest.requestedCurrency,
+        },
+        expires_at: accessRequest.expiresAt.toISOString(),
+        time_remaining_seconds: Math.max(0, Math.floor((accessRequest.expiresAt.getTime() - Date.now()) / 1000)),
+      },
+      message: 'Code claimed. Review the request and approve or reject.',
+    });
+  } catch (error) {
+    console.error('[Device Auth] Claim error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to claim code',
+    });
+  }
+});
+
+// =============================================================================
 // LIST/GET ACCESS REQUESTS (Mobile)
 // =============================================================================
 

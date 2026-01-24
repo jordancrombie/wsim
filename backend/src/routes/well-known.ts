@@ -5,8 +5,10 @@
  *
  * Routes:
  * - GET /.well-known/openapi.json - OpenAPI 3.0 specification
- * - GET /.well-known/agent-api - Agent API discovery document
+ * - GET /.well-known/agent-api - Agent API discovery document (SACP-specific)
  * - GET /.well-known/oauth-authorization-server - OAuth server metadata (RFC 8414)
+ * - GET /.well-known/ai-plugin.json - ChatGPT/AI plugin manifest
+ * - GET /.well-known/mcp-server - Model Context Protocol tool discovery
  */
 
 import { Router, Request, Response } from 'express';
@@ -36,7 +38,7 @@ function getOpenApiSpec(): object {
       openapi: '3.0.3',
       info: {
         title: 'WSIM Agent Commerce API',
-        version: '1.0.9',
+        version: '1.1.3',
         description: 'OpenAPI spec not available - check server configuration',
       },
       paths: {},
@@ -72,7 +74,7 @@ router.get('/agent-api', (req: Request, res: Response) => {
     provider: {
       name: 'WSIM',
       description: 'Wallet Simulator - Digital wallet for AI agent commerce',
-      version: '1.0.9',
+      version: '1.1.3',
       logo_url: `${baseUrl}/logo.png`,
     },
 
@@ -87,10 +89,11 @@ router.get('/agent-api', (req: Request, res: Response) => {
     // OAuth 2.0 configuration
     oauth: {
       authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,
+      device_authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/device_authorization`,
       token_endpoint: `${baseUrl}/api/agent/v1/oauth/token`,
       introspection_endpoint: `${baseUrl}/api/agent/v1/oauth/introspect`,
       revocation_endpoint: `${baseUrl}/api/agent/v1/oauth/revoke`,
-      grant_types_supported: ['client_credentials'],
+      grant_types_supported: ['client_credentials', 'urn:ietf:params:oauth:grant-type:device_code'],
       token_endpoint_auth_methods_supported: ['client_secret_post'],
     },
 
@@ -156,12 +159,18 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
     issuer: baseUrl,
     token_endpoint: `${baseUrl}/api/agent/v1/oauth/token`,
 
+    // Device Authorization Grant (RFC 8628)
+    device_authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/device_authorization`,
+
     // Optional but recommended
     introspection_endpoint: `${baseUrl}/api/agent/v1/oauth/introspect`,
     revocation_endpoint: `${baseUrl}/api/agent/v1/oauth/revoke`,
 
     // Supported features
-    grant_types_supported: ['client_credentials'],
+    grant_types_supported: [
+      'client_credentials',
+      'urn:ietf:params:oauth:grant-type:device_code',
+    ],
     token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
     introspection_endpoint_auth_methods_supported: ['client_secret_basic'],
     revocation_endpoint_auth_methods_supported: ['client_secret_post'],
@@ -177,6 +186,304 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
     service_documentation: `${baseUrl}/.well-known/openapi.json`,
     op_policy_uri: `${baseUrl}/privacy`,
     op_tos_uri: `${baseUrl}/terms`,
+  });
+});
+
+/**
+ * GET /.well-known/ai-plugin.json
+ * ChatGPT/AI Plugin Manifest
+ *
+ * Standard format for ChatGPT plugins and web-based AI assistants.
+ * WSIM supports two authorization flows:
+ * 1. Device Authorization Grant (RFC 8628) - Agent-initiated, user approves
+ * 2. Pairing Code + client_credentials - User-initiated, agent uses code
+ */
+router.get('/ai-plugin.json', (req: Request, res: Response) => {
+  const baseUrl = env.APP_URL;
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  // CORS for browser-based AI tools
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+  res.json({
+    schema_version: 'v1',
+    name_for_human: 'WSIM Wallet',
+    name_for_model: 'wsim_wallet',
+    description_for_human: 'Manage AI agent payment authorization and spending limits.',
+    description_for_model: `WSIM is a wallet API for AI agents to request payment authorization.
+
+TWO AUTHORIZATION FLOWS AVAILABLE:
+
+FLOW 1 - Device Authorization (RFC 8628) - RECOMMENDED for AI agents:
+1. POST ${baseUrl}/api/agent/v1/oauth/device_authorization with agent_name and optional spending_limits
+2. Receive device_code and user_code (format: WSIM-XXXXXX-XXXXXX)
+3. Tell the user to enter the user_code in their WSIM mobile app (or visit verification_uri)
+4. Poll POST ${baseUrl}/api/agent/v1/oauth/token with grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=<device_code>
+5. When user approves, receive client_id and client_secret
+6. Exchange credentials for access token via client_credentials grant
+7. Use access token for payment requests
+
+FLOW 2 - User Pairing Code (legacy):
+1. Ask user for their pairing code from mobile app (format: WSIM-XXXXXX-XXXXXX)
+2. POST ${baseUrl}/api/agent/v1/access-request with the pairing code
+3. Poll until approved, receive credentials
+4. Exchange for access token
+
+SCOPES: browse, cart, purchase, history`,
+    auth: {
+      type: 'service_http',
+      authorization_type: 'bearer',
+      verification_tokens: {
+        // No verification tokens needed - uses dynamic OAuth
+      },
+    },
+    api: {
+      type: 'openapi',
+      url: `${baseUrl}/.well-known/openapi.json`,
+    },
+    logo_url: `${baseUrl}/logo.png`,
+    contact_email: 'support@banksim.ca',
+    legal_info_url: `${baseUrl}/terms`,
+  });
+});
+
+/**
+ * GET /.well-known/mcp-server
+ * Model Context Protocol (MCP) Server Discovery
+ *
+ * Enables AI agents to discover WSIM tools as if they were local functions.
+ * See: https://modelcontextprotocol.io/specification
+ */
+router.get('/mcp-server', (req: Request, res: Response) => {
+  const baseUrl = env.APP_URL;
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  // CORS for browser-based AI tools
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+  res.json({
+    name: 'wsim-wallet',
+    version: '1.1.3',
+    description: 'WSIM Wallet - AI agent payment authorization',
+    protocol_version: '2024-11-05',
+
+    capabilities: {
+      tools: true,
+      resources: true,
+      prompts: false,
+    },
+
+    authentication: {
+      type: 'oauth2_device_code',
+      device_authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/device_authorization`,
+      token_endpoint: `${baseUrl}/api/agent/v1/oauth/token`,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      alternative: {
+        type: 'pairing_code',
+        endpoint: `${baseUrl}/api/agent/v1/access-request`,
+        description: 'User generates pairing code (WSIM-XXXXXX-XXXXXX) in mobile app, agent submits code to register',
+      },
+    },
+
+    tools: [
+      {
+        name: 'start_device_authorization',
+        description: 'Initiate OAuth Device Authorization flow (RFC 8628). Returns a user_code for the user to enter in their mobile wallet app. RECOMMENDED for new integrations.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            agent_name: {
+              type: 'string',
+              description: 'Display name for this agent (shown to user during approval)',
+              maxLength: 100,
+            },
+            agent_description: {
+              type: 'string',
+              description: 'Description of what this agent does (optional)',
+              maxLength: 500,
+            },
+            scope: {
+              type: 'string',
+              description: 'Space-separated list of permissions: browse, cart, purchase, history',
+              default: 'browse',
+            },
+            spending_limits: {
+              type: 'object',
+              properties: {
+                per_transaction: { type: 'number', description: 'Max per-transaction auto-approve limit', default: 50 },
+                daily: { type: 'number', description: 'Daily spending limit', default: 200 },
+                monthly: { type: 'number', description: 'Monthly spending limit', default: 1000 },
+                currency: { type: 'string', default: 'CAD' },
+              },
+            },
+          },
+          required: ['agent_name'],
+        },
+      },
+      {
+        name: 'poll_device_authorization',
+        description: 'Poll for device authorization status. Call this with the device_code from start_device_authorization. Returns credentials when user approves.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            device_code: {
+              type: 'string',
+              description: 'Device code from start_device_authorization response',
+            },
+          },
+          required: ['device_code'],
+        },
+      },
+      {
+        name: 'register_agent',
+        description: 'Register this agent using a user-provided pairing code. Alternative to device authorization - use when user already has a code.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            pairing_code: {
+              type: 'string',
+              description: 'Pairing code from user\'s wallet app (format: WSIM-XXXXXX-XXXXXX)',
+              pattern: '^WSIM-[A-Z0-9]{6}-[A-Z0-9]{6}$',
+            },
+            agent_name: {
+              type: 'string',
+              description: 'Display name for this agent',
+              maxLength: 100,
+            },
+            description: {
+              type: 'string',
+              description: 'Description of what this agent does (optional)',
+              maxLength: 500,
+            },
+            permissions: {
+              type: 'array',
+              items: { type: 'string', enum: ['browse', 'cart', 'purchase', 'history'] },
+              description: 'Requested permissions',
+            },
+            spending_limits: {
+              type: 'object',
+              properties: {
+                per_transaction: { type: 'number', description: 'Max per-transaction auto-approve limit' },
+                daily: { type: 'number', description: 'Daily spending limit' },
+                monthly: { type: 'number', description: 'Monthly spending limit' },
+                currency: { type: 'string', default: 'CAD' },
+              },
+              required: ['per_transaction', 'daily', 'monthly'],
+            },
+          },
+          required: ['pairing_code', 'agent_name', 'permissions', 'spending_limits'],
+        },
+      },
+      {
+        name: 'check_registration_status',
+        description: 'Check if the user has approved the agent registration request (for pairing code flow). Returns credentials on approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            request_id: {
+              type: 'string',
+              description: 'Registration request ID from register_agent response',
+            },
+          },
+          required: ['request_id'],
+        },
+      },
+      {
+        name: 'get_access_token',
+        description: 'Exchange client credentials for an access token (OAuth 2.0 client_credentials grant)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            client_id: {
+              type: 'string',
+              description: 'Client ID received after registration approval (format: agent_xxxxxxxxxxxx)',
+            },
+            client_secret: {
+              type: 'string',
+              description: 'Client secret received after registration approval',
+            },
+          },
+          required: ['client_id', 'client_secret'],
+        },
+      },
+      {
+        name: 'get_spending_info',
+        description: 'Get current spending limits, usage, and available payment methods for this agent',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+      {
+        name: 'request_payment_token',
+        description: 'Request authorization to make a payment. Returns a payment_token if within limits, or requires step-up approval if exceeding limits.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            amount: {
+              type: 'number',
+              description: 'Payment amount',
+            },
+            currency: {
+              type: 'string',
+              description: 'Currency code',
+              default: 'CAD',
+            },
+            merchant_id: {
+              type: 'string',
+              description: 'Merchant ID from store\'s UCP discovery',
+            },
+            merchant_name: {
+              type: 'string',
+              description: 'Merchant display name (optional)',
+            },
+            session_id: {
+              type: 'string',
+              description: 'Checkout session ID from the store (optional)',
+            },
+            payment_method_id: {
+              type: 'string',
+              description: 'Specific payment method to use (optional, defaults to user\'s default)',
+            },
+          },
+          required: ['amount', 'merchant_id'],
+        },
+      },
+      {
+        name: 'check_payment_status',
+        description: 'Check status of a payment request or step-up authorization. Use the poll_url returned from request_payment_token, or construct URL with payment_id.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            payment_id: {
+              type: 'string',
+              description: 'Payment or step-up ID from request_payment_token response',
+            },
+          },
+          required: ['payment_id'],
+        },
+      },
+    ],
+
+    resources: [
+      {
+        uri: 'wsim://spending-info',
+        name: 'Spending Information',
+        description: 'Current spending limits, usage, and available payment methods',
+        mimeType: 'application/json',
+      },
+      {
+        uri: 'wsim://discovery',
+        name: 'Agent API Discovery',
+        description: 'Full discovery document for WSIM agent API',
+        mimeType: 'application/json',
+      },
+    ],
   });
 });
 

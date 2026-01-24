@@ -334,19 +334,21 @@ export async function validateAgentCredentials(
 
 /**
  * Verify introspection credentials (Basic Auth for merchants)
+ * Supports multiple merchants via INTROSPECTION_CLIENTS config
  */
 export function verifyIntrospectionCredentials(
   clientId: string,
   clientSecret: string
 ): boolean {
-  return (
-    clientId === env.INTROSPECTION_CLIENT_ID &&
-    clientSecret === env.INTROSPECTION_CLIENT_SECRET
+  // Check against all configured introspection clients
+  return env.INTROSPECTION_CLIENTS.some(
+    client => client.clientId === clientId && client.clientSecret === clientSecret
   );
 }
 
 /**
  * Parse Basic Auth header and verify introspection credentials
+ * Returns the matched client ID if valid, null otherwise
  */
 export function verifyIntrospectionAuth(authHeader: string | undefined): boolean {
   if (!authHeader?.startsWith('Basic ')) {

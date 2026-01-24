@@ -354,6 +354,7 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
         reason: limitResult.reason,
         trigger_type: limitResult.triggerType,
         poll_url: `${env.APP_URL}/api/agent/v1/payments/${stepUp.id}/status`,
+        next_step: 'Poll poll_url until status changes to approved or rejected',
       });
     }
 
@@ -433,6 +434,7 @@ router.post('/token', requireAgentAuth, async (req: AgentAuthenticatedRequest, r
         type: paymentMethod.cardType,
         last_four: paymentMethod.lastFour,
       },
+      next_step: 'Use payment_token with merchant to complete purchase',
     });
   } catch (error) {
     console.error('[Agent Payments] Token error:', error);
@@ -485,8 +487,6 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
         type: 'step_up',
         step_up_id: stepUp.id,
         status: stepUp.status,
-        reason: stepUp.reason,
-        trigger_type: stepUp.triggerType,
         amount: stepUp.amount.toString(),
         currency: stepUp.currency,
         merchant_id: stepUp.merchantId,
@@ -494,6 +494,13 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
         created_at: stepUp.createdAt.toISOString(),
         expires_at: stepUp.expiresAt.toISOString(),
       };
+
+      // Only include reason/trigger_type for pending status (avoids confusing agents)
+      if (stepUp.status === 'pending') {
+        response.reason = stepUp.reason;
+        response.trigger_type = stepUp.triggerType;
+        response.next_step = 'Continue polling until status changes to approved or rejected';
+      }
 
       // If approved, include payment token info
       if (stepUp.status === 'approved' && stepUp.transaction) {
@@ -549,11 +556,17 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
             type: paymentMethod.cardType,
             last_four: paymentMethod.lastFour,
           };
+          response.next_step = 'Use payment_token with merchant to complete purchase';
         }
       }
 
       if (stepUp.status === 'rejected') {
         response.rejection_reason = stepUp.rejectionReason;
+        response.next_step = 'Request was declined by user. Do not retry without user initiation.';
+      }
+
+      if (stepUp.status === 'expired') {
+        response.next_step = 'Authorization window expired. Create new payment request if needed.';
       }
 
       return res.json(response);
@@ -573,6 +586,22 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
         });
       }
 
+      // Determine next_step based on transaction status
+      let nextStep: string;
+      switch (transaction.status) {
+        case 'pending':
+          nextStep = 'Payment is processing with merchant';
+          break;
+        case 'completed':
+          nextStep = 'Transaction complete. No further action required.';
+          break;
+        case 'failed':
+          nextStep = 'Transaction failed. Review error and retry if appropriate.';
+          break;
+        default:
+          nextStep = 'Check transaction status';
+      }
+
       return res.json({
         type: 'payment',
         payment_id: transaction.id,
@@ -584,6 +613,7 @@ router.get('/:paymentId/status', requireAgentAuth, async (req: AgentAuthenticate
         approval_type: transaction.approvalType,
         created_at: transaction.createdAt.toISOString(),
         completed_at: transaction.completedAt?.toISOString() || null,
+        next_step: nextStep,
       });
     }
 

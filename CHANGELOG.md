@@ -9,6 +9,152 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.3] - 2026-01-24
+
+### Added
+
+#### OAuth 2.0 Device Authorization Grant (RFC 8628)
+Extended the OAuth server to support the standard Device Authorization flow, providing OAuth-compatible authorization for AI agents.
+
+- **`POST /api/agent/v1/oauth/device_authorization`**: New endpoint to initiate device authorization
+  - Agent calls this to receive a `device_code` and `user_code`
+  - User code format: `WSIM-XXXXXX-XXXXXX` (same format as pairing codes)
+  - Returns `verification_uri` and `verification_uri_complete` for user approval
+  - 15-minute expiration window
+
+- **`POST /api/mobile/access-requests/device-codes/claim`**: New mobile endpoint for users to claim device codes
+  - User enters the code displayed by the agent in their mobile app
+  - Links the device authorization to their account for approval
+
+- **Extended `/api/agent/v1/oauth/token`**: Now supports two grant types:
+  - `client_credentials`: Exchange credentials for access token (existing)
+  - `urn:ietf:params:oauth:grant-type:device_code`: Poll for device authorization approval (new)
+
+- **RFC 8628 compliant error responses**:
+  - `authorization_pending`: User hasn't approved yet, keep polling
+  - `access_denied`: User rejected the request
+  - `expired_token`: Authorization window expired
+
+#### Multi-Client Token Introspection
+Added support for multiple merchants to introspect agent tokens (previously limited to SSIM only).
+
+- **New env var `INTROSPECTION_CLIENTS`**: JSON array of client credentials
+  ```json
+  [
+    {"clientId":"ssim_introspect","clientSecret":"secret1"},
+    {"clientId":"regalmoose_introspect","clientSecret":"secret2"}
+  ]
+  ```
+
+- **Backward compatible**: Falls back to legacy `INTROSPECTION_CLIENT_ID`/`INTROSPECTION_CLIENT_SECRET` if `INTROSPECTION_CLIENTS` is not set
+
+- **Updated `verifyIntrospectionCredentials()`**: Now checks against all configured clients
+
+This enables Regalmoose and future merchants to validate agent tokens via the introspection endpoint.
+
+### Updated
+
+- **Discovery endpoints** updated with device authorization info:
+  - `/.well-known/oauth-authorization-server`: Added `device_authorization_endpoint` and `urn:ietf:params:oauth:grant-type:device_code` to supported grants
+  - `/.well-known/agent-api`: Added device authorization endpoint to OAuth config
+  - `/.well-known/ai-plugin.json`: Updated `description_for_model` with both authorization flows
+  - `/.well-known/mcp-server`: Added `start_device_authorization` and `poll_device_authorization` tools
+
+- OpenAPI specification version: 1.1.2 → 1.1.3
+- Discovery endpoints version: 1.1.2 → 1.1.3
+
+### Technical Notes
+
+This implementation maps WSIM's existing pairing code infrastructure to the OAuth Device Authorization standard:
+- **User-initiated flow**: User generates code in app, gives to agent (existing)
+- **Agent-initiated flow**: Agent requests code, user enters in app (new, RFC 8628)
+
+Both flows result in the same outcome: agent receives OAuth client credentials for use with the `client_credentials` grant.
+
+---
+
+## [1.1.2] - 2026-01-24
+
+### Added
+
+#### AI Discovery Endpoints
+New discovery endpoints for ChatGPT plugins and Model Context Protocol (MCP) tool discovery:
+
+- **`GET /.well-known/ai-plugin.json`**: ChatGPT/AI Plugin Manifest
+  - Standard format for ChatGPT plugins and web-based AI assistants
+  - Documents WSIM's unique pairing code + client credentials auth flow
+  - Links to OpenAPI spec for detailed API documentation
+
+- **`GET /.well-known/mcp-server`**: Model Context Protocol Server Discovery
+  - Enables AI agents to discover WSIM tools as if they were local functions
+  - Documents 6 available tools: `register_agent`, `check_registration_status`, `get_access_token`, `get_spending_info`, `request_payment_token`, `check_payment_status`
+  - Includes proper pairing code format (`WSIM-XXXXXX-XXXXXX`)
+  - Follows MCP specification v2024-11-05
+
+Both endpoints include CORS headers for browser-based AI tools.
+
+**Note**: These endpoints were adapted from the agents team's proposal in `AI_DISCOVERY_ENDPOINTS.md` but corrected to match WSIM's actual implementation (pairing code format, optional fields, correct permissions enum, etc.)
+
+---
+
+## [1.1.1] - 2026-01-23
+
+### Added
+
+#### AI Agent UX Improvements
+Based on feedback from AI agents using the API, implemented improvements to make response interpretation clearer:
+
+- **`next_step` field**: Added to all payment-related responses (`PaymentTokenResponse`, `StepUpRequiredResponse`, `PaymentStatusResponse`). Provides explicit human-readable guidance on what action the agent should take next:
+  - `"Use payment_token with merchant to complete purchase"` - when payment token is ready
+  - `"Poll poll_url until status changes to approved or rejected"` - when awaiting authorization
+  - `"Request was declined by user. Do not retry without user initiation."` - when rejected
+  - `"Authorization window expired. Create new payment request if needed."` - when expired
+  - `"Transaction complete. No further action required."` - when completed
+
+### Changed
+
+#### Status Dominance Fix
+- **`reason` and `trigger_type` fields**: Now only included in responses when status is `pending` or `awaiting_authorization`. Previously, these fields were included in all step-up responses (including `approved`, `rejected`, `expired`), which caused AI agents to interpret successful responses as errors.
+
+### Updated
+- OpenAPI specification version: 1.1.0 → 1.1.1
+- Discovery endpoints version: 1.1.0 → 1.1.1
+
+---
+
+## [1.1.0] - 2026-01-23
+
+### Changed
+
+#### OpenAPI Specification - Major Schema Corrections
+Comprehensive audit to align OpenAPI spec with actual implementation. These are **documentation fixes only** - no code changes.
+
+**Agent Management Schemas:**
+- `RegisterAgentRequest`: Changed from nested `spending_limits` object to flat camelCase fields (`perTransactionLimit`, `dailyLimit`, `monthlyLimit`)
+- `RegisterAgentResponse`: Changed from nested `{ agent, credentials }` structure to flat object with all fields at root level
+- `AgentDetailResponse`: Changed from nested `{ agent: {...} }` to flat object at root level
+- `AgentListResponse`: Updated `AgentSummary` to include `permissions`, `spending_limits`, `spending_usage`
+- `UpdateAgentRequest`: Changed from `spending_limits` object to flat camelCase fields
+- Added `AgentUpdateResponse` schema for PATCH response
+- Added `AgentRevokeResponse` schema for DELETE response (returns 200 with body, not 204)
+- `RotateSecretResponse`: Added `message` field
+
+**Payment Schemas:**
+- `PaymentMethod`: Changed `exp_month`/`exp_year` to `expiry_month`/`expiry_year`, removed `brand` field, added `cardholder_name`
+- `PaymentTokenResponse`: Changed to match actual response with `step_up_required`, `step_up_id`, `expires_in` (number), `payment_method` object
+- `PaymentStatusResponse`: Added `type` discriminator field (`step_up` or `payment`), comprehensive field list for both types
+
+**Step-Up Schemas:**
+- `StepUpApprovalResponse`: Changed `payment_id` to `transaction_id`, added `payment_method` object
+- `StepUpRejectionResponse`: Removed `payment_id` (not returned by code)
+- `StepUpDetailResponse`: Restructured with proper nesting (`step_up`, `spending_limits`, `available_payment_methods`, `requested_payment_method_id`)
+- Added `StepUpPaymentMethod` schema (uses `exp_month`/`exp_year` unlike `PaymentMethod`)
+
+**OAuth Schemas:**
+- `OAuthErrorResponse`: Added `access_denied` to enum (used for suspended/revoked agents)
+
+---
+
 ## [1.0.9] - 2026-01-23
 
 ### Added
