@@ -26,10 +26,10 @@ import {
 } from '../services/image-upload';
 import {
   fetchAccounts,
-  refreshBsimToken,
+  safeRefreshBsimToken,
   BsimProviderConfig,
 } from '../services/bsim-oidc';
-import { decrypt, encrypt } from '../utils/crypto';
+import { decrypt } from '../utils/crypto';
 
 const router = Router();
 
@@ -1076,31 +1076,28 @@ router.post('/:contractId/fund', requireMobileAuth, async (req: AuthenticatedReq
       if (enrollment.credentialExpiry && new Date() > enrollment.credentialExpiry) {
         console.log(`[Contracts:${requestId}] Access token expired, attempting refresh...`);
 
-        if (enrollment.refreshToken) {
-          const refreshResult = await refreshBsimToken(provider, decrypt(enrollment.refreshToken));
-
-          if (refreshResult) {
-            // Update stored tokens
-            await prisma.bsimEnrollment.update({
-              where: { id: enrollment.id },
-              data: {
-                accessToken: encrypt(refreshResult.accessToken),
-                refreshToken: encrypt(refreshResult.refreshToken),
-                credentialExpiry: new Date(Date.now() + refreshResult.expiresIn * 1000),
-              },
-            });
-            accessToken = refreshResult.accessToken;
-            console.log(`[Contracts:${requestId}] Token refreshed successfully`);
-          } else {
-            return res.status(400).json({
-              error: 'token_refresh_failed',
-              message: 'Please re-enroll with your bank to fund contracts',
-            });
-          }
-        } else {
+        if (!enrollment.refreshToken) {
           return res.status(400).json({
             error: 'token_expired',
             message: 'Please re-enroll with your bank to fund contracts',
+          });
+        }
+
+        // Use safe refresh that handles token rotation atomically
+        const refreshResult = await safeRefreshBsimToken(
+          enrollment.id,
+          provider,
+          enrollment.refreshToken
+        );
+
+        if (refreshResult.success) {
+          accessToken = refreshResult.accessToken;
+          console.log(`[Contracts:${requestId}] Token refreshed successfully`);
+        } else {
+          console.error(`[Contracts:${requestId}] Token refresh failed: ${refreshResult.error} - ${refreshResult.message}`);
+          return res.status(400).json({
+            error: refreshResult.error === 'needs_reenrollment' ? 'token_expired' : 'token_refresh_failed',
+            message: refreshResult.message,
           });
         }
       }

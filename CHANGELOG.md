@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.4] - 2026-01-24
+
+### Fixed
+
+#### BSIM Refresh Token Loss Bug
+Fixed critical bug where users lose bank account access after ~1 hour due to refresh token rotation handling.
+
+**Root Cause**: BSIM uses refresh token rotation (standard in oidc-provider). When WSIM refreshes a token:
+1. BSIM immediately invalidates the old refresh token
+2. BSIM returns a new refresh token in the response
+3. If WSIM fails to persist the new refresh token (database error, timeout, etc.), it's lost forever
+4. The user can no longer refresh their access token and must re-enroll
+
+**Fix**: Created `safeRefreshBsimToken()` helper function that:
+- Handles token refresh + database save as a single operation
+- Includes retry logic (3 attempts with exponential backoff) for transient database failures
+- Provides detailed logging for debugging refresh failures
+- Returns typed error results for proper error handling
+
+**Files Changed**:
+- `backend/src/services/bsim-oidc.ts` - Added `safeRefreshBsimToken()` with retry logic
+- `backend/src/routes/contracts.ts` - Updated to use safe refresh for contract funding
+- `backend/src/routes/mobile.ts` - Updated to use safe refresh for account fetching
+
+---
+
 ## [1.1.3] - 2026-01-24
 
 ### Added

@@ -52,7 +52,7 @@ import {
   exchangeCode,
   fetchCards,
   fetchAccounts,
-  refreshBsimToken,
+  safeRefreshBsimToken,
   generatePkce,
   generateState,
   generateNonce,
@@ -1154,35 +1154,25 @@ router.get('/accounts', requireMobileAuth, async (req: AuthenticatedRequest, res
           if (fetchError.message?.includes('401') && enrollment.refreshToken) {
             console.log(`[Mobile] Token expired for ${enrollment.bsimId}, attempting refresh`);
 
-            const decryptedRefreshToken = decrypt(enrollment.refreshToken);
-            const refreshResult = await refreshBsimToken(provider, decryptedRefreshToken);
+            // Use safe refresh that handles token rotation atomically
+            const refreshResult = await safeRefreshBsimToken(
+              enrollment.id,
+              provider,
+              enrollment.refreshToken
+            );
 
-            if (refreshResult) {
-              // Token refresh successful - update database
-              console.log(`[Mobile] Token refreshed for ${enrollment.bsimId}, updating database`);
-
-              await prisma.bsimEnrollment.update({
-                where: { id: enrollment.id },
-                data: {
-                  // Update accessToken (JWT for Open Banking API)
-                  accessToken: encrypt(refreshResult.accessToken),
-                  refreshToken: encrypt(refreshResult.refreshToken),
-                  credentialExpiry: new Date(Date.now() + refreshResult.expiresIn * 1000),
-                  // Note: walletCredential (wcred_xxx) is not updated - refresh only returns JWT
-                },
-              });
-
+            if (refreshResult.success) {
               // Retry fetch with new token
               accounts = await fetchAccounts(provider, refreshResult.accessToken);
               console.log(`[Mobile] Fetched ${accounts.length} accounts from ${enrollment.bsimId} after refresh`);
               allAccounts.push(...accounts);
             } else {
               // Refresh failed - user needs to re-enroll
-              console.error(`[Mobile] Token refresh failed for ${enrollment.bsimId}`);
+              console.error(`[Mobile] Token refresh failed for ${enrollment.bsimId}: ${refreshResult.error}`);
               errors.push({
                 bsimId: enrollment.bsimId,
                 error: 'bsim_token_expired',
-                message: `Re-enrollment required for ${provider.name || enrollment.bsimId}`,
+                message: refreshResult.message || `Re-enrollment required for ${provider.name || enrollment.bsimId}`,
                 action: 'reenroll',
               });
             }

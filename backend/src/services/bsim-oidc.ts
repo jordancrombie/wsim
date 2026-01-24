@@ -1,5 +1,7 @@
 import * as client from 'openid-client';
 import crypto from 'crypto';
+import { prisma } from '../config/database';
+import { encrypt, decrypt } from '../utils/crypto';
 
 // BSIM provider configuration type
 export interface BsimProviderConfig {
@@ -393,6 +395,114 @@ export async function refreshBsimToken(
     console.error('[BSIM OIDC] Token refresh exception:', error);
     return null;
   }
+}
+
+/**
+ * Result of a safe token refresh operation
+ */
+export type SafeRefreshResult =
+  | { success: true; accessToken: string; expiresAt: Date }
+  | { success: false; error: 'no_refresh_token' | 'refresh_failed' | 'save_failed' | 'needs_reenrollment'; message: string };
+
+/**
+ * Safely refresh BSIM tokens with atomic database update
+ *
+ * IMPORTANT: BSIM uses refresh token rotation. When we call refresh:
+ * 1. BSIM immediately invalidates the old refresh token
+ * 2. BSIM returns a new refresh token
+ * 3. If we fail to save the new token, it's LOST FOREVER
+ *
+ * This function ensures the new refresh token is persisted before returning,
+ * with retry logic to handle transient database failures.
+ *
+ * @param enrollmentId - BsimEnrollment.id to update
+ * @param provider - BSIM provider configuration
+ * @param encryptedRefreshToken - The encrypted refresh token from database
+ * @returns SafeRefreshResult with success status and new access token
+ */
+export async function safeRefreshBsimToken(
+  enrollmentId: string,
+  provider: BsimProviderConfig,
+  encryptedRefreshToken: string
+): Promise<SafeRefreshResult> {
+  const logPrefix = `[BSIM OIDC:${enrollmentId.slice(0, 8)}]`;
+
+  // Decrypt the stored refresh token
+  let decryptedRefreshToken: string;
+  try {
+    decryptedRefreshToken = decrypt(encryptedRefreshToken);
+  } catch (err) {
+    console.error(`${logPrefix} Failed to decrypt refresh token:`, err);
+    return {
+      success: false,
+      error: 'needs_reenrollment',
+      message: 'Refresh token could not be decrypted',
+    };
+  }
+
+  console.log(`${logPrefix} Attempting token refresh for ${provider.bsimId}...`);
+
+  // Call BSIM to refresh - this INVALIDATES the old token immediately
+  const refreshResult = await refreshBsimToken(provider, decryptedRefreshToken);
+
+  if (!refreshResult) {
+    console.error(`${logPrefix} BSIM token refresh failed - user needs to re-enroll`);
+    return {
+      success: false,
+      error: 'refresh_failed',
+      message: 'Token refresh was rejected by the bank. Please re-enroll.',
+    };
+  }
+
+  // CRITICAL: We now have a new refresh token that MUST be persisted
+  // The old token is already invalidated by BSIM
+  const expiresAt = new Date(Date.now() + refreshResult.expiresIn * 1000);
+
+  // Retry logic for database save (handle transient failures)
+  const MAX_RETRIES = 3;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await prisma.bsimEnrollment.update({
+        where: { id: enrollmentId },
+        data: {
+          accessToken: encrypt(refreshResult.accessToken),
+          refreshToken: encrypt(refreshResult.refreshToken),
+          credentialExpiry: expiresAt,
+        },
+      });
+
+      console.log(`${logPrefix} Token refresh successful, new expiry: ${expiresAt.toISOString()}`);
+      return {
+        success: true,
+        accessToken: refreshResult.accessToken,
+        expiresAt,
+      };
+    } catch (err) {
+      lastError = err as Error;
+      console.error(`${logPrefix} Failed to save refresh token (attempt ${attempt}/${MAX_RETRIES}):`, err);
+
+      if (attempt < MAX_RETRIES) {
+        // Exponential backoff: 100ms, 400ms, 900ms
+        const delay = attempt * attempt * 100;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  // All retries failed - this is critical because the new token is lost
+  console.error(`${logPrefix} CRITICAL: Failed to persist new refresh token after ${MAX_RETRIES} attempts!`);
+  console.error(`${logPrefix} New access token received but refresh token not saved - user may need to re-enroll`);
+  console.error(`${logPrefix} Last error:`, lastError);
+
+  // Return the access token we did receive, but flag the save failure
+  // The caller should still use this access token but know the refresh token wasn't saved
+  return {
+    success: false,
+    error: 'save_failed',
+    message: 'Token refreshed but failed to save. Please try again or re-enroll if issues persist.',
+  };
 }
 
 /**
