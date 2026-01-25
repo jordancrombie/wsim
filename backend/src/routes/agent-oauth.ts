@@ -43,13 +43,14 @@ const router = Router();
 // =============================================================================
 
 /**
- * Generate a user code in format: WSIM-XXXXXX-XXXXXX
+ * Generate a user code in format: WSIM-XXXXXX
+ * Per RFC 8628 Section 6.1: ~8 characters recommended for easy entry
+ * Using 6 chars from 32-char alphabet = ~1 billion combinations
  */
 function generateUserCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude confusing chars (0, O, 1, I)
-  const part1 = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  const part2 = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  return `WSIM-${part1}-${part2}`;
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Exclude confusing chars (0, O, 1, I, L)
+  const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `WSIM-${code}`;
 }
 
 /**
@@ -228,6 +229,14 @@ const KNOWN_OAUTH_CLIENTS: Record<string, OAuthClientConfig> = {
       'http://localhost:3004/callback',
       'http://127.0.0.1:*/callback',
     ],
+  },
+  // SACP Gateway - server-side service for guest checkout
+  // Uses Device Authorization flow (RFC 8628), not redirect-based OAuth
+  // Secret stored in env: OAUTH_CLIENT_SECRET_SACP_GATEWAY
+  'sacp-gateway': {
+    name: 'SACP Gateway',
+    type: 'confidential',
+    allowedRedirectUris: [], // Uses Device Authorization, not redirect flow
   },
 };
 

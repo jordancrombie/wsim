@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-01-25
+
+### Added
+
+- **SACP Gateway support for guest checkout flow**
+  - Registered `sacp-gateway` as a confidential OAuth client in `KNOWN_OAUTH_CLIENTS`
+  - New environment variable: `OAUTH_CLIENT_SECRET_SACP_GATEWAY`
+  - Gateway uses Device Authorization flow (RFC 8628) for payment-time user approval
+
+### Changed
+
+- **Device Authorization user codes shortened** (RFC 8628 Section 6.1 compliance)
+  - Changed from `WSIM-XXXXXX-XXXXXX` (18 chars) to `WSIM-XXXXXX` (11 chars)
+  - Improves usability for manual code entry
+  - ~1 billion combinations still provides sufficient entropy for 15-minute validity
+
+### Documentation
+
+- Updated `.env.example` with OAuth client secret documentation
+- Added `INTROSPECTION_CLIENTS` JSON array format example
+
+---
+
 ## [1.1.9] - 2026-01-25
 
 ### Fixed
