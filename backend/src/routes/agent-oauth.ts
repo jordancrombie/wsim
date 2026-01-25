@@ -316,7 +316,10 @@ router.get('/authorize', async (req: Request, res: Response) => {
     } = req.query as Record<string, string>;
 
     // Validate required parameters
-    if (response_type !== 'code') {
+    // Default to 'code' if not specified, as it's the only supported flow
+    // Also handle case-insensitive comparison for compatibility
+    const normalizedResponseType = (response_type || 'code').toLowerCase();
+    if (normalizedResponseType !== 'code') {
       return res.status(400).send(renderErrorPage(
         'Invalid Request',
         'Only response_type=code is supported',

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.8] - 2026-01-25
+
+### Fixed
+
+- **OAuth: Make response_type validation more lenient** (ChatGPT Connectors compatibility)
+  - Default to `code` if `response_type` is not specified
+  - Accept case-insensitive values (e.g., `Code`, `CODE`)
+  - Only reject if explicitly set to an unsupported value
+
+---
+
 ## [1.1.7] - 2026-01-25
 
 ### Changed
