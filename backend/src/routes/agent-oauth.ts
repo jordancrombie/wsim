@@ -188,8 +188,8 @@ const KNOWN_OAUTH_CLIENTS: Record<string, { name: string; allowedRedirectUris: s
   'chatgpt': {
     name: 'ChatGPT',
     allowedRedirectUris: [
-      'https://chat.openai.com/aip/plugin-id/oauth/callback',
-      'https://chatgpt.com/aip/plugin-id/oauth/callback',
+      'https://chat.openai.com/aip/*/oauth/callback',
+      'https://chatgpt.com/aip/*/oauth/callback',
     ],
   },
   'claude-mcp': {
@@ -218,7 +218,8 @@ const KNOWN_OAUTH_CLIENTS: Record<string, { name: string; allowedRedirectUris: s
 
 /**
  * Validate redirect URI against allowed patterns
- * Supports wildcards for port numbers (e.g., localhost:*)
+ * Supports wildcards for dynamic segments (e.g., localhost:*, plugin IDs)
+ * Wildcard matches alphanumeric characters, hyphens, and underscores
  */
 function isValidRedirectUri(clientId: string, redirectUri: string): boolean {
   const client = KNOWN_OAUTH_CLIENTS[clientId];
@@ -226,8 +227,8 @@ function isValidRedirectUri(clientId: string, redirectUri: string): boolean {
 
   return client.allowedRedirectUris.some(pattern => {
     if (pattern.includes('*')) {
-      // Convert wildcard pattern to regex
-      const regex = new RegExp('^' + pattern.replace(/\*/g, '\\d+') + '$');
+      // Convert wildcard pattern to regex - match alphanumeric, hyphens, underscores
+      const regex = new RegExp('^' + pattern.replace(/\*/g, '[\\w-]+') + '$');
       return regex.test(redirectUri);
     }
     return pattern === redirectUri;

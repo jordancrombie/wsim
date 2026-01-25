@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.6] - 2026-01-25
+
+### Fixed
+
+- **OAuth redirect URI validation**: Fixed ChatGPT connector redirect URI matching
+  - Changed literal `plugin-id` to wildcard `*` in ChatGPT redirect URI patterns
+  - Fixed wildcard regex to support GPT IDs (alphanumeric + hyphens) instead of digits only
+  - Example GPT ID: `g-95650492964f0c8fed8eb2b04a47d16a7cdd4ac4`
+
+---
+
 ## [1.1.5] - 2026-01-24
 
 ### Added
