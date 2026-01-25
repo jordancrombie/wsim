@@ -709,9 +709,9 @@ model OAuthAuthorizationCode {
   clientId        String              // Pre-registered OAuth client (e.g., "chatgpt")
   redirectUri     String              // Where to redirect after auth
 
-  // PKCE (RFC 7636)
-  codeChallenge   String              // SHA256 hash of code_verifier
-  codeChallengeMethod String @default("S256")
+  // PKCE (RFC 7636) - optional for confidential clients that use client_secret
+  codeChallenge   String?             // SHA256 hash of code_verifier (null for confidential clients)
+  codeChallengeMethod String?         // "S256" if PKCE used, null otherwise
 
   // State for CSRF protection
   state           String?

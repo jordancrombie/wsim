@@ -181,12 +181,24 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
 // =============================================================================
 
 /**
- * Known OAuth clients (AI platforms)
+ * OAuth client configuration
+ * - confidential: Server-side clients that can securely store client_secret (e.g., ChatGPT)
+ * - public: Browser/mobile clients that use PKCE instead (e.g., MCP clients)
+ *
  * In production, these would be stored in database
  */
-const KNOWN_OAUTH_CLIENTS: Record<string, { name: string; allowedRedirectUris: string[] }> = {
+interface OAuthClientConfig {
+  name: string;
+  type: 'confidential' | 'public';
+  allowedRedirectUris: string[];
+  // For confidential clients, secret is stored in env: OAUTH_CLIENT_SECRET_<CLIENT_ID>
+  // e.g., OAUTH_CLIENT_SECRET_CHATGPT
+}
+
+const KNOWN_OAUTH_CLIENTS: Record<string, OAuthClientConfig> = {
   'chatgpt': {
     name: 'ChatGPT',
+    type: 'confidential',  // ChatGPT is a server-side client with client_secret
     allowedRedirectUris: [
       'https://chat.openai.com/aip/*/oauth/callback',
       'https://chatgpt.com/aip/*/oauth/callback',
@@ -194,6 +206,7 @@ const KNOWN_OAUTH_CLIENTS: Record<string, { name: string; allowedRedirectUris: s
   },
   'claude-mcp': {
     name: 'Claude (MCP)',
+    type: 'public',  // MCP uses PKCE
     allowedRedirectUris: [
       'http://localhost:*',
       'https://claude.ai/oauth/callback',
@@ -201,13 +214,15 @@ const KNOWN_OAUTH_CLIENTS: Record<string, { name: string; allowedRedirectUris: s
   },
   'gemini': {
     name: 'Google Gemini',
+    type: 'confidential',  // Google is server-side
     allowedRedirectUris: [
       'https://gemini.google.com/oauth/callback',
     ],
   },
-  // Development/testing client
+  // Development/testing client (public, uses PKCE)
   'wsim-test': {
     name: 'WSIM Test Client',
+    type: 'public',
     allowedRedirectUris: [
       'http://localhost:3000/callback',
       'http://localhost:3004/callback',
@@ -215,6 +230,32 @@ const KNOWN_OAUTH_CLIENTS: Record<string, { name: string; allowedRedirectUris: s
     ],
   },
 };
+
+/**
+ * Get client secret from environment variable
+ * Format: OAUTH_CLIENT_SECRET_<CLIENT_ID_UPPERCASE>
+ */
+function getClientSecret(clientId: string): string | null {
+  const envKey = `OAUTH_CLIENT_SECRET_${clientId.toUpperCase().replace(/-/g, '_')}`;
+  return process.env[envKey] || null;
+}
+
+/**
+ * Verify client_secret for confidential clients
+ */
+function verifyClientSecret(clientId: string, clientSecret: string): boolean {
+  const storedSecret = getClientSecret(clientId);
+  if (!storedSecret) {
+    console.warn(`[OAuth] No client secret configured for ${clientId}`);
+    return false;
+  }
+  // Use timing-safe comparison to prevent timing attacks
+  if (storedSecret.length !== clientSecret.length) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(storedSecret),
+    Buffer.from(clientSecret)
+  );
+}
 
 /**
  * Validate redirect URI against allowed patterns
@@ -323,23 +364,40 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // PKCE is required
-    if (!code_challenge || code_challenge_method !== 'S256') {
+    // PKCE validation: required for public clients, optional for confidential clients
+    const hasPkce = code_challenge && code_challenge_method === 'S256';
+
+    if (client.type === 'public' && !hasPkce) {
+      // Public clients MUST use PKCE (they can't securely store client_secret)
       return res.status(400).send(renderErrorPage(
         'PKCE Required',
-        'code_challenge with method S256 is required',
+        'code_challenge with method S256 is required for this client type',
         redirect_uri,
         state
       ));
     }
 
-    // Create authorization request
+    // For confidential clients without PKCE, verify they have a secret configured
+    if (client.type === 'confidential' && !hasPkce) {
+      const hasSecret = getClientSecret(client_id) !== null;
+      if (!hasSecret) {
+        console.error(`[OAuth Authorize] Confidential client ${client_id} has no secret configured`);
+        return res.status(400).send(renderErrorPage(
+          'Configuration Error',
+          'Client is not properly configured. Please contact support.',
+          redirect_uri,
+          state
+        ));
+      }
+    }
+
+    // Create authorization request (PKCE fields are nullable for confidential clients)
     const authRequest = await prisma.oAuthAuthorizationCode.create({
       data: {
         clientId: client_id,
         redirectUri: redirect_uri,
-        codeChallenge: code_challenge,
-        codeChallengeMethod: code_challenge_method || 'S256',
+        codeChallenge: hasPkce ? code_challenge : null,
+        codeChallengeMethod: hasPkce ? code_challenge_method : null,
         state,
         scope,
         status: 'pending_identification',
@@ -902,7 +960,7 @@ router.post('/token', async (req: Request, res: Response) => {
 
     // Handle Authorization Code Grant (RFC 6749 + PKCE RFC 7636)
     if (grant_type === 'authorization_code') {
-      return handleAuthorizationCodeGrant(req, res, code, code_verifier, redirect_uri, client_id);
+      return handleAuthorizationCodeGrant(req, res, code, code_verifier, redirect_uri, client_id, client_secret);
     }
 
     // Handle Client Credentials Grant
@@ -974,28 +1032,24 @@ router.post('/token', async (req: Request, res: Response) => {
  * Handle Authorization Code Grant token exchange (RFC 6749 + PKCE RFC 7636)
  *
  * This grant type is used by browser-based OAuth clients like ChatGPT Connectors.
- * PKCE is required for security.
+ * Security is enforced via either:
+ * - PKCE (code_verifier) for public clients
+ * - client_secret for confidential clients
  */
 async function handleAuthorizationCodeGrant(
   req: Request,
   res: Response,
   code: string,
-  codeVerifier: string,
+  codeVerifier: string | undefined,
   redirectUri: string,
-  clientId: string
+  clientId: string,
+  clientSecret: string | undefined
 ) {
   // Validate required fields
   if (!code) {
     return res.status(400).json({
       error: 'invalid_request',
       error_description: 'code is required',
-    });
-  }
-
-  if (!codeVerifier) {
-    return res.status(400).json({
-      error: 'invalid_request',
-      error_description: 'code_verifier is required (PKCE)',
     });
   }
 
@@ -1055,12 +1109,38 @@ async function handleAuthorizationCodeGrant(
     });
   }
 
-  // Verify PKCE
-  if (!verifyPkceChallenge(codeVerifier, authRequest.codeChallenge, authRequest.codeChallengeMethod)) {
-    return res.status(400).json({
-      error: 'invalid_grant',
-      error_description: 'Invalid code_verifier',
-    });
+  // Verify authentication: either PKCE (public client) or client_secret (confidential client)
+  const usedPkce = authRequest.codeChallenge !== null;
+  const client = KNOWN_OAUTH_CLIENTS[clientId];
+
+  if (usedPkce) {
+    // Authorization used PKCE, verify code_verifier
+    if (!codeVerifier) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        error_description: 'code_verifier is required (PKCE was used during authorization)',
+      });
+    }
+    if (!verifyPkceChallenge(codeVerifier, authRequest.codeChallenge!, authRequest.codeChallengeMethod!)) {
+      return res.status(400).json({
+        error: 'invalid_grant',
+        error_description: 'Invalid code_verifier',
+      });
+    }
+  } else {
+    // Authorization did not use PKCE, require client_secret (confidential client)
+    if (!clientSecret) {
+      return res.status(400).json({
+        error: 'invalid_client',
+        error_description: 'client_secret is required for this client',
+      });
+    }
+    if (!verifyClientSecret(clientId, clientSecret)) {
+      return res.status(401).json({
+        error: 'invalid_client',
+        error_description: 'Invalid client credentials',
+      });
+    }
   }
 
   // Mark as used

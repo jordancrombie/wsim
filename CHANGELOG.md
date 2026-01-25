@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.7] - 2026-01-25
+
+### Changed
+
+- **OAuth: Make PKCE optional for confidential clients** (ChatGPT Connectors compatibility)
+  - Confidential clients (server-side apps like ChatGPT) authenticate via `client_secret` at token exchange
+  - Public clients (browser/mobile apps like MCP) still require PKCE (`code_challenge`)
+  - Added client type configuration (`confidential` vs `public`) to OAuth client registry
+  - Token exchange now validates either PKCE or client_secret based on what was used during authorization
+  - Client secrets stored in environment variables: `OAUTH_CLIENT_SECRET_<CLIENT_ID>`
+
+### Database
+
+- Migration: Made `codeChallenge` and `codeChallengeMethod` nullable in `OAuthAuthorizationCode`
+
+---
+
 ## [1.1.6] - 2026-01-25
 
 ### Fixed
