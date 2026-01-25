@@ -654,6 +654,256 @@ mobileAccessRequestRouter.post('/:requestId/reject', requireMobileAuth, async (r
 });
 
 // =============================================================================
+// OAUTH AUTHORIZATION (Mobile - for Authorization Code flow)
+// =============================================================================
+
+/**
+ * GET /api/mobile/oauth-authorizations/:id
+ * Get OAuth authorization request details
+ */
+mobileAccessRequestRouter.get('/oauth-authorizations/:id', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+    const { id } = req.params;
+
+    const authRequest = await prisma.oAuthAuthorizationCode.findUnique({
+      where: { id },
+    });
+
+    if (!authRequest) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Authorization request not found',
+      });
+    }
+
+    // Verify ownership
+    if (authRequest.userId !== userId) {
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Authorization request does not belong to you',
+      });
+    }
+
+    // Get client display name
+    const clientNames: Record<string, string> = {
+      'chatgpt': 'ChatGPT',
+      'claude-mcp': 'Claude (MCP)',
+      'gemini': 'Google Gemini',
+      'wsim-test': 'WSIM Test Client',
+    };
+
+    const scopeDescriptions: Record<string, string> = {
+      browse: 'View products and prices',
+      cart: 'Manage shopping cart',
+      purchase: 'Make purchases on your behalf',
+      history: 'View transaction history',
+    };
+
+    const scopes = authRequest.scope?.split(' ') || ['browse'];
+
+    return res.json({
+      id: authRequest.id,
+      client_id: authRequest.clientId,
+      client_name: clientNames[authRequest.clientId] || authRequest.clientId,
+      status: authRequest.status,
+      scope: authRequest.scope,
+      scopes: scopes.map(s => ({
+        name: s,
+        description: scopeDescriptions[s] || s,
+      })),
+      created_at: authRequest.createdAt.toISOString(),
+      expires_at: authRequest.expiresAt.toISOString(),
+      time_remaining_seconds: Math.max(0, Math.floor((authRequest.expiresAt.getTime() - Date.now()) / 1000)),
+    });
+  } catch (error) {
+    console.error('[OAuth Auth] Get error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to get authorization request',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/oauth-authorizations/:id/approve
+ * Approve an OAuth authorization request
+ */
+mobileAccessRequestRouter.post('/oauth-authorizations/:id/approve', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+    const { id } = req.params;
+
+    const authRequest = await prisma.oAuthAuthorizationCode.findUnique({
+      where: { id },
+    });
+
+    if (!authRequest) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Authorization request not found',
+      });
+    }
+
+    // Verify ownership
+    if (authRequest.userId !== userId) {
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Authorization request does not belong to you',
+      });
+    }
+
+    // Check status
+    if (authRequest.status !== 'pending_approval') {
+      return res.status(409).json({
+        error: 'conflict',
+        message: `Authorization request is ${authRequest.status}`,
+      });
+    }
+
+    // Check expiration
+    if (authRequest.expiresAt < new Date()) {
+      await prisma.oAuthAuthorizationCode.update({
+        where: { id },
+        data: { status: 'expired' },
+      });
+      return res.status(400).json({
+        error: 'expired',
+        message: 'Authorization request has expired',
+      });
+    }
+
+    // Generate authorization code
+    const { nanoid } = await import('nanoid');
+    const code = nanoid(32);
+
+    // Update with code and approved status
+    await prisma.oAuthAuthorizationCode.update({
+      where: { id },
+      data: {
+        code,
+        status: 'approved',
+        approvedAt: new Date(),
+      },
+    });
+
+    console.log(`[OAuth Auth] User ${userId} approved authorization for ${authRequest.clientId}`);
+
+    return res.json({
+      status: 'approved',
+      message: 'Authorization approved. The application will now have access to your wallet.',
+    });
+  } catch (error) {
+    console.error('[OAuth Auth] Approve error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to approve authorization',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/oauth-authorizations/:id/reject
+ * Reject an OAuth authorization request
+ */
+mobileAccessRequestRouter.post('/oauth-authorizations/:id/reject', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+    const { id } = req.params;
+
+    const authRequest = await prisma.oAuthAuthorizationCode.findUnique({
+      where: { id },
+    });
+
+    if (!authRequest) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Authorization request not found',
+      });
+    }
+
+    // Verify ownership
+    if (authRequest.userId !== userId) {
+      return res.status(403).json({
+        error: 'forbidden',
+        message: 'Authorization request does not belong to you',
+      });
+    }
+
+    // Check status
+    if (authRequest.status !== 'pending_approval') {
+      return res.status(409).json({
+        error: 'conflict',
+        message: `Authorization request is ${authRequest.status}`,
+      });
+    }
+
+    // Update status
+    await prisma.oAuthAuthorizationCode.update({
+      where: { id },
+      data: { status: 'rejected' },
+    });
+
+    console.log(`[OAuth Auth] User ${userId} rejected authorization for ${authRequest.clientId}`);
+
+    return res.json({
+      status: 'rejected',
+      message: 'Authorization rejected.',
+    });
+  } catch (error) {
+    console.error('[OAuth Auth] Reject error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to reject authorization',
+    });
+  }
+});
+
+/**
+ * GET /api/mobile/oauth-authorizations
+ * List pending OAuth authorization requests for the user
+ */
+mobileAccessRequestRouter.get('/oauth-authorizations', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+
+    const requests = await prisma.oAuthAuthorizationCode.findMany({
+      where: {
+        userId: userId!,
+        status: 'pending_approval',
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const clientNames: Record<string, string> = {
+      'chatgpt': 'ChatGPT',
+      'claude-mcp': 'Claude (MCP)',
+      'gemini': 'Google Gemini',
+      'wsim-test': 'WSIM Test Client',
+    };
+
+    return res.json({
+      authorizations: requests.map(r => ({
+        id: r.id,
+        client_id: r.clientId,
+        client_name: clientNames[r.clientId] || r.clientId,
+        scope: r.scope,
+        created_at: r.createdAt.toISOString(),
+        expires_at: r.expiresAt.toISOString(),
+        time_remaining_seconds: Math.max(0, Math.floor((r.expiresAt.getTime() - Date.now()) / 1000)),
+      })),
+    });
+  } catch (error) {
+    console.error('[OAuth Auth] List error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to list authorization requests',
+    });
+  }
+});
+
+// =============================================================================
 // AGENT ROUTER (no auth - uses pairing code)
 // =============================================================================
 

@@ -56,7 +56,7 @@ info:
     - [PROTOCOL_DESIGN.md](https://github.com/jordancrombie/agents/blob/main/docs/PROTOCOL_DESIGN.md)
     - [MWSIM_REQUIREMENTS.md](./MWSIM_REQUIREMENTS.md)
 
-  version: 1.1.3
+  version: 1.1.5
   contact:
     name: WSIM Team
 
@@ -70,7 +70,7 @@ servers:
 
 tags:
   - name: OAuth
-    description: Agent OAuth 2.0 endpoints (Device Authorization, client credentials)
+    description: Agent OAuth 2.0 endpoints (Authorization Code, Device Authorization, client credentials)
   - name: Payments
     description: Payment token issuance for agent purchases
   - name: Agent Management
@@ -84,6 +84,185 @@ paths:
   # =============================================================================
   # OAuth Endpoints (Agent Authentication)
   # =============================================================================
+  /api/agent/v1/oauth/authorize:
+    get:
+      tags:
+        - OAuth
+      summary: Start authorization code flow
+      description: |
+        OAuth 2.0 Authorization Code flow with PKCE (RFC 6749 + RFC 7636).
+
+        **This is the recommended flow for browser-based AI platforms like ChatGPT Connectors.**
+
+        **Flow:**
+        1. Redirect user's browser to this endpoint with required parameters
+        2. User enters their WSIM email on the consent page
+        3. WSIM sends push notification to user's mobile app
+        4. User approves in mobile app
+        5. User is redirected to `redirect_uri` with authorization code
+        6. Exchange code for access token at `/oauth/token`
+
+        **PKCE Required:** All clients must use PKCE with S256 method.
+
+        **Pre-registered Clients:** chatgpt, claude-mcp, gemini, wsim-test
+      operationId: authorize
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [code]
+          description: Must be "code"
+        - name: client_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Pre-registered client ID (e.g., "chatgpt")
+          example: chatgpt
+        - name: redirect_uri
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+          description: Callback URL (must match registered URIs for client)
+          example: https://chat.openai.com/aip/plugin-id/oauth/callback
+        - name: code_challenge
+          in: query
+          required: true
+          schema:
+            type: string
+          description: PKCE code challenge (base64url-encoded SHA256 of code_verifier)
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [S256]
+          description: Must be "S256"
+        - name: state
+          in: query
+          schema:
+            type: string
+          description: CSRF protection state parameter
+        - name: scope
+          in: query
+          schema:
+            type: string
+          description: Space-separated list of scopes
+          example: browse cart purchase
+      responses:
+        '200':
+          description: HTML consent page rendered
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Invalid request (rendered as HTML error page)
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/agent/v1/oauth/authorize/identify:
+    post:
+      tags:
+        - OAuth
+      summary: Submit email for authorization
+      description: |
+        User submits their WSIM email to receive push notification for approval.
+        Called by the consent page JavaScript.
+      operationId: authorizeIdentify
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - authorization_id
+                - email
+              properties:
+                authorization_id:
+                  type: string
+                  format: uuid
+                  description: Authorization request ID from the consent page
+                email:
+                  type: string
+                  format: email
+                  description: User's WSIM account email
+      responses:
+        '200':
+          description: Push notification sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: pending_approval
+                  message:
+                    type: string
+                    example: Check your WSIM app to approve this request
+                  poll_url:
+                    type: string
+                    format: uri
+                    description: URL to poll for authorization status
+                  expires_in:
+                    type: integer
+                    description: Seconds until expiration
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
+  /api/agent/v1/oauth/authorize/status/{id}:
+    get:
+      tags:
+        - OAuth
+      summary: Poll authorization status
+      description: |
+        Poll for the status of an authorization request.
+        Called by the consent page to check if user has approved.
+      operationId: authorizeStatus
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Authorization request ID
+      responses:
+        '200':
+          description: Authorization status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending_identification, pending_approval, approved, rejected, expired, used]
+                  message:
+                    type: string
+                  redirect_uri:
+                    type: string
+                    format: uri
+                    description: Redirect URL with code (only when status=approved)
+        '404':
+          description: Authorization request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthErrorResponse'
+
   /api/agent/v1/oauth/device_authorization:
     post:
       tags:
@@ -171,7 +350,17 @@ paths:
       description: |
         OAuth 2.0 token endpoint supporting multiple grant types:
 
-        **1. Client Credentials Grant** (`client_credentials`)
+        **1. Authorization Code Grant** (`authorization_code`) - RECOMMENDED for browser-based AI
+        Exchange authorization code for access token (with PKCE):
+        ```
+        grant_type=authorization_code
+        code=<authorization_code>
+        code_verifier=<PKCE_verifier>
+        redirect_uri=<same_as_authorize>
+        client_id=chatgpt
+        ```
+
+        **2. Client Credentials Grant** (`client_credentials`)
         Exchange client credentials for an access token:
         ```
         grant_type=client_credentials
@@ -179,7 +368,7 @@ paths:
         client_secret=sk_agent_xxx
         ```
 
-        **2. Device Authorization Grant** (`urn:ietf:params:oauth:grant-type:device_code`)
+        **3. Device Authorization Grant** (`urn:ietf:params:oauth:grant-type:device_code`)
         Poll for device authorization approval:
         ```
         grant_type=urn:ietf:params:oauth:grant-type:device_code
@@ -204,12 +393,22 @@ paths:
                 grant_type:
                   type: string
                   enum:
+                    - authorization_code
                     - client_credentials
                     - urn:ietf:params:oauth:grant-type:device_code
                   description: Grant type
+                code:
+                  type: string
+                  description: Authorization code (required for authorization_code grant)
+                code_verifier:
+                  type: string
+                  description: PKCE code verifier (required for authorization_code grant)
+                redirect_uri:
+                  type: string
+                  description: Redirect URI (must match original authorize request)
                 client_id:
                   type: string
-                  description: Agent client ID (required for client_credentials)
+                  description: Client ID (required for authorization_code and client_credentials)
                   example: agent_abc123def456
                 client_secret:
                   type: string
@@ -1190,6 +1389,172 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: Access request already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # =============================================================================
+  # OAuth Authorization Endpoints (Mobile) - Authorization Code Flow Approval
+  # =============================================================================
+  /api/mobile/access-requests/oauth-authorizations:
+    get:
+      tags:
+        - Access Request
+      summary: List pending OAuth authorization requests
+      description: |
+        List all pending OAuth authorization requests for the authenticated user.
+        Used by mwsim to show pending authorization requests in the approval screen.
+
+        These are authorization requests from browser-based AI platforms (ChatGPT, Claude MCP, etc.)
+        that require user approval via push notification.
+      operationId: listOAuthAuthorizations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of pending OAuth authorizations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationListResponse'
+
+  /api/mobile/access-requests/oauth-authorizations/{id}:
+    get:
+      tags:
+        - Access Request
+      summary: Get OAuth authorization request details
+      description: |
+        Get details of an OAuth authorization request for the approval screen.
+        Shows client name, requested scopes, and expiration time.
+      operationId: getOAuthAuthorization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: OAuth authorization request ID
+      responses:
+        '200':
+          description: OAuth authorization request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationDetailResponse'
+        '403':
+          description: Authorization request does not belong to user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Authorization request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/access-requests/oauth-authorizations/{id}/approve:
+    post:
+      tags:
+        - Access Request
+      summary: Approve OAuth authorization request
+      description: |
+        Approve an OAuth authorization request from a browser-based AI platform.
+
+        **Biometric Required**: mwsim should require Face ID/Touch ID before calling.
+
+        Upon approval, an authorization code is generated and the browser waiting
+        on the consent page will be redirected to the client's redirect_uri with the code.
+      operationId: approveOAuthAuthorization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: OAuth authorization request ID
+      responses:
+        '200':
+          description: Authorization approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationApprovalResponse'
+        '400':
+          description: Authorization request expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authorization request does not belong to user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Authorization request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Authorization request already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/mobile/access-requests/oauth-authorizations/{id}/reject:
+    post:
+      tags:
+        - Access Request
+      summary: Reject OAuth authorization request
+      description: |
+        Reject an OAuth authorization request from a browser-based AI platform.
+
+        Upon rejection, the browser waiting on the consent page will be notified
+        and can display an appropriate error message.
+      operationId: rejectOAuthAuthorization
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: OAuth authorization request ID
+      responses:
+        '200':
+          description: Authorization rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthAuthorizationRejectionResponse'
+        '403':
+          description: Authorization request does not belong to user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Authorization request not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Authorization request already resolved
           content:
             application/json:
               schema:
@@ -2928,6 +3293,128 @@ components:
         rejected_at:
           type: string
           format: date-time
+
+    # =========================================================================
+    # OAuth Authorization Schemas (Authorization Code Flow)
+    # =========================================================================
+    OAuthAuthorizationListResponse:
+      type: object
+      required:
+        - authorizations
+      properties:
+        authorizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/OAuthAuthorizationSummary'
+
+    OAuthAuthorizationSummary:
+      type: object
+      required:
+        - id
+        - client_id
+        - client_name
+        - created_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        client_id:
+          type: string
+          description: Pre-registered OAuth client ID
+          example: "chatgpt"
+        client_name:
+          type: string
+          description: Human-readable client name
+          example: "ChatGPT"
+        scope:
+          type: string
+          description: Space-separated requested scopes
+          example: "browse cart purchase"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        time_remaining_seconds:
+          type: integer
+          description: Seconds until expiration
+
+    OAuthAuthorizationDetailResponse:
+      type: object
+      required:
+        - id
+        - client_id
+        - client_name
+        - status
+        - scopes
+        - created_at
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        client_id:
+          type: string
+          example: "chatgpt"
+        client_name:
+          type: string
+          example: "ChatGPT"
+        status:
+          type: string
+          enum: [pending_identification, pending_approval, approved, rejected, expired, used]
+        scope:
+          type: string
+          description: Space-separated scopes
+          example: "browse cart purchase"
+        scopes:
+          type: array
+          description: Parsed scopes with descriptions for display
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "purchase"
+              description:
+                type: string
+                example: "Make purchases on your behalf"
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        time_remaining_seconds:
+          type: integer
+
+    OAuthAuthorizationApprovalResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          enum: [approved]
+        message:
+          type: string
+          example: "Authorization approved. The application will now have access to your wallet."
+
+    OAuthAuthorizationRejectionResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          enum: [rejected]
+        message:
+          type: string
+          example: "Authorization rejected."
 
     # =========================================================================
     # Access Request Notification Schema

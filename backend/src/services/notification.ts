@@ -98,7 +98,8 @@ export type NotificationType =
   | 'agent.transaction'    // Agent transaction completed
   | 'agent.limit_warning'  // Approaching spending limit
   | 'agent.suspended'      // Agent auto-suspended
-  | 'agent.access_request'; // Agent requesting access credentials
+  | 'agent.access_request' // Agent requesting access credentials
+  | 'oauth.authorization'; // OAuth Authorization Code flow approval request
 
 /**
  * Deep link parameters for navigation
@@ -110,6 +111,7 @@ export interface DeepLinkParams {
   stepUpId?: string;
   agentId?: string;
   accessRequestId?: string;
+  oauthAuthorizationId?: string;
 }
 
 /**

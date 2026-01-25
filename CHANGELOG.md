@@ -9,6 +9,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.5] - 2026-01-24
+
+### Added
+
+#### OAuth 2.0 Authorization Code Flow with PKCE (RFC 6749 + RFC 7636)
+Implemented browser-based OAuth Authorization Code flow for AI platforms like ChatGPT Connectors that require standard OAuth.
+
+**New Endpoints**:
+- **`GET /api/agent/v1/oauth/authorize`**: Authorization endpoint
+  - Renders HTML consent page where user enters their WSIM email
+  - Sends push notification to user's mobile device for approval
+  - Supports PKCE (code_challenge with S256 method required)
+  - Pre-registered clients: `chatgpt`, `claude-mcp`, `gemini`, `wsim-test`
+
+- **`POST /api/agent/v1/oauth/authorize/identify`**: Email submission
+  - User submits email on consent page
+  - Looks up user and sends push notification to mobile app
+  - Returns poll URL for status checking
+
+- **`GET /api/agent/v1/oauth/authorize/status/:id`**: Poll for approval
+  - Browser polls to check if user approved in mobile app
+  - Returns redirect URL with authorization code on approval
+
+- **`POST /oauth/token` (authorization_code grant)**: Token exchange
+  - Exchange authorization code + PKCE verifier for access token
+  - Creates OAuth agent for the AI platform
+
+**Mobile Endpoints** (for approval flow):
+- **`GET /api/mobile/oauth-authorizations`**: List pending authorization requests
+- **`GET /api/mobile/oauth-authorizations/:id`**: Get request details
+- **`POST /api/mobile/oauth-authorizations/:id/approve`**: Approve request
+- **`POST /api/mobile/oauth-authorizations/:id/reject`**: Reject request
+
+**Discovery Updates**:
+- Updated `/.well-known/oauth-authorization-server` with `authorization_endpoint` and `code_challenge_methods_supported`
+- Updated `/.well-known/ai-plugin.json` with OAuth configuration for ChatGPT
+- Updated `/.well-known/agent-api` with authorization_code flow info
+
+**Database**:
+- New model: `OAuthAuthorizationCode` for storing authorization codes with PKCE challenge
+
+**Files Changed**:
+- `backend/prisma/schema.prisma` - Added OAuthAuthorizationCode model
+- `backend/src/routes/agent-oauth.ts` - Authorization endpoints, token grant handler
+- `backend/src/routes/access-request.ts` - Mobile OAuth approval endpoints
+- `backend/src/routes/well-known.ts` - Discovery metadata updates
+- `backend/src/services/notification.ts` - Added `oauth.authorization` notification type
+- `docs/sacp/openapi-agent.yaml` - API documentation (updated with mobile OAuth endpoints and schemas)
+- `docs/MWSIM_OAUTH_REQUIREMENTS.md` - Implementation guide for mobile team
+
+---
+
 ## [1.1.4] - 2026-01-24
 
 ### Fixed

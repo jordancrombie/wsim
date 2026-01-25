@@ -47,6 +47,7 @@ model WalletUser {
   verifications         UserVerification[]
   agents                Agent[]
   pairingCodes          PairingCode[]
+  oauthAuthorizationCodes OAuthAuthorizationCode[]
 }
 
 // =============================================================================
@@ -690,6 +691,58 @@ model WebhookDeliveryLog {
   @@index([eventType])
   @@index([attemptedAt])
   @@map("webhook_delivery_logs")
+}
+
+// =============================================================================
+// OAUTH AUTHORIZATION CODES (Browser-based Authorization Code Flow)
+// =============================================================================
+// Stores pending and issued authorization codes for OAuth Authorization Code flow
+// with PKCE support. Used by ChatGPT Connectors and browser-based AI platforms.
+
+model OAuthAuthorizationCode {
+  id              String    @id @default(uuid())
+
+  // The authorization code (issued after user approval)
+  code            String?   @unique  // null until user approves
+
+  // Client identification
+  clientId        String              // Pre-registered OAuth client (e.g., "chatgpt")
+  redirectUri     String              // Where to redirect after auth
+
+  // PKCE (RFC 7636)
+  codeChallenge   String              // SHA256 hash of code_verifier
+  codeChallengeMethod String @default("S256")
+
+  // State for CSRF protection
+  state           String?
+
+  // Scope requested
+  scope           String?             // Space-separated scopes
+
+  // User identification (set after user identifies themselves)
+  userId          String?
+  user            WalletUser? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Status
+  status          String    @default("pending_identification")
+  // "pending_identification" - waiting for user to enter email
+  // "pending_approval" - push sent, waiting for user approval
+  // "approved" - user approved, code issued
+  // "rejected" - user rejected
+  // "used" - code exchanged for tokens
+  // "expired" - expired before completion
+
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime            // 10 minutes from creation
+  approvedAt      DateTime?
+  usedAt          DateTime?
+
+  @@index([code])
+  @@index([clientId])
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@map("oauth_authorization_codes")
 }
 
 // =============================================================================

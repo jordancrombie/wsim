@@ -38,7 +38,7 @@ function getOpenApiSpec(): object {
       openapi: '3.0.3',
       info: {
         title: 'WSIM Agent Commerce API',
-        version: '1.1.3',
+        version: '1.1.5',
         description: 'OpenAPI spec not available - check server configuration',
       },
       paths: {},
@@ -74,7 +74,7 @@ router.get('/agent-api', (req: Request, res: Response) => {
     provider: {
       name: 'WSIM',
       description: 'Wallet Simulator - Digital wallet for AI agent commerce',
-      version: '1.1.3',
+      version: '1.1.5',
       logo_url: `${baseUrl}/logo.png`,
     },
 
@@ -89,12 +89,14 @@ router.get('/agent-api', (req: Request, res: Response) => {
     // OAuth 2.0 configuration
     oauth: {
       authorization_server: `${baseUrl}/.well-known/oauth-authorization-server`,
+      authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/authorize`,
       device_authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/device_authorization`,
       token_endpoint: `${baseUrl}/api/agent/v1/oauth/token`,
       introspection_endpoint: `${baseUrl}/api/agent/v1/oauth/introspect`,
       revocation_endpoint: `${baseUrl}/api/agent/v1/oauth/revoke`,
-      grant_types_supported: ['client_credentials', 'urn:ietf:params:oauth:grant-type:device_code'],
-      token_endpoint_auth_methods_supported: ['client_secret_post'],
+      grant_types_supported: ['authorization_code', 'client_credentials', 'urn:ietf:params:oauth:grant-type:device_code'],
+      code_challenge_methods_supported: ['S256'],
+      token_endpoint_auth_methods_supported: ['client_secret_post', 'none'],
     },
 
     // Available APIs
@@ -157,6 +159,7 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
   res.json({
     // Required fields (RFC 8414)
     issuer: baseUrl,
+    authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/authorize`,
     token_endpoint: `${baseUrl}/api/agent/v1/oauth/token`,
 
     // Device Authorization Grant (RFC 8628)
@@ -168,15 +171,19 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
 
     // Supported features
     grant_types_supported: [
+      'authorization_code',
       'client_credentials',
       'urn:ietf:params:oauth:grant-type:device_code',
     ],
-    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+    token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic', 'none'],
     introspection_endpoint_auth_methods_supported: ['client_secret_basic'],
     revocation_endpoint_auth_methods_supported: ['client_secret_post'],
 
+    // Authorization Code + PKCE (RFC 7636)
+    response_types_supported: ['code'],
+    code_challenge_methods_supported: ['S256'],
+
     // Token info
-    response_types_supported: ['token'],
     token_endpoint_auth_signing_alg_values_supported: ['HS256'],
 
     // Scopes (mapped from permissions)
@@ -194,9 +201,10 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
  * ChatGPT/AI Plugin Manifest
  *
  * Standard format for ChatGPT plugins and web-based AI assistants.
- * WSIM supports two authorization flows:
- * 1. Device Authorization Grant (RFC 8628) - Agent-initiated, user approves
- * 2. Pairing Code + client_credentials - User-initiated, agent uses code
+ * WSIM supports three authorization flows:
+ * 1. Authorization Code + PKCE (RFC 6749/7636) - Browser-based, ChatGPT Connectors
+ * 2. Device Authorization Grant (RFC 8628) - Agent-initiated, user approves
+ * 3. Pairing Code + client_credentials - User-initiated, agent uses code
  */
 router.get('/ai-plugin.json', (req: Request, res: Response) => {
   const baseUrl = env.APP_URL;
@@ -214,30 +222,34 @@ router.get('/ai-plugin.json', (req: Request, res: Response) => {
     description_for_human: 'Manage AI agent payment authorization and spending limits.',
     description_for_model: `WSIM is a wallet API for AI agents to request payment authorization.
 
-TWO AUTHORIZATION FLOWS AVAILABLE:
+THREE AUTHORIZATION FLOWS AVAILABLE:
 
-FLOW 1 - Device Authorization (RFC 8628) - RECOMMENDED for AI agents:
-1. POST ${baseUrl}/api/agent/v1/oauth/device_authorization with agent_name and optional spending_limits
+FLOW 1 - Authorization Code + PKCE (RECOMMENDED for browser-based AI like ChatGPT):
+Standard OAuth 2.0 Authorization Code flow with PKCE (RFC 7636).
+1. Redirect to ${baseUrl}/api/agent/v1/oauth/authorize with response_type=code, client_id, redirect_uri, code_challenge, state
+2. User enters email and approves via push notification to WSIM app
+3. Receive authorization code at redirect_uri
+4. Exchange code for access token at ${baseUrl}/api/agent/v1/oauth/token
+
+FLOW 2 - Device Authorization (RFC 8628) - for CLI/headless agents:
+1. POST ${baseUrl}/api/agent/v1/oauth/device_authorization with agent_name
 2. Receive device_code and user_code (format: WSIM-XXXXXX-XXXXXX)
-3. Tell the user to enter the user_code in their WSIM mobile app (or visit verification_uri)
-4. Poll POST ${baseUrl}/api/agent/v1/oauth/token with grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=<device_code>
-5. When user approves, receive client_id and client_secret
-6. Exchange credentials for access token via client_credentials grant
-7. Use access token for payment requests
+3. User enters code in WSIM mobile app
+4. Poll token endpoint until approved
 
-FLOW 2 - User Pairing Code (legacy):
-1. Ask user for their pairing code from mobile app (format: WSIM-XXXXXX-XXXXXX)
-2. POST ${baseUrl}/api/agent/v1/access-request with the pairing code
+FLOW 3 - User Pairing Code (legacy):
+1. User generates pairing code in mobile app
+2. POST ${baseUrl}/api/agent/v1/access-request with the code
 3. Poll until approved, receive credentials
-4. Exchange for access token
 
 SCOPES: browse, cart, purchase, history`,
     auth: {
-      type: 'service_http',
-      authorization_type: 'bearer',
-      verification_tokens: {
-        // No verification tokens needed - uses dynamic OAuth
-      },
+      type: 'oauth',
+      client_url: `${baseUrl}/api/agent/v1/oauth/authorize`,
+      authorization_url: `${baseUrl}/api/agent/v1/oauth/token`,
+      authorization_content_type: 'application/x-www-form-urlencoded',
+      scope: 'browse cart purchase',
+      verification_tokens: {},
     },
     api: {
       type: 'openapi',
@@ -267,7 +279,7 @@ router.get('/mcp-server', (req: Request, res: Response) => {
 
   res.json({
     name: 'wsim-wallet',
-    version: '1.1.3',
+    version: '1.1.5',
     description: 'WSIM Wallet - AI agent payment authorization',
     protocol_version: '2024-11-05',
 
