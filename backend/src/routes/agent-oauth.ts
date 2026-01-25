@@ -410,8 +410,14 @@ router.get('/authorize', async (req: Request, res: Response) => {
 
     console.log(`[OAuth Authorize] Created authorization request ${authRequest.id} for ${client.name}`);
 
-    // Render the consent page
-    return res.send(renderAuthorizePage(authRequest.id, client.name, scope));
+    // Generate a cryptographic nonce for CSP
+    const nonce = crypto.randomBytes(16).toString('base64');
+
+    // Set Content-Security-Policy header with nonce (most secure option for inline scripts)
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'`);
+
+    // Render the consent page with nonce
+    return res.send(renderAuthorizePage(authRequest.id, client.name, scope, nonce));
   } catch (error) {
     console.error('[OAuth Authorize] Error:', error);
     return res.status(500).send(renderErrorPage(
@@ -426,16 +432,29 @@ router.get('/authorize', async (req: Request, res: Response) => {
 /**
  * POST /api/agent/v1/oauth/authorize/identify
  * User submits their email to receive push notification
+ *
+ * Handles both:
+ * - JSON requests from JavaScript fetch (returns JSON)
+ * - Form submissions when JS is blocked by CSP (returns HTML)
  */
 router.post('/authorize/identify', async (req: Request, res: Response) => {
+  // Detect if this is a form submission (defense in depth for when CSP blocks JS)
+  const isFormSubmission = req.headers['content-type']?.includes('application/x-www-form-urlencoded') &&
+                           !req.headers['accept']?.includes('application/json');
+
+  // Helper to respond with error (JSON or HTML depending on request type)
+  const respondError = (status: number, error: string, description: string, authId?: string) => {
+    if (isFormSubmission && authId) {
+      return res.status(status).send(renderIdentifyErrorPage(description, authId));
+    }
+    return res.status(status).json({ error, error_description: description });
+  };
+
   try {
     const { authorization_id, email } = req.body;
 
     if (!authorization_id || !email) {
-      return res.status(400).json({
-        error: 'invalid_request',
-        error_description: 'authorization_id and email are required',
-      });
+      return respondError(400, 'invalid_request', 'authorization_id and email are required');
     }
 
     // Find the authorization request
@@ -444,17 +463,11 @@ router.post('/authorize/identify', async (req: Request, res: Response) => {
     });
 
     if (!authRequest) {
-      return res.status(404).json({
-        error: 'not_found',
-        error_description: 'Authorization request not found',
-      });
+      return respondError(404, 'not_found', 'Authorization request not found', authorization_id);
     }
 
     if (authRequest.status !== 'pending_identification') {
-      return res.status(400).json({
-        error: 'invalid_request',
-        error_description: 'Authorization request is not in pending identification state',
-      });
+      return respondError(400, 'invalid_request', 'Authorization request is not in pending identification state', authorization_id);
     }
 
     if (authRequest.expiresAt < new Date()) {
@@ -462,10 +475,7 @@ router.post('/authorize/identify', async (req: Request, res: Response) => {
         where: { id: authorization_id },
         data: { status: 'expired' },
       });
-      return res.status(400).json({
-        error: 'expired',
-        error_description: 'Authorization request has expired',
-      });
+      return respondError(400, 'expired', 'Authorization request has expired', authorization_id);
     }
 
     // Find user by email
@@ -482,17 +492,11 @@ router.post('/authorize/identify', async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      return res.status(404).json({
-        error: 'user_not_found',
-        error_description: 'No WSIM account found with this email. Please create an account first.',
-      });
+      return respondError(404, 'user_not_found', 'No WSIM account found with this email. Please create an account first.', authorization_id);
     }
 
     if (user.mobileDevices.length === 0) {
-      return res.status(400).json({
-        error: 'no_devices',
-        error_description: 'No mobile devices registered. Please open the WSIM app first.',
-      });
+      return respondError(400, 'no_devices', 'No mobile devices registered. Please open the WSIM app first.', authorization_id);
     }
 
     // Update authorization request with user
@@ -531,14 +535,24 @@ router.post('/authorize/identify', async (req: Request, res: Response) => {
 
     console.log(`[OAuth Authorize] Push notification sent to user ${user.id} for ${clientName}`);
 
+    const pollUrl = `${env.APP_URL}/api/agent/v1/oauth/authorize/status/${authorization_id}`;
+
+    // Return HTML waiting page for form submissions, JSON for AJAX
+    if (isFormSubmission) {
+      return res.send(renderWaitingPage(authorization_id, clientName, pollUrl));
+    }
+
     return res.json({
       status: 'pending_approval',
       message: 'Check your WSIM app to approve this request',
-      poll_url: `${env.APP_URL}/api/agent/v1/oauth/authorize/status/${authorization_id}`,
+      poll_url: pollUrl,
       expires_in: Math.floor((authRequest.expiresAt.getTime() - Date.now()) / 1000),
     });
   } catch (error) {
     console.error('[OAuth Authorize] Identify error:', error);
+    if (isFormSubmission) {
+      return res.status(500).send(renderIdentifyErrorPage('Internal server error. Please try again.'));
+    }
     return res.status(500).json({
       error: 'server_error',
       error_description: 'Internal server error',
@@ -630,11 +644,69 @@ router.get('/authorize/status/:id', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/agent/v1/oauth/authorize/wait/:id
+ * HTML-based waiting page with meta refresh (for when JS is blocked by CSP)
+ * This endpoint is called via meta refresh from the waiting page
+ */
+router.get('/authorize/wait/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const authRequest = await prisma.oAuthAuthorizationCode.findUnique({
+      where: { id },
+    });
+
+    if (!authRequest) {
+      return res.status(404).send(renderIdentifyErrorPage('Authorization request not found'));
+    }
+
+    const client = KNOWN_OAUTH_CLIENTS[authRequest.clientId];
+    const clientName = client?.name || authRequest.clientId;
+
+    // Check expiration
+    if (authRequest.expiresAt < new Date() && authRequest.status !== 'approved') {
+      if (authRequest.status !== 'expired') {
+        await prisma.oAuthAuthorizationCode.update({
+          where: { id },
+          data: { status: 'expired' },
+        });
+      }
+      return res.send(renderWaitResultPage('expired', clientName));
+    }
+
+    switch (authRequest.status) {
+      case 'approved':
+        // Redirect to OAuth callback with authorization code
+        const redirectUrl = new URL(authRequest.redirectUri);
+        redirectUrl.searchParams.set('code', authRequest.code!);
+        if (authRequest.state) {
+          redirectUrl.searchParams.set('state', authRequest.state);
+        }
+        return res.redirect(redirectUrl.toString());
+
+      case 'rejected':
+        return res.send(renderWaitResultPage('rejected', clientName));
+
+      case 'used':
+        return res.send(renderWaitResultPage('used', clientName));
+
+      default:
+        // Still waiting - show waiting page again with meta refresh
+        const pollUrl = `${env.APP_URL}/api/agent/v1/oauth/authorize/status/${id}`;
+        return res.send(renderWaitingPage(id, clientName, pollUrl));
+    }
+  } catch (error) {
+    console.error('[OAuth Authorize] Wait error:', error);
+    return res.status(500).send(renderIdentifyErrorPage('Internal server error'));
+  }
+});
+
 // =============================================================================
 // HTML PAGE RENDERERS
 // =============================================================================
 
-function renderAuthorizePage(authorizationId: string, clientName: string, scope?: string | null): string {
+function renderAuthorizePage(authorizationId: string, clientName: string, scope?: string | null, nonce?: string): string {
   const scopeList = scope ? scope.split(' ') : ['browse'];
   const scopeDescriptions: Record<string, string> = {
     browse: 'View products and prices',
@@ -742,7 +814,9 @@ function renderAuthorizePage(authorizationId: string, clientName: string, scope?
 
       <div id="error" class="error hidden"></div>
 
-      <form id="email-form">
+      <!-- Form has action/method as fallback when JavaScript is blocked by CSP -->
+      <form id="email-form" method="POST" action="/api/agent/v1/oauth/authorize/identify">
+        <input type="hidden" name="authorization_id" value="${authorizationId}">
         <div class="form-group">
           <label for="email">Enter your WSIM account email</label>
           <input type="email" id="email" name="email" required placeholder="you@example.com" autocomplete="email">
@@ -776,7 +850,7 @@ function renderAuthorizePage(authorizationId: string, clientName: string, scope?
     </div>
   </div>
 
-  <script>
+  <script nonce="${nonce || ''}">
     const authorizationId = '${authorizationId}';
     const form = document.getElementById('email-form');
     const emailInput = document.getElementById('email');
@@ -927,6 +1001,180 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/**
+ * Render waiting page for form submissions (when JS is blocked by CSP)
+ * This page uses meta refresh to poll for status
+ */
+function renderWaitingPage(authorizationId: string, clientName: string, pollUrl: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="3;url=/api/agent/v1/oauth/authorize/wait/${authorizationId}">
+  <title>Waiting for Approval - WSIM</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 400px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #e0e0e0;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 24px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-size: 24px; margin-bottom: 12px; color: #1a1a2e; }
+    p { color: #666; margin-bottom: 8px; }
+    .client { color: #667eea; font-weight: 600; }
+    .small { font-size: 14px; color: #999; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner"></div>
+    <h1>Check Your Phone</h1>
+    <p>Open the <span class="client">WSIM app</span> to approve the connection request from <span class="client">${escapeHtml(clientName)}</span></p>
+    <p class="small">This page will automatically update when you respond.</p>
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render error page for identify endpoint (form submission fallback)
+ */
+function renderIdentifyErrorPage(message: string, authorizationId?: string): string {
+  const retryLink = authorizationId
+    ? `<p style="margin-top:16px;"><a href="javascript:history.back()">← Try again</a></p>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Error - WSIM</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 400px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { color: #c00; margin-bottom: 16px; font-size: 20px; }
+    p { color: #666; }
+    a { color: #667eea; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">⚠️</div>
+    <h1>Something went wrong</h1>
+    <p>${escapeHtml(message)}</p>
+    ${retryLink}
+  </div>
+</body>
+</html>`;
+}
+
+/**
+ * Render result page for wait endpoint (approved/rejected/expired/used)
+ */
+function renderWaitResultPage(status: 'rejected' | 'expired' | 'used', clientName: string): string {
+  const configs = {
+    rejected: {
+      icon: '❌',
+      title: 'Request Rejected',
+      message: `You declined the connection request from ${clientName}.`,
+      color: '#c00',
+    },
+    expired: {
+      icon: '⏱️',
+      title: 'Request Expired',
+      message: 'The authorization request has expired. Please try again.',
+      color: '#f90',
+    },
+    used: {
+      icon: '✓',
+      title: 'Already Used',
+      message: 'This authorization has already been completed.',
+      color: '#667eea',
+    },
+  };
+
+  const config = configs[status];
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${config.title} - WSIM</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 400px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+    }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { color: ${config.color}; margin-bottom: 16px; font-size: 20px; }
+    p { color: #666; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${config.icon}</div>
+    <h1>${config.title}</h1>
+    <p>${escapeHtml(config.message)}</p>
+  </div>
+</body>
+</html>`;
 }
 
 // =============================================================================

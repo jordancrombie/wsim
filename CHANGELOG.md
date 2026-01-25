@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.9] - 2026-01-25
+
+### Fixed
+
+- **OAuth: Fix CSP blocking inline JavaScript on authorize page** (ChatGPT Connectors compatibility)
+  - Added nonce-based Content-Security-Policy header (most secure option)
+  - Added form fallback with `action`/`method` attributes for when JS is blocked
+  - New `/authorize/wait/:id` endpoint with meta-refresh polling for non-JS fallback
+  - Identify endpoint now returns HTML waiting page for form submissions
+  - Error pages styled consistently with the authorize flow
+
+### Security
+
+- CSP policy: `default-src 'self'; script-src 'nonce-...'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'`
+
+---
+
 ## [1.1.8] - 2026-01-25
 
 ### Fixed
