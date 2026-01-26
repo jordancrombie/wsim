@@ -227,8 +227,8 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
     return res.json({
       device_code: result.accessRequest.id,
       user_code: userCode,
-      verification_uri: `${env.APP_URL}/m/device`,
-      verification_uri_complete: `${env.APP_URL}/m/device?code=${encodeURIComponent(userCode)}`,
+      verification_uri: `${env.APP_URL}/api/m/device`,
+      verification_uri_complete: `${env.APP_URL}/api/m/device?code=${encodeURIComponent(userCode)}`,
       expires_in: 900, // 15 minutes
       interval: 5, // Poll every 5 seconds
       // Extension: notification status (not part of RFC 8628, but useful for Gateway)

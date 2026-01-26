@@ -2,17 +2,17 @@
  * Device Authorization Web Flow
  *
  * Web-based device authorization flow for RFC 8628 Device Authorization Grant.
- * Users can visit /m/device to enter a device code and approve/reject the request.
+ * Users can visit /api/m/device to enter a device code and approve/reject the request.
  *
  * Routes:
- * - GET /m/device - Device code entry page (pre-fills from ?code= param)
- * - POST /m/device/lookup - Look up device code and show details
- * - GET /m/device/login - Login form (for unauthenticated users)
- * - POST /m/device/login/identify - Send login push notification
- * - GET /m/device/login/wait/:id - Poll for login approval
- * - GET /m/device/approve - Show approval screen (requires session auth)
- * - POST /m/device/approve - Approve the device code
- * - POST /m/device/reject - Reject the device code
+ * - GET /api/m/device - Device code entry page (pre-fills from ?code= param)
+ * - POST /api/m/device/lookup - Look up device code and show details
+ * - GET /api/m/device/login - Login form (for unauthenticated users)
+ * - POST /api/m/device/login/identify - Send login push notification
+ * - GET /api/m/device/login/wait/:id - Poll for login approval
+ * - GET /api/m/device/approve - Show approval screen (requires session auth)
+ * - POST /api/m/device/approve - Approve the device code
+ * - POST /api/m/device/reject - Reject the device code
  */
 
 import { Router, Request, Response } from 'express';
@@ -128,7 +128,7 @@ function renderDeviceCodeEntryPage(prefillCode?: string, error?: string, nonce?:
 
     ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
 
-    <form method="POST" action="/m/device/lookup">
+    <form method="POST" action="/api/m/device/lookup">
       <div class="form-group">
         <label for="code">Device Code</label>
         <input type="text" id="code" name="code" required placeholder="WSIM-XXXXXX" value="${escapeHtml(prefillCode || '')}" autocomplete="off" autocapitalize="characters">
@@ -215,7 +215,7 @@ function renderLoginPage(agentName: string, requestId: string, error?: string, n
 
     ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
 
-    <form method="POST" action="/m/device/login/identify">
+    <form method="POST" action="/api/m/device/login/identify">
       <input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
       <div class="form-group">
         <label for="email">Email Address</label>
@@ -229,13 +229,13 @@ function renderLoginPage(agentName: string, requestId: string, error?: string, n
 }
 
 function renderWaitingPage(loginId: string, nonce?: string): string {
-  const pollUrl = `${env.APP_URL}/m/device/login/status/${loginId}`;
+  const pollUrl = `${env.APP_URL}/api/m/device/login/status/${loginId}`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="3;url=/m/device/login/wait/${loginId}">
+  <meta http-equiv="refresh" content="3;url=/api/m/device/login/wait/${loginId}">
   <title>Check Your Phone - WSIM</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -397,11 +397,11 @@ function renderApprovalPage(
     </div>
 
     <div class="buttons">
-      <form method="POST" action="/m/device/reject" style="flex: 1;">
+      <form method="POST" action="/api/m/device/reject" style="flex: 1;">
         <input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
         <button type="submit" class="btn-reject" style="width: 100%;">Reject</button>
       </form>
-      <form method="POST" action="/m/device/approve" style="flex: 1;">
+      <form method="POST" action="/api/m/device/approve" style="flex: 1;">
         <input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
         <button type="submit" class="btn-approve" style="width: 100%;">Approve</button>
       </form>
@@ -524,7 +524,7 @@ function renderErrorPage(message: string): string {
 
     <h1>Something went wrong</h1>
     <p class="subtitle">${escapeHtml(message)}</p>
-    <a href="/m/device">Try again</a>
+    <a href="/api/m/device">Try again</a>
   </div>
 </body>
 </html>`;
@@ -535,7 +535,7 @@ function renderErrorPage(message: string): string {
 // =============================================================================
 
 /**
- * GET /m/device
+ * GET /api/m/device
  * Device code entry page
  */
 router.get('/', (req: Request, res: Response) => {
@@ -544,7 +544,7 @@ router.get('/', (req: Request, res: Response) => {
 });
 
 /**
- * POST /m/device/lookup
+ * POST /api/m/device/lookup
  * Look up the device code and show login or approval screen
  */
 router.post('/lookup', async (req: Request, res: Response) => {
@@ -640,13 +640,13 @@ router.post('/lookup', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /m/device/login
+ * GET /api/m/device/login
  * Show login page (if someone navigates here directly)
  */
 router.get('/login', (req: Request, res: Response) => {
   const requestId = req.session.deviceAuthRequestId;
   if (!requestId) {
-    return res.redirect('/m/device');
+    return res.redirect('/api/m/device');
   }
 
   // Get the agent name from the access request
@@ -654,16 +654,16 @@ router.get('/login', (req: Request, res: Response) => {
     where: { id: requestId },
   }).then(accessRequest => {
     if (!accessRequest) {
-      return res.redirect('/m/device');
+      return res.redirect('/api/m/device');
     }
     res.send(renderLoginPage(accessRequest.agentName, requestId));
   }).catch(() => {
-    res.redirect('/m/device');
+    res.redirect('/api/m/device');
   });
 });
 
 /**
- * POST /m/device/login/identify
+ * POST /api/m/device/login/identify
  * Send login push notification to user
  */
 router.post('/login/identify', async (req: Request, res: Response) => {
@@ -697,7 +697,7 @@ router.post('/login/identify', async (req: Request, res: Response) => {
         id: loginId,
         clientId: 'device-auth-web',
         userId: user.id,
-        redirectUri: `${env.APP_URL}/m/device/approve`,
+        redirectUri: `${env.APP_URL}/api/m/device/approve`,
         codeChallenge: null,
         codeChallengeMethod: null,
         scope: 'device-auth',
@@ -741,7 +741,7 @@ router.post('/login/identify', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /m/device/login/wait/:id
+ * GET /api/m/device/login/wait/:id
  * Poll for login approval (meta refresh)
  */
 router.get('/login/wait/:id', async (req: Request, res: Response) => {
@@ -783,7 +783,7 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
       const code = req.session.deviceAuthCode;
 
       if (!requestId || !code) {
-        return res.redirect('/m/device');
+        return res.redirect('/api/m/device');
       }
 
       const accessRequest = await prisma.accessRequest.findUnique({
@@ -792,7 +792,7 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
       });
 
       if (!accessRequest) {
-        return res.redirect('/m/device');
+        return res.redirect('/api/m/device');
       }
 
       // Claim the code if not already claimed
@@ -838,7 +838,7 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /m/device/login/status/:id
+ * GET /api/m/device/login/status/:id
  * JSON endpoint for polling login status (for JS-enabled clients)
  */
 router.get('/login/status/:id', async (req: Request, res: Response) => {
@@ -869,7 +869,7 @@ router.get('/login/status/:id', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /m/device/approve
+ * GET /api/m/device/approve
  * Show approval page (for direct navigation)
  */
 router.get('/approve', async (req: Request, res: Response) => {
@@ -878,11 +878,11 @@ router.get('/approve', async (req: Request, res: Response) => {
     const requestId = req.session.deviceAuthRequestId;
 
     if (!userId) {
-      return res.redirect('/m/device');
+      return res.redirect('/api/m/device');
     }
 
     if (!requestId) {
-      return res.redirect('/m/device');
+      return res.redirect('/api/m/device');
     }
 
     const accessRequest = await prisma.accessRequest.findUnique({
@@ -921,7 +921,7 @@ router.get('/approve', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /m/device/approve
+ * POST /api/m/device/approve
  * Approve the device authorization request
  */
 router.post('/approve', async (req: Request, res: Response) => {
@@ -930,7 +930,7 @@ router.post('/approve', async (req: Request, res: Response) => {
     const requestId = req.body.request_id || req.session.deviceAuthRequestId;
 
     if (!userId) {
-      return res.redirect('/m/device');
+      return res.redirect('/api/m/device');
     }
 
     if (!requestId) {
@@ -1021,7 +1021,7 @@ router.post('/approve', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /m/device/reject
+ * POST /api/m/device/reject
  * Reject the device authorization request
  */
 router.post('/reject', async (req: Request, res: Response) => {
@@ -1030,7 +1030,7 @@ router.post('/reject', async (req: Request, res: Response) => {
     const requestId = req.body.request_id || req.session.deviceAuthRequestId;
 
     if (!userId) {
-      return res.redirect('/m/device');
+      return res.redirect('/api/m/device');
     }
 
     if (!requestId) {

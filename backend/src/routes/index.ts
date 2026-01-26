@@ -29,7 +29,7 @@ const router = Router();
 router.use('/.well-known', wellKnownRoutes);
 
 // Device Authorization web flow (RFC 8628)
-router.use('/m/device', deviceAuthRoutes);
+router.use('/api/m/device', deviceAuthRoutes);
 
 // Mount route modules
 router.use('/health', healthRoutes);

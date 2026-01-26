@@ -204,10 +204,12 @@ mobileAccessRequestRouter.post('/device-codes/claim', requireMobileAuth, async (
       });
     }
 
-    // Check if this is a device authorization code (has null userId)
-    // User-generated pairing codes have a userId set at creation time
-    if (pairingCode.userId !== null) {
-      // This is a user-generated pairing code, not a device authorization code
+    // Check if this is a device authorization code
+    // Allow if:
+    // 1. userId is null (unclaimed device auth code), OR
+    // 2. userId matches the requesting user (pre-linked via push notification)
+    if (pairingCode.userId !== null && pairingCode.userId !== userId) {
+      // This is either a user-generated pairing code or pre-linked to a different user
       return res.status(400).json({
         error: 'invalid_request',
         message: 'This code is not a device authorization code',
@@ -233,30 +235,34 @@ mobileAccessRequestRouter.post('/device-codes/claim', requireMobileAuth, async (
     }
 
     // Find the associated access request
+    // Allow 'pending_claim' (unclaimed) or 'pending' (pre-linked via push notification)
     const accessRequest = pairingCode.accessRequest;
-    if (!accessRequest || accessRequest.status !== 'pending_claim') {
+    if (!accessRequest || (accessRequest.status !== 'pending_claim' && accessRequest.status !== 'pending')) {
       return res.status(400).json({
         error: 'invalid_request',
         message: 'No pending authorization for this code',
       });
     }
 
-    // Update pairing code to link to this user and mark access request as pending
-    await prisma.$transaction(async (tx) => {
-      // Link pairing code to user
-      await tx.pairingCode.update({
-        where: { id: pairingCode.id },
-        data: { userId: userId! },
-      });
+    // Only update if not already claimed (userId is null means unclaimed)
+    if (pairingCode.userId === null) {
+      await prisma.$transaction(async (tx) => {
+        // Link pairing code to user
+        await tx.pairingCode.update({
+          where: { id: pairingCode.id },
+          data: { userId: userId! },
+        });
 
-      // Update access request to pending (awaiting approval)
-      await tx.accessRequest.update({
-        where: { id: accessRequest.id },
-        data: { status: 'pending' },
+        // Update access request to pending (awaiting approval)
+        await tx.accessRequest.update({
+          where: { id: accessRequest.id },
+          data: { status: 'pending' },
+        });
       });
-    });
-
-    console.log(`[Device Auth] Code ${normalizedCode} claimed by user ${userId}`);
+      console.log(`[Device Auth] Code ${normalizedCode} claimed by user ${userId}`);
+    } else {
+      console.log(`[Device Auth] Code ${normalizedCode} already pre-linked to user ${userId} via push notification`);
+    }
 
     // Return the access request details for approval screen
     return res.json({
