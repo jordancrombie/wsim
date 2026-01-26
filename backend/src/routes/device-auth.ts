@@ -4,12 +4,19 @@
  * Web-based device authorization flow for RFC 8628 Device Authorization Grant.
  * Users can visit /api/m/device to enter a device code and approve/reject the request.
  *
+ * Supports optimized QR flow when Gateway appends signed token (&t=...) to URL:
+ * - Automatically validates code, looks up user, sends push notification
+ * - Shows fallback auth options (passkey/password) if push doesn't arrive
+ *
  * Routes:
- * - GET /api/m/device - Device code entry page (pre-fills from ?code= param)
+ * - GET /api/m/device - Device code entry page (pre-fills from ?code= param, handles &t= token)
  * - POST /api/m/device/lookup - Look up device code and show details
  * - GET /api/m/device/login - Login form (for unauthenticated users)
  * - POST /api/m/device/login/identify - Send login push notification
  * - GET /api/m/device/login/wait/:id - Poll for login approval
+ * - POST /api/m/device/login/password - Authenticate with password (fallback)
+ * - POST /api/m/device/login/passkey/options - Generate passkey auth options (fallback)
+ * - POST /api/m/device/login/passkey/verify - Verify passkey auth response (fallback)
  * - GET /api/m/device/approve - Show approval screen (requires session auth)
  * - POST /api/m/device/approve - Approve the device code
  * - POST /api/m/device/reject - Reject the device code
@@ -17,7 +24,14 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { Decimal } from '@prisma/client/runtime/library';
+import {
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
+  VerifiedAuthenticationResponse,
+} from '@simplewebauthn/server';
+import type { AuthenticatorTransportFuture, AuthenticationResponseJSON } from '@simplewebauthn/types';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
 import { sendNotificationToUser } from '../services/notification';
@@ -75,6 +89,40 @@ function verifyDeviceAuthToken(token: string, code: string): string | null {
   }
 }
 
+// =============================================================================
+// PASSKEY CHALLENGE STORE (for fallback auth)
+// =============================================================================
+
+const passkeyChallenge = new Map<string, { challenge: string; userId: string; expiresAt: number }>();
+
+// Clean up expired challenges periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of passkeyChallenge.entries()) {
+    if (value.expiresAt < now) {
+      passkeyChallenge.delete(key);
+    }
+  }
+}, 60000);
+
+function storePasskeyChallenge(loginId: string, challenge: string, userId: string): void {
+  passkeyChallenge.set(loginId, {
+    challenge,
+    userId,
+    expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+function getPasskeyChallenge(loginId: string): { challenge: string; userId: string } | null {
+  const stored = passkeyChallenge.get(loginId);
+  if (!stored || stored.expiresAt < Date.now()) {
+    passkeyChallenge.delete(loginId);
+    return null;
+  }
+  passkeyChallenge.delete(loginId);
+  return { challenge: stored.challenge, userId: stored.userId };
+}
+
 const router = Router();
 
 // Extend session type for device auth
@@ -83,6 +131,7 @@ declare module 'express-session' {
     deviceAuthCode?: string;
     deviceAuthRequestId?: string;
     loginRequestId?: string;
+    deviceAuthUserId?: string;  // Known user from token verification (for fallback auth)
   }
 }
 
@@ -277,8 +326,15 @@ function renderLoginPage(agentName: string, requestId: string, error?: string, n
 </html>`;
 }
 
-function renderWaitingPage(loginId: string, nonce?: string): string {
-  const pollUrl = `${env.APP_URL}/api/m/device/login/status/${loginId}`;
+interface WaitingPageOptions {
+  email?: string;
+  hasPasskey?: boolean;
+}
+
+function renderWaitingPage(loginId: string, options?: WaitingPageOptions): string {
+  const { email, hasPasskey } = options || {};
+  const showFallback = !!email; // Only show fallback if we know the user
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -317,14 +373,189 @@ function renderWaitingPage(loginId: string, nonce?: string): string {
       margin: 24px auto;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .divider {
+      display: flex;
+      align-items: center;
+      margin: 24px 0;
+      color: #999;
+      font-size: 14px;
+    }
+    .divider::before, .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e0e0e0;
+    }
+    .divider span { padding: 0 16px; }
+    .fallback { text-align: left; }
+    .fallback-title { font-size: 14px; color: #666; margin-bottom: 12px; text-align: center; }
+    .auth-btn {
+      width: 100%;
+      padding: 14px;
+      background: #f5f5f7;
+      color: #333;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .auth-btn:hover { background: #e8e8e8; border-color: #667eea; }
+    .auth-btn svg { width: 20px; height: 20px; }
+    .form-group { margin-bottom: 16px; text-align: left; }
+    .form-group label { display: block; font-size: 14px; color: #666; margin-bottom: 8px; }
+    .form-group input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      font-size: 16px;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus { outline: none; border-color: #667eea; }
+    .submit-btn {
+      width: 100%;
+      padding: 14px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .submit-btn:hover { background: #5a6fd6; }
+    .error { background: #fee; color: #c00; padding: 12px; border-radius: 8px; margin-bottom: 16px; text-align: center; display: none; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Check Your Phone</h1>
     <p class="subtitle">Open the WSIM app to approve this sign-in</p>
-    <div class="spinner"></div>
-    <p class="subtitle">Waiting for approval...</p>
+    <div class="spinner" id="spinner"></div>
+    <p class="subtitle" id="status-text">Waiting for approval...</p>
+
+    ${showFallback ? `
+    <div class="divider"><span>OR</span></div>
+
+    <div class="fallback">
+      <p class="fallback-title">Didn't get the notification? Sign in here:</p>
+
+      ${hasPasskey ? `
+      <button type="button" class="auth-btn" id="passkey-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        Sign in with Passkey
+      </button>
+      ` : ''}
+
+      <button type="button" class="auth-btn" id="password-toggle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+          <polyline points="22,6 12,13 2,6"/>
+        </svg>
+        Sign in with Password
+      </button>
+
+      <form id="password-form" class="hidden" method="POST" action="/api/m/device/login/password">
+        <input type="hidden" name="login_id" value="${escapeHtml(loginId)}">
+        <div id="password-error" class="error"></div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" name="email" value="${escapeHtml(email || '')}" readonly style="background: #f5f5f7;">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" required placeholder="Enter your password" autocomplete="current-password">
+        </div>
+        <button type="submit" class="submit-btn">Sign In</button>
+      </form>
+    </div>
+
+    <script>
+      // Toggle password form
+      document.getElementById('password-toggle')?.addEventListener('click', function() {
+        document.getElementById('password-form').classList.toggle('hidden');
+        this.classList.add('hidden');
+      });
+
+      ${hasPasskey ? `
+      // Passkey authentication
+      document.getElementById('passkey-btn')?.addEventListener('click', async function() {
+        try {
+          this.disabled = true;
+          this.textContent = 'Authenticating...';
+
+          // Get authentication options
+          const optionsRes = await fetch('/api/m/device/login/passkey/options', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login_id: '${escapeHtml(loginId)}' })
+          });
+          const options = await optionsRes.json();
+          if (!optionsRes.ok) throw new Error(options.error || 'Failed to get options');
+
+          // Call WebAuthn API
+          const credential = await navigator.credentials.get({
+            publicKey: {
+              challenge: Uint8Array.from(atob(options.challenge.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)),
+              rpId: options.rpId,
+              allowCredentials: options.allowCredentials?.map(c => ({
+                id: Uint8Array.from(atob(c.id.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0)),
+                type: c.type,
+                transports: c.transports
+              })),
+              userVerification: options.userVerification || 'preferred',
+              timeout: options.timeout || 60000
+            }
+          });
+
+          // Encode response
+          const response = {
+            id: credential.id,
+            rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, ''),
+            type: credential.type,
+            response: {
+              authenticatorData: btoa(String.fromCharCode(...new Uint8Array(credential.response.authenticatorData))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, ''),
+              clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, ''),
+              signature: btoa(String.fromCharCode(...new Uint8Array(credential.response.signature))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, ''),
+              userHandle: credential.response.userHandle ? btoa(String.fromCharCode(...new Uint8Array(credential.response.userHandle))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '') : null
+            }
+          };
+
+          // Verify with server
+          const verifyRes = await fetch('/api/m/device/login/passkey/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login_id: '${escapeHtml(loginId)}', response })
+          });
+          const result = await verifyRes.json();
+
+          if (verifyRes.ok && result.success) {
+            window.location.href = '/api/m/device/approve';
+          } else {
+            throw new Error(result.error || 'Verification failed');
+          }
+        } catch (err) {
+          console.error('Passkey auth failed:', err);
+          this.disabled = false;
+          this.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Sign in with Passkey';
+          alert('Passkey authentication failed. Please try password instead.');
+        }
+      });
+      ` : ''}
+    </script>
+    ` : ''}
   </div>
 </body>
 </html>`;
@@ -673,6 +904,13 @@ router.get('/', async (req: Request, res: Response) => {
     // Store in session for approval flow
     req.session.deviceAuthCode = normalizedCode;
     req.session.deviceAuthRequestId = accessRequest.id;
+    req.session.deviceAuthUserId = user.id; // Store known user for fallback auth
+
+    // Check if user has passkeys for fallback auth option
+    const passkeyCount = await prisma.passkeyCredential.count({
+      where: { userId: user.id },
+    });
+    const hasPasskey = passkeyCount > 0;
 
     // Create a device auth login request (for push notification)
     const { nanoid } = await import('nanoid');
@@ -718,8 +956,8 @@ router.get('/', async (req: Request, res: Response) => {
       // Continue - user might have the app open
     }
 
-    // Show waiting page (user approves in mobile app)
-    return res.send(renderWaitingPage(loginId));
+    // Show waiting page with fallback auth options
+    return res.send(renderWaitingPage(loginId, { email, hasPasskey }));
   } catch (error) {
     console.error('[Device Auth Web] Optimized flow error:', error);
     // Fall back to normal code entry on any error
@@ -1267,6 +1505,213 @@ router.post('/reject', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Device Auth Web] Reject error:', error);
     return res.send(renderErrorPage('Failed to reject request'));
+  }
+});
+
+// =============================================================================
+// FALLBACK AUTH ROUTES (for optimized flow when push doesn't arrive)
+// =============================================================================
+
+/**
+ * POST /api/m/device/login/password
+ * Authenticate with email + password (fallback for when push doesn't arrive)
+ */
+router.post('/login/password', async (req: Request, res: Response) => {
+  try {
+    const { email, password, login_id } = req.body;
+
+    if (!email || !password || !login_id) {
+      return res.send(renderErrorPage('Missing email, password, or login ID'));
+    }
+
+    // Find user by email
+    const user = await prisma.walletUser.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+
+    if (!user || !user.passwordHash) {
+      // Generic error to prevent user enumeration
+      return res.send(renderErrorPage('Invalid email or password'));
+    }
+
+    // Verify password
+    const passwordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!passwordValid) {
+      console.log(`[Device Auth Web] Password auth failed for ${email}`);
+      return res.send(renderErrorPage('Invalid email or password'));
+    }
+
+    // Verify the login request belongs to this user
+    const authRequest = await prisma.oAuthAuthorizationCode.findUnique({
+      where: { id: login_id },
+    });
+
+    if (!authRequest || authRequest.userId !== user.id) {
+      return res.send(renderErrorPage('Invalid or expired login request'));
+    }
+
+    if (authRequest.expiresAt < new Date()) {
+      return res.send(renderErrorPage('Login request expired. Please try again.'));
+    }
+
+    // Mark the auth request as approved and set session
+    await prisma.oAuthAuthorizationCode.update({
+      where: { id: login_id },
+      data: { status: 'approved' },
+    });
+
+    (req.session as { userId?: string }).userId = user.id;
+
+    console.log(`[Device Auth Web] Password auth success for user ${user.id.substring(0, 8)}...`);
+
+    // Redirect to approval page
+    return res.redirect('/api/m/device/approve');
+  } catch (error) {
+    console.error('[Device Auth Web] Password auth error:', error);
+    return res.send(renderErrorPage('Authentication failed. Please try again.'));
+  }
+});
+
+/**
+ * POST /api/m/device/login/passkey/options
+ * Generate passkey authentication options (fallback auth)
+ */
+router.post('/login/passkey/options', async (req: Request, res: Response) => {
+  try {
+    const { login_id } = req.body;
+
+    if (!login_id) {
+      return res.status(400).json({ error: 'Missing login_id' });
+    }
+
+    // Get the auth request to find the user
+    const authRequest = await prisma.oAuthAuthorizationCode.findUnique({
+      where: { id: login_id },
+    });
+
+    if (!authRequest || !authRequest.userId) {
+      return res.status(400).json({ error: 'Invalid login request' });
+    }
+
+    if (authRequest.expiresAt < new Date()) {
+      return res.status(400).json({ error: 'Login request expired' });
+    }
+
+    // Get user's passkey credentials
+    const credentials = await prisma.passkeyCredential.findMany({
+      where: { userId: authRequest.userId },
+      select: { credentialId: true, transports: true },
+    });
+
+    if (credentials.length === 0) {
+      return res.status(400).json({ error: 'No passkeys registered' });
+    }
+
+    const options = await generateAuthenticationOptions({
+      rpID: env.WEBAUTHN_RP_ID,
+      allowCredentials: credentials.map((c) => ({
+        id: c.credentialId,
+        transports: c.transports.includes('internal')
+          ? ['internal'] as AuthenticatorTransportFuture[]
+          : c.transports as AuthenticatorTransportFuture[],
+      })),
+      userVerification: 'preferred',
+    });
+
+    // Store challenge for verification
+    storePasskeyChallenge(login_id, options.challenge, authRequest.userId);
+
+    res.json(options);
+  } catch (error) {
+    console.error('[Device Auth Web] Passkey options error:', error);
+    res.status(500).json({ error: 'Failed to generate options' });
+  }
+});
+
+/**
+ * POST /api/m/device/login/passkey/verify
+ * Verify passkey authentication response (fallback auth)
+ */
+router.post('/login/passkey/verify', async (req: Request, res: Response) => {
+  try {
+    const { login_id, response } = req.body as {
+      login_id: string;
+      response: AuthenticationResponseJSON;
+    };
+
+    if (!login_id || !response) {
+      return res.status(400).json({ error: 'Missing login_id or response' });
+    }
+
+    // Get the stored challenge
+    const challengeData = getPasskeyChallenge(login_id);
+    if (!challengeData) {
+      return res.status(400).json({ error: 'Challenge expired or not found' });
+    }
+
+    // Find the credential
+    const credential = await prisma.passkeyCredential.findUnique({
+      where: { credentialId: response.id },
+      include: { user: true },
+    });
+
+    if (!credential) {
+      return res.status(400).json({ error: 'Credential not found' });
+    }
+
+    // Verify the credential belongs to the expected user
+    if (credential.userId !== challengeData.userId) {
+      return res.status(400).json({ error: 'Credential mismatch' });
+    }
+
+    let verification: VerifiedAuthenticationResponse;
+    try {
+      const publicKeyBuffer = Buffer.from(credential.publicKey, 'base64url');
+      verification = await verifyAuthenticationResponse({
+        response,
+        expectedChallenge: challengeData.challenge,
+        expectedOrigin: env.WEBAUTHN_ORIGINS,
+        expectedRPID: env.WEBAUTHN_RP_ID,
+        credential: {
+          id: credential.credentialId,
+          publicKey: new Uint8Array(publicKeyBuffer),
+          counter: credential.counter,
+          transports: credential.transports as AuthenticatorTransportFuture[],
+        },
+      });
+    } catch (verifyError) {
+      console.error('[Device Auth Web] Passkey verification failed:', verifyError);
+      return res.status(400).json({ error: 'Verification failed' });
+    }
+
+    if (!verification.verified) {
+      return res.status(400).json({ error: 'Verification failed' });
+    }
+
+    // Update credential counter
+    await prisma.passkeyCredential.update({
+      where: { id: credential.id },
+      data: {
+        counter: verification.authenticationInfo.newCounter,
+        lastUsedAt: new Date(),
+      },
+    });
+
+    // Mark the auth request as approved
+    await prisma.oAuthAuthorizationCode.update({
+      where: { id: login_id },
+      data: { status: 'approved' },
+    });
+
+    // Set session
+    (req.session as { userId?: string }).userId = credential.userId;
+
+    console.log(`[Device Auth Web] Passkey auth success for user ${credential.userId.substring(0, 8)}...`);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Device Auth Web] Passkey verify error:', error);
+    res.status(500).json({ error: 'Verification failed' });
   }
 });
 

@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.8] - 2026-01-26
+
+### Added
+- **Fallback authentication on waiting page**: When push notification doesn't arrive, users can now authenticate directly:
+  - **Passkey authentication**: If user has registered passkeys, they can sign in with Face ID/Touch ID
+  - **Password authentication**: Users can sign in with email + password
+  - Waiting page now shows "OR" section with fallback auth options for known users
+  - On successful auth, redirects directly to approval page
+
 ## [1.2.7] - 2026-01-26
 
 ### Added
