@@ -16,6 +16,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { Decimal } from '@prisma/client/runtime/library';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
@@ -25,6 +26,54 @@ import {
   generateAgentClientSecret,
   hashClientSecret,
 } from '../services/agent-auth';
+
+// =============================================================================
+// TOKEN VERIFICATION (for optimized QR code flow)
+// =============================================================================
+
+/**
+ * Verify a device auth token from the Gateway.
+ * Token format: base64url(email).hmac_sha256(email:code, INTERNAL_API_SECRET)
+ *
+ * @param token The token from the `t` query parameter
+ * @param code The device code from the `code` query parameter
+ * @returns The decoded email if valid, null if invalid
+ */
+function verifyDeviceAuthToken(token: string, code: string): string | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 2) {
+      console.log('[Device Auth Token] Invalid token format: expected 2 parts');
+      return null;
+    }
+
+    const [emailB64, signature] = parts;
+
+    // Decode email from base64url
+    const email = Buffer.from(emailB64, 'base64url').toString('utf-8');
+    if (!email || !email.includes('@')) {
+      console.log('[Device Auth Token] Invalid email in token');
+      return null;
+    }
+
+    // Verify HMAC signature
+    const expectedSignature = crypto
+      .createHmac('sha256', env.INTERNAL_API_SECRET)
+      .update(`${email}:${code}`)
+      .digest('base64url');
+
+    // Constant-time comparison to prevent timing attacks
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+      console.log('[Device Auth Token] Signature verification failed');
+      return null;
+    }
+
+    return email;
+  } catch (err) {
+    console.error('[Device Auth Token] Verification error:', err);
+    return null;
+  }
+}
 
 const router = Router();
 
@@ -537,10 +586,145 @@ function renderErrorPage(message: string): string {
 /**
  * GET /api/m/device
  * Device code entry page
+ *
+ * Supports optimized QR flow when both `code` and `t` (token) params are provided.
+ * Token format: base64url(email).hmac_sha256(email:code, INTERNAL_API_SECRET)
+ * When valid, skips manual code entry and email login - sends push directly.
  */
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   const code = req.query.code as string | undefined;
-  res.send(renderDeviceCodeEntryPage(code));
+  const token = req.query.t as string | undefined;
+
+  // If no token provided, show normal code entry page
+  if (!token || !code) {
+    return res.send(renderDeviceCodeEntryPage(code));
+  }
+
+  // Optimized flow: verify token and auto-authenticate
+  try {
+    // Normalize the code
+    let normalizedCode = code.toUpperCase().trim();
+    if (!normalizedCode.startsWith('WSIM-')) {
+      normalizedCode = `WSIM-${normalizedCode}`;
+    }
+
+    // Verify the token
+    const email = verifyDeviceAuthToken(token, normalizedCode);
+    if (!email) {
+      console.log('[Device Auth Web] Invalid token, falling back to code entry');
+      return res.send(renderDeviceCodeEntryPage(code, 'Invalid link. Please enter the code manually.'));
+    }
+
+    console.log(`[Device Auth Web] Optimized flow: valid token for ${email}`);
+
+    // Find user by email
+    const user = await prisma.walletUser.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+
+    if (!user) {
+      // User doesn't exist in WSIM - can't use optimized flow
+      console.log(`[Device Auth Web] User not found for email ${email}, falling back`);
+      return res.send(renderDeviceCodeEntryPage(code, 'Account not found. Please sign in with your WSIM email.'));
+    }
+
+    // Find and validate the pairing code
+    const pairingCode = await prisma.pairingCode.findUnique({
+      where: { code: normalizedCode },
+      include: { accessRequest: true },
+    });
+
+    if (!pairingCode) {
+      return res.send(renderDeviceCodeEntryPage(code, 'Invalid code. Please check and try again.'));
+    }
+
+    if (pairingCode.status !== 'active') {
+      return res.send(renderDeviceCodeEntryPage(code, 'This code has already been used.'));
+    }
+
+    if (pairingCode.expiresAt < new Date()) {
+      await prisma.pairingCode.update({
+        where: { id: pairingCode.id },
+        data: { status: 'expired' },
+      });
+      return res.send(renderDeviceCodeEntryPage(code, 'This code has expired.'));
+    }
+
+    const accessRequest = pairingCode.accessRequest;
+    if (!accessRequest || (accessRequest.status !== 'pending_claim' && accessRequest.status !== 'pending')) {
+      return res.send(renderDeviceCodeEntryPage(code, 'No pending authorization for this code.'));
+    }
+
+    // Pre-link the code to the user (claim it)
+    if (accessRequest.status === 'pending_claim') {
+      await prisma.$transaction(async (tx) => {
+        await tx.pairingCode.update({
+          where: { id: pairingCode.id },
+          data: { userId: user.id },
+        });
+        await tx.accessRequest.update({
+          where: { id: accessRequest.id },
+          data: { status: 'pending' },
+        });
+      });
+      console.log(`[Device Auth Web] Optimized flow: code ${normalizedCode} claimed by user ${user.id}`);
+    }
+
+    // Store in session for approval flow
+    req.session.deviceAuthCode = normalizedCode;
+    req.session.deviceAuthRequestId = accessRequest.id;
+
+    // Create a device auth login request (for push notification)
+    const { nanoid } = await import('nanoid');
+    const loginId = nanoid(16);
+
+    await prisma.oAuthAuthorizationCode.create({
+      data: {
+        id: loginId,
+        clientId: 'device-auth-web',
+        userId: user.id,
+        redirectUri: `${env.APP_URL}/api/m/device/approve`,
+        codeChallenge: null,
+        codeChallengeMethod: null,
+        scope: 'device-auth',
+        status: 'pending_approval',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
+      },
+    });
+
+    req.session.loginRequestId = loginId;
+
+    // Send push notification to approve the web sign-in
+    try {
+      await sendNotificationToUser(
+        user.id,
+        'oauth.authorization',
+        {
+          title: 'Authorize Agent',
+          body: `Tap to authorize ${accessRequest.agentName}`,
+          data: {
+            type: 'oauth.authorization',
+            screen: 'OAuthAuthorization',
+            params: { oauthAuthorizationId: loginId },
+            authorization_id: loginId,
+            client_name: accessRequest.agentName,
+          },
+        },
+        loginId
+      );
+      console.log(`[Device Auth Web] Optimized flow: push sent to user ${user.id}`);
+    } catch (notifError) {
+      console.error('[Device Auth Web] Failed to send push notification:', notifError);
+      // Continue - user might have the app open
+    }
+
+    // Show waiting page (user approves in mobile app)
+    return res.send(renderWaitingPage(loginId));
+  } catch (error) {
+    console.error('[Device Auth Web] Optimized flow error:', error);
+    // Fall back to normal code entry on any error
+    return res.send(renderDeviceCodeEntryPage(code, 'Something went wrong. Please try again.'));
+  }
 });
 
 /**

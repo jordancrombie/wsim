@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.7] - 2026-01-26
+
+### Added
+- **Optimized QR code web fallback**: When Gateway appends a signed token (`&t=...`) to `verification_uri_complete`:
+  - Token format: `base64url(email).hmac_sha256(email:code, INTERNAL_API_SECRET)`
+  - Automatically validates code, looks up user by email, and sends push notification
+  - Skips manual code entry and email login steps for smoother UX
+  - Falls back to standard flow if token is invalid or user not found
+
 ## [1.2.6] - 2026-01-26
 
 ### Fixed
