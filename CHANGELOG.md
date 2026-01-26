@@ -2,6 +2,14 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.9] - 2026-01-26
+
+### Fixed
+- **Remove redundant push notification in web flow**: When user clicks the verification URL with token:
+  - Previously sent a second "Authorize Agent" push (device_authorization already sent one)
+  - Now authenticates user via token and redirects directly to approval page
+  - Eliminates confusing duplicate notifications
+
 ## [1.2.8] - 2026-01-26
 
 ### Added

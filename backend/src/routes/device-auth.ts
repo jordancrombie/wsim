@@ -906,58 +906,16 @@ router.get('/', async (req: Request, res: Response) => {
     req.session.deviceAuthRequestId = accessRequest.id;
     req.session.deviceAuthUserId = user.id; // Store known user for fallback auth
 
-    // Check if user has passkeys for fallback auth option
-    const passkeyCount = await prisma.passkeyCredential.count({
-      where: { userId: user.id },
-    });
-    const hasPasskey = passkeyCount > 0;
+    // Since we verified the token, we know this is the correct user.
+    // Set the session to authenticate them and redirect directly to approval.
+    // This avoids sending a redundant push notification (device_authorization
+    // endpoint already sent one when Gateway passed buyer_email).
+    (req.session as { userId?: string }).userId = user.id;
 
-    // Create a device auth login request (for push notification)
-    const { nanoid } = await import('nanoid');
-    const loginId = nanoid(16);
+    console.log(`[Device Auth Web] Optimized flow: user ${user.id.substring(0, 8)}... authenticated via token, redirecting to approval`);
 
-    await prisma.oAuthAuthorizationCode.create({
-      data: {
-        id: loginId,
-        clientId: 'device-auth-web',
-        userId: user.id,
-        redirectUri: `${env.APP_URL}/api/m/device/approve`,
-        codeChallenge: null,
-        codeChallengeMethod: null,
-        scope: 'device-auth',
-        status: 'pending_approval',
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
-      },
-    });
-
-    req.session.loginRequestId = loginId;
-
-    // Send push notification to approve the web sign-in
-    try {
-      await sendNotificationToUser(
-        user.id,
-        'oauth.authorization',
-        {
-          title: 'Authorize Agent',
-          body: `Tap to authorize ${accessRequest.agentName}`,
-          data: {
-            type: 'oauth.authorization',
-            screen: 'OAuthAuthorization',
-            params: { oauthAuthorizationId: loginId },
-            authorization_id: loginId,
-            client_name: accessRequest.agentName,
-          },
-        },
-        loginId
-      );
-      console.log(`[Device Auth Web] Optimized flow: push sent to user ${user.id}`);
-    } catch (notifError) {
-      console.error('[Device Auth Web] Failed to send push notification:', notifError);
-      // Continue - user might have the app open
-    }
-
-    // Show waiting page with fallback auth options
-    return res.send(renderWaitingPage(loginId, { email, hasPasskey }));
+    // Redirect directly to approval page - no second push needed
+    return res.redirect('/api/m/device/approve');
   } catch (error) {
     console.error('[Device Auth Web] Optimized flow error:', error);
     // Fall back to normal code entry on any error
