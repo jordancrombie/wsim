@@ -20,7 +20,7 @@ import agentPaymentsRoutes from './agent-payments';
 import agentManagementRoutes from './agent-management';
 import agentWebhooksRoutes from './agent-webhooks';
 import stepUpRoutes from './step-up';
-import { mobileAccessRequestRouter, agentAccessRequestRouter } from './access-request';
+import { mobileAccessRequestRouter, agentAccessRequestRouter, mobileDeviceCodesRouter } from './access-request';
 
 const router = Router();
 
@@ -52,6 +52,7 @@ router.use('/api/agent/v1/webhooks', agentWebhooksRoutes); // Merchant webhook m
 router.use('/api/mobile/agents', agentManagementRoutes); // Mobile app agent management
 router.use('/api/mobile/step-up', stepUpRoutes);         // Mobile step-up approval
 router.use('/api/mobile/access-requests', mobileAccessRequestRouter); // Mobile access request management
+router.use('/api/mobile/device-codes', mobileDeviceCodesRouter);       // Device code claim (RFC 8628)
 router.use('/api/agent/v1/access-request', agentAccessRequestRouter);   // Agent access request endpoints
 
 export default router;

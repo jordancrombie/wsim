@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] - 2026-01-26
+
+### Fixed
+
+- **Device Authorization: Add route alias for design doc compatibility**
+  - Added `POST /api/mobile/device-codes/claim` endpoint
+  - Design doc specified this path, but original implementation was at `/api/mobile/access-requests/device-codes/claim`
+  - Both paths now work; mwsim can use the documented path
+
+---
+
 ## [1.2.1] - 2026-01-25
 
 ### Fixed

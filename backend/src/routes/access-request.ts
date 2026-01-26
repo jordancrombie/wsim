@@ -1224,4 +1224,117 @@ agentAccessRequestRouter.get('/:requestId/qr', async (req: Request, res: Respons
   }
 });
 
-export default { mobileAccessRequestRouter, agentAccessRequestRouter };
+// =============================================================================
+// DEVICE CODES ROUTER (alias for design doc compatibility)
+// =============================================================================
+// The design doc specifies POST /api/mobile/device-codes/claim
+// but our original implementation put it under /api/mobile/access-requests/device-codes/claim
+// This router provides the expected path as documented
+
+export const mobileDeviceCodesRouter = Router();
+
+// Forward to the same claim handler (avoid code duplication)
+mobileDeviceCodesRouter.post('/claim', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+    const { user_code } = req.body;
+
+    if (!user_code) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'user_code is required',
+      });
+    }
+
+    // Normalize code: strip prefix, uppercase
+    const normalizedCode = user_code.toUpperCase().replace(/^WSIM-/, '');
+    const fullCode = `WSIM-${normalizedCode}`;
+
+    // Find the pairing code
+    const pairingCode = await prisma.pairingCode.findUnique({
+      where: { code: fullCode },
+      include: { accessRequest: true },
+    });
+
+    if (!pairingCode) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Invalid code. Please check and try again.',
+      });
+    }
+
+    // Check if this is a device authorization code (has null userId)
+    if (pairingCode.userId !== null) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'This code is not a device authorization code',
+      });
+    }
+
+    if (pairingCode.status !== 'active') {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'This code has already been used',
+      });
+    }
+
+    if (pairingCode.expiresAt < new Date()) {
+      await prisma.pairingCode.update({
+        where: { id: pairingCode.id },
+        data: { status: 'expired' },
+      });
+      return res.status(400).json({
+        error: 'expired',
+        message: 'This code has expired',
+      });
+    }
+
+    const accessRequest = pairingCode.accessRequest;
+    if (!accessRequest || accessRequest.status !== 'pending_claim') {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'No pending authorization for this code',
+      });
+    }
+
+    // Update pairing code to link to this user and mark access request as pending
+    await prisma.$transaction(async (tx) => {
+      await tx.pairingCode.update({
+        where: { id: pairingCode.id },
+        data: { userId: userId! },
+      });
+      await tx.accessRequest.update({
+        where: { id: accessRequest.id },
+        data: { status: 'pending' },
+      });
+    });
+
+    console.log(`[Device Auth] Code ${normalizedCode} claimed by user ${userId}`);
+
+    return res.json({
+      access_request: {
+        id: accessRequest.id,
+        agent_name: accessRequest.agentName,
+        agent_description: accessRequest.agentDescription,
+        requested_permissions: accessRequest.requestedPermissions,
+        requested_limits: {
+          per_transaction: accessRequest.requestedPerTransaction.toString(),
+          daily: accessRequest.requestedDailyLimit.toString(),
+          monthly: accessRequest.requestedMonthlyLimit.toString(),
+          currency: accessRequest.requestedCurrency,
+        },
+        expires_at: accessRequest.expiresAt.toISOString(),
+        time_remaining_seconds: Math.max(0, Math.floor((accessRequest.expiresAt.getTime() - Date.now()) / 1000)),
+      },
+      message: 'Code claimed. Review the request and approve or reject.',
+    });
+  } catch (error) {
+    console.error('[Device Auth] Claim error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to claim code',
+    });
+  }
+});
+
+export default { mobileAccessRequestRouter, agentAccessRequestRouter, mobileDeviceCodesRouter };
