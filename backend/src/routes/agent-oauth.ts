@@ -126,13 +126,13 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
     // We use pairingCode + accessRequest together but with 'device_authorization' delivery
     const result = await prisma.$transaction(async (tx) => {
       // Create pairing code (without user - will be claimed when user enters code)
+      // For Device Authorization (RFC 8628), no user context exists at code creation
       const pairingCode = await tx.pairingCode.create({
         data: {
           code: userCode,
           expiresAt,
           status: 'active',
-          // No userId - this is device-initiated, user claims it
-          userId: '', // Placeholder - will be updated when claimed
+          userId: null, // Device-initiated: user claims the code later
         },
       });
 

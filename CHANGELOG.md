@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] - 2026-01-25
+
+### Fixed
+
+- **Device Authorization: Fix FK constraint violation on code creation**
+  - Made `userId` nullable in `PairingCode` schema for RFC 8628 Device Authorization flow
+  - Device-initiated authorization creates codes without a user context; user claims code later
+  - Changed placeholder from empty string (`''`) to `null`
+  - Migration: `20260125200000_make_pairing_code_user_optional`
+
+---
+
 ## [1.2.0] - 2026-01-25
 
 ### Added

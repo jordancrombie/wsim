@@ -204,8 +204,9 @@ mobileAccessRequestRouter.post('/device-codes/claim', requireMobileAuth, async (
       });
     }
 
-    // Check if this is a device authorization code (has empty userId placeholder)
-    if (pairingCode.userId !== '') {
+    // Check if this is a device authorization code (has null userId)
+    // User-generated pairing codes have a userId set at creation time
+    if (pairingCode.userId !== null) {
       // This is a user-generated pairing code, not a device authorization code
       return res.status(400).json({
         error: 'invalid_request',
@@ -1030,7 +1031,8 @@ agentAccessRequestRouter.post('/', async (req: Request, res: Response) => {
     });
 
     // Send push notification to user
-    if (delivery === 'push') {
+    // Note: userId is always set for user-initiated pairing codes (push delivery)
+    if (delivery === 'push' && pairingCode.userId) {
       try {
         await sendNotificationToUser(
           pairingCode.userId,

@@ -751,8 +751,10 @@ model OAuthAuthorizationCode {
 
 model PairingCode {
   id        String   @id @default(uuid())
-  userId    String
-  user      WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // userId is nullable for Device Authorization flow (RFC 8628)
+  // where the agent initiates auth and user claims the code later
+  userId    String?
+  user      WalletUser? @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // The actual pairing code (format: WSIM-XXXXXX-XXXXXX)
   code      String   @unique
