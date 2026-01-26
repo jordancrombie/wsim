@@ -13,6 +13,7 @@ import profileRoutes, { internalProfileRouter } from './profile';
 import contractRoutes, { internalContractsRouter } from './contracts';
 import verificationRoutes from './verification';
 import wellKnownRoutes from './well-known';
+import deviceAuthRoutes from './device-auth';
 
 // Agent Commerce (SACP)
 import agentOAuthRoutes from './agent-oauth';
@@ -26,6 +27,9 @@ const router = Router();
 
 // Well-known discovery endpoints (RFC-compliant)
 router.use('/.well-known', wellKnownRoutes);
+
+// Device Authorization web flow (RFC 8628)
+router.use('/m/device', deviceAuthRoutes);
 
 // Mount route modules
 router.use('/health', healthRoutes);

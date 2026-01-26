@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.3] - 2026-01-26
+
+### Added
+
+- **Device Authorization: Web-based code entry flow (RFC 8628)**
+  - New `/m/device` page for users to enter device codes via web browser
+  - Supports pre-filled codes via `?code=WSIM-XXXXXX` query parameter
+  - Session-based authentication flow with push notification login
+  - Full approval/rejection UI matching mobile app experience
+  - Routes:
+    - `GET /m/device` - Device code entry page
+    - `POST /m/device/lookup` - Look up and validate code
+    - `POST /m/device/login/identify` - Send login push notification
+    - `GET /m/device/login/wait/:id` - Poll for login approval
+    - `POST /m/device/approve` - Approve device authorization
+    - `POST /m/device/reject` - Reject device authorization
+
+---
+
 ## [1.2.2] - 2026-01-26
 
 ### Fixed
