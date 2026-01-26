@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.5] - 2026-01-26
+
+### Added
+
+- **Device Authorization: Push notification for known users**
+  - New `buyer_email` parameter in `POST /api/agent/v1/oauth/device_authorization`
+  - When Gateway provides buyer's email, WSIM looks up user and sends push notification
+  - Push notification deep-links directly to approval screen (no manual code entry needed)
+  - Response includes `notification_sent` and `notification_user_id` when email was provided
+  - User is pre-linked to pairing code, status advanced from `pending_claim` to `pending`
+  - Fallback: Manual code entry still works if user not found or notification fails
+
+---
+
 ## [1.2.4] - 2026-01-26
 
 ### Added

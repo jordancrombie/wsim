@@ -68,6 +68,7 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
       agent_description,
       spending_limits,
       response_type,
+      buyer_email, // Optional: if provided, send push notification to user
     } = req.body;
 
     // Validate response_type if provided (default to 'credentials')
@@ -164,7 +165,65 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
 
     console.log(`[Device Auth] Created device authorization ${result.accessRequest.id}, user_code: ${userCode}`);
 
-    // Return RFC 8628 compliant response
+    // Track if we sent a push notification
+    let notificationSent = false;
+    let notificationUserId: string | null = null;
+
+    // If buyer_email is provided, try to send push notification
+    if (buyer_email && typeof buyer_email === 'string') {
+      try {
+        // Look up user by email
+        const user = await prisma.walletUser.findUnique({
+          where: { email: buyer_email.toLowerCase().trim() },
+        });
+
+        if (user) {
+          // Pre-link the pairing code to this user and update status
+          await prisma.$transaction(async (tx) => {
+            await tx.pairingCode.update({
+              where: { id: result.pairingCode.id },
+              data: { userId: user.id },
+            });
+            await tx.accessRequest.update({
+              where: { id: result.accessRequest.id },
+              data: { status: 'pending' }, // Skip 'pending_claim' since we know the user
+            });
+          });
+
+          // Send push notification
+          await sendNotificationToUser(
+            user.id,
+            'agent.access_request',
+            {
+              title: `${agent_name} wants to pay`,
+              body: `Tap to authorize ${currency} ${perTransaction.toFixed(2)} payment`,
+              data: {
+                type: 'device_authorization.payment',
+                screen: 'DeviceAuthApproval',
+                params: { accessRequestId: result.accessRequest.id },
+                access_request_id: result.accessRequest.id,
+                user_code: userCode,
+                agent_name,
+                amount: perTransaction.toString(),
+                currency,
+              },
+            },
+            result.accessRequest.id
+          );
+
+          notificationSent = true;
+          notificationUserId = user.id;
+          console.log(`[Device Auth] Push notification sent to user ${user.id} (${buyer_email})`);
+        } else {
+          console.log(`[Device Auth] No user found for email ${buyer_email}, skipping push notification`);
+        }
+      } catch (notifError) {
+        console.error('[Device Auth] Failed to send push notification:', notifError);
+        // Continue - user can still enter code manually
+      }
+    }
+
+    // Return RFC 8628 compliant response with optional notification status
     return res.json({
       device_code: result.accessRequest.id,
       user_code: userCode,
@@ -172,6 +231,11 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
       verification_uri_complete: `${env.APP_URL}/m/device?code=${encodeURIComponent(userCode)}`,
       expires_in: 900, // 15 minutes
       interval: 5, // Poll every 5 seconds
+      // Extension: notification status (not part of RFC 8628, but useful for Gateway)
+      ...(buyer_email && {
+        notification_sent: notificationSent,
+        notification_user_id: notificationUserId,
+      }),
     });
   } catch (error) {
     console.error('[Device Auth] Error:', error);
