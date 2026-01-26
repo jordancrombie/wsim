@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.4] - 2026-01-26
+
+### Added
+
+- **Device Authorization: Support `response_type` parameter for guest checkout**
+  - New `response_type` parameter in `POST /api/agent/v1/oauth/device_authorization`
+  - `response_type=credentials` (default): Returns `client_id` + `client_secret` for agent onboarding
+  - `response_type=token`: Returns `access_token` directly for guest checkout (RFC 8628 compliant)
+  - Enables SACP Gateway guest checkout flow without requiring credential exchange
+  - Migration: `20260126150000_add_access_request_response_type`
+
+### Changed
+
+- Token endpoint now returns RFC 8628 Section 3.5 compliant response when `responseType === 'token'`:
+  ```json
+  {
+    "access_token": "eyJ...",
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "scope": "purchase"
+  }
+  ```
+
+---
+
 ## [1.2.3] - 2026-01-26
 
 ### Added

@@ -67,7 +67,11 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
       agent_name,
       agent_description,
       spending_limits,
+      response_type,
     } = req.body;
+
+    // Validate response_type if provided (default to 'credentials')
+    const responseType = response_type === 'token' ? 'token' : 'credentials';
 
     // agent_name is required for device authorization
     if (!agent_name) {
@@ -148,6 +152,7 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
           requestedMonthlyLimit: monthly,
           requestedCurrency: currency,
           deliveryMethod: 'device_authorization',
+          responseType, // 'credentials' for agent onboarding, 'token' for guest checkout
           expiresAt,
           // Mark as 'pending_claim' until a user claims it
           status: 'pending_claim',
@@ -1532,7 +1537,7 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
       });
 
     case 'approved':
-      // Success! Return credentials
+      // Success! Return credentials or token based on responseType
       if (!accessRequest.agent) {
         return res.status(500).json({
           error: 'server_error',
@@ -1540,6 +1545,30 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
         });
       }
 
+      // Check if this is a token-based response (guest checkout)
+      if (accessRequest.responseType === 'token') {
+        // Guest checkout flow - return access token directly (RFC 8628 compliant)
+        const scope = (accessRequest.grantedPermissions || accessRequest.requestedPermissions).join(' ');
+        const { token: accessToken, tokenHash, expiresAt } = generateAgentAccessToken(
+          accessRequest.agent,
+          scope
+        );
+
+        // Store the token for tracking/revocation
+        await storeAgentAccessToken(accessRequest.agent.id, tokenHash, expiresAt, scope);
+
+        console.log(`[Device Auth] Access token issued for agent ${accessRequest.agent.clientId} (guest checkout)`);
+
+        // Return RFC 8628 Section 3.5 compliant response
+        return res.json({
+          access_token: accessToken,
+          token_type: 'Bearer',
+          expires_in: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
+          scope,
+        });
+      }
+
+      // Agent onboarding flow - return credentials for repeated use
       // Generate new client secret (one-time retrieval)
       const clientSecret = generateAgentClientSecret();
       const clientSecretHash = await hashClientSecret(clientSecret);
