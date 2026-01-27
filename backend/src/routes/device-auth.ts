@@ -105,6 +105,23 @@ setInterval(() => {
   }
 }, 60000);
 
+/**
+ * Generate a cryptographic nonce for CSP
+ */
+function generateNonce(): string {
+  return crypto.randomBytes(16).toString('base64');
+}
+
+/**
+ * Set CSP header that allows inline scripts with the given nonce
+ */
+function setCSPHeader(res: Response, nonce: string): void {
+  res.setHeader(
+    'Content-Security-Policy',
+    `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'`
+  );
+}
+
 function storePasskeyChallenge(loginId: string, challenge: string, userId: string): void {
   passkeyChallenge.set(loginId, {
     challenge,
@@ -329,11 +346,13 @@ function renderLoginPage(agentName: string, requestId: string, error?: string, n
 interface WaitingPageOptions {
   email?: string;
   hasPasskey?: boolean;
+  nonce?: string;
 }
 
 function renderWaitingPage(loginId: string, options?: WaitingPageOptions): string {
-  const { email, hasPasskey } = options || {};
+  const { email, hasPasskey, nonce } = options || {};
   const showFallback = !!email; // Only show fallback if we know the user
+  const nonceAttr = nonce ? ` nonce="${nonce}"` : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -482,7 +501,7 @@ function renderWaitingPage(loginId: string, options?: WaitingPageOptions): strin
       </form>
     </div>
 
-    <script>
+    <script${nonceAttr}>
       // Toggle password form
       document.getElementById('password-toggle')?.addEventListener('click', function() {
         document.getElementById('password-form').classList.toggle('hidden');
@@ -939,9 +958,12 @@ router.get('/', async (req: Request, res: Response) => {
     console.log(`[Device Auth Web] Optimized flow: showing auth page for ${user.email} (passkeys: ${passkeyCount})`);
 
     // Show waiting page with passkey/password options (NO push - device_authorization sent one)
+    const nonce = generateNonce();
+    setCSPHeader(res, nonce);
     return res.send(renderWaitingPage(loginId, {
       email: user.email,
       hasPasskey: passkeyCount > 0,
+      nonce,
     }));
   } catch (error) {
     console.error('[Device Auth Web] Optimized flow error:', error);
@@ -1145,9 +1167,12 @@ router.post('/login/identify', async (req: Request, res: Response) => {
       where: { userId: user.id },
     });
 
+    const nonce = generateNonce();
+    setCSPHeader(res, nonce);
     return res.send(renderWaitingPage(loginId, {
       email: user.email,
       hasPasskey: passkeyCount > 0,
+      nonce,
     }));
   } catch (error) {
     console.error('[Device Auth Web] Identify error:', error);
@@ -1246,6 +1271,9 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
 
     // Still pending - show waiting page with auth options
     // Look up the user to show passkey/password fallback options
+    const nonce = generateNonce();
+    setCSPHeader(res, nonce);
+
     if (authRequest.userId) {
       const user = await prisma.walletUser.findUnique({
         where: { id: authRequest.userId },
@@ -1257,10 +1285,11 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
       return res.send(renderWaitingPage(id, {
         email: user?.email,
         hasPasskey: passkeyCount > 0,
+        nonce,
       }));
     }
 
-    return res.send(renderWaitingPage(id));
+    return res.send(renderWaitingPage(id, { nonce }));
   } catch (error) {
     console.error('[Device Auth Web] Wait error:', error);
     return res.send(renderErrorPage('An error occurred. Please try again.'));

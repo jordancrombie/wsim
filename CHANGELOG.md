@@ -2,6 +2,14 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.12] - 2026-01-27
+
+### Fixed
+- **CSP nonce for waiting page inline scripts**: The waiting page's passkey/password buttons require inline JavaScript:
+  - Added nonce-based CSP header to allow inline scripts securely
+  - Generated cryptographic nonce for each request
+  - Buttons now work correctly (passkey auth, password form toggle)
+
 ## [1.2.11] - 2026-01-27
 
 ### Fixed
