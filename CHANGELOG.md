@@ -2,6 +2,14 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.11] - 2026-01-27
+
+### Fixed
+- **Preserve auth options on waiting page refresh**: The waiting page auto-refreshes every 3 seconds to check for push approval:
+  - Previously, auth options (passkey/password buttons) disappeared after first refresh
+  - Now `/login/wait/:id` endpoint looks up user's email and passkey count
+  - Auth options persist across all refreshes until user authenticates or push is approved
+
 ## [1.2.10] - 2026-01-27
 
 ### Fixed

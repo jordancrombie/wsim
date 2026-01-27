@@ -1140,7 +1140,15 @@ router.post('/login/identify', async (req: Request, res: Response) => {
 
     console.log(`[Device Auth Web] Login request ${loginId} created for user ${user.id}`);
 
-    return res.send(renderWaitingPage(loginId));
+    // Check if user has passkeys for fallback auth
+    const passkeyCount = await prisma.passkeyCredential.count({
+      where: { userId: user.id },
+    });
+
+    return res.send(renderWaitingPage(loginId, {
+      email: user.email,
+      hasPasskey: passkeyCount > 0,
+    }));
   } catch (error) {
     console.error('[Device Auth Web] Identify error:', error);
     return res.send(renderErrorPage('An error occurred. Please try again.'));
@@ -1236,7 +1244,22 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
       return res.send(renderErrorPage('Sign-in was rejected. Please try again.'));
     }
 
-    // Still pending - show waiting page
+    // Still pending - show waiting page with auth options
+    // Look up the user to show passkey/password fallback options
+    if (authRequest.userId) {
+      const user = await prisma.walletUser.findUnique({
+        where: { id: authRequest.userId },
+        select: { email: true },
+      });
+      const passkeyCount = await prisma.passkeyCredential.count({
+        where: { userId: authRequest.userId },
+      });
+      return res.send(renderWaitingPage(id, {
+        email: user?.email,
+        hasPasskey: passkeyCount > 0,
+      }));
+    }
+
     return res.send(renderWaitingPage(id));
   } catch (error) {
     console.error('[Device Auth Web] Wait error:', error);
