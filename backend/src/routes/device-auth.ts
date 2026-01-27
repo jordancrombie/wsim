@@ -359,7 +359,6 @@ function renderWaitingPage(loginId: string, options?: WaitingPageOptions): strin
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="3;url=/api/m/device/login/wait/${loginId}">
   <title>Check Your Phone - WSIM</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -502,15 +501,53 @@ function renderWaitingPage(loginId: string, options?: WaitingPageOptions): strin
     </div>
 
     <script${nonceAttr}>
-      // Toggle password form
+      // Polling state - stops when user interacts with auth options
+      let isPolling = true;
+      let pollInterval = null;
+
+      function stopPolling() {
+        isPolling = false;
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        // Hide spinner when user is authenticating locally
+        const spinner = document.getElementById('spinner');
+        const statusText = document.getElementById('status-text');
+        if (spinner) spinner.style.display = 'none';
+        if (statusText) statusText.textContent = 'Authenticating...';
+      }
+
+      // Poll for push notification approval
+      async function checkStatus() {
+        if (!isPolling) return;
+        try {
+          const res = await fetch('/api/m/device/login/status/${escapeHtml(loginId)}');
+          const data = await res.json();
+          if (data.status === 'approved') {
+            window.location.href = '/api/m/device/login/wait/${escapeHtml(loginId)}';
+          } else if (data.status === 'rejected' || data.status === 'expired' || data.status === 'not_found') {
+            window.location.href = '/api/m/device/login/wait/${escapeHtml(loginId)}';
+          }
+        } catch (err) {
+          console.error('Status check failed:', err);
+        }
+      }
+
+      // Start polling every 3 seconds
+      pollInterval = setInterval(checkStatus, 3000);
+
+      // Toggle password form (stops polling)
       document.getElementById('password-toggle')?.addEventListener('click', function() {
+        stopPolling();
         document.getElementById('password-form').classList.toggle('hidden');
         this.classList.add('hidden');
       });
 
       ${hasPasskey ? `
-      // Passkey authentication
+      // Passkey authentication (stops polling)
       document.getElementById('passkey-btn')?.addEventListener('click', async function() {
+        stopPolling();
         try {
           this.disabled = true;
           this.textContent = 'Authenticating...';
@@ -574,7 +611,23 @@ function renderWaitingPage(loginId: string, options?: WaitingPageOptions): strin
       });
       ` : ''}
     </script>
-    ` : ''}
+    ` : `
+    <script${nonceAttr}>
+      // Poll for push notification approval (no local auth options)
+      async function checkStatus() {
+        try {
+          const res = await fetch('/api/m/device/login/status/${escapeHtml(loginId)}');
+          const data = await res.json();
+          if (data.status === 'approved' || data.status === 'rejected' || data.status === 'expired' || data.status === 'not_found') {
+            window.location.href = '/api/m/device/login/wait/${escapeHtml(loginId)}';
+          }
+        } catch (err) {
+          console.error('Status check failed:', err);
+        }
+      }
+      setInterval(checkStatus, 3000);
+    </script>
+    `}
   </div>
 </body>
 </html>`;

@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.13] - 2026-01-27
+
+### Fixed
+- **Replace meta refresh with JavaScript polling**: The 3-second meta refresh was interrupting passkey/password auth:
+  - Removed `<meta http-equiv="refresh">` tag
+  - Added JavaScript `setInterval` polling to check for push approval
+  - Polling stops when user clicks on passkey or password button
+  - WebAuthn dialogs and password forms no longer get interrupted
+
 ## [1.2.12] - 2026-01-27
 
 ### Fixed
