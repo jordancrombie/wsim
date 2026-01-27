@@ -2,6 +2,16 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.10] - 2026-01-27
+
+### Fixed
+- **Require user authentication before approval**: Token verification proves *which* user, but not *who* is clicking:
+  - Token from Gateway identifies the user by email
+  - Now shows waiting page with passkey/password authentication options
+  - User must prove their identity before seeing the approval page
+  - Still no second push notification (device_authorization already sent one)
+  - Security fix: prevents unauthorized access if someone else clicks the link
+
 ## [1.2.9] - 2026-01-26
 
 ### Fixed

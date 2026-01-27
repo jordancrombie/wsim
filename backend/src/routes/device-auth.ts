@@ -906,16 +906,43 @@ router.get('/', async (req: Request, res: Response) => {
     req.session.deviceAuthRequestId = accessRequest.id;
     req.session.deviceAuthUserId = user.id; // Store known user for fallback auth
 
-    // Since we verified the token, we know this is the correct user.
-    // Set the session to authenticate them and redirect directly to approval.
-    // This avoids sending a redundant push notification (device_authorization
-    // endpoint already sent one when Gateway passed buyer_email).
-    (req.session as { userId?: string }).userId = user.id;
+    // Token verification proves we know WHICH user this is, but doesn't prove
+    // the person clicking the link IS that user. We need them to authenticate.
+    // Since device_authorization already sent a push notification, we DON'T
+    // send another one - just show the waiting page with auth options.
 
-    console.log(`[Device Auth Web] Optimized flow: user ${user.id.substring(0, 8)}... authenticated via token, redirecting to approval`);
+    // Create a login request for tracking passkey/password authentication
+    const { nanoid } = await import('nanoid');
+    const loginId = nanoid(16);
 
-    // Redirect directly to approval page - no second push needed
-    return res.redirect('/api/m/device/approve');
+    await prisma.oAuthAuthorizationCode.create({
+      data: {
+        id: loginId,
+        clientId: 'device-auth-web',
+        userId: user.id,
+        redirectUri: `${env.APP_URL}/api/m/device/approve`,
+        codeChallenge: null,
+        codeChallengeMethod: null,
+        scope: 'device-auth',
+        status: 'pending_approval',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
+      },
+    });
+
+    req.session.loginRequestId = loginId;
+
+    // Check if user has passkeys for fallback auth options
+    const passkeyCount = await prisma.passkeyCredential.count({
+      where: { userId: user.id },
+    });
+
+    console.log(`[Device Auth Web] Optimized flow: showing auth page for ${user.email} (passkeys: ${passkeyCount})`);
+
+    // Show waiting page with passkey/password options (NO push - device_authorization sent one)
+    return res.send(renderWaitingPage(loginId, {
+      email: user.email,
+      hasPasskey: passkeyCount > 0,
+    }));
   } catch (error) {
     console.error('[Device Auth Web] Optimized flow error:', error);
     // Fall back to normal code entry on any error
