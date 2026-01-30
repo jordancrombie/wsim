@@ -15,17 +15,19 @@ import { nanoid } from 'nanoid';
 import { Agent, AgentAccessToken, Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { env } from '../config/env';
+import { getSigningKey, getVerifyKey } from './jwt-keys';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 export interface AgentAccessTokenPayload {
-  sub: string;        // agent.id (UUID)
-  client_id: string;  // agent.clientId
-  owner_id: string;   // agent.userId (owner)
+  sub: string;        // agent.id (UUID) - or WalletUser ID for MCP OAuth
+  client_id: string;  // agent.clientId or OAuth client_id (e.g., 'chatgpt-mcp')
+  owner_id: string;   // agent.userId (owner) - WalletUser ID
   permissions: string[];
   scope?: string;
+  aud?: string;       // Audience - the intended recipient (e.g., 'chatgpt-mcp')
   iat: number;
   exp: number;
   iss: string;
@@ -102,10 +104,14 @@ export async function verifyClientSecret(secret: string, hash: string): Promise<
 /**
  * Generate an access token for an agent
  * Returns both the token string and its SHA-256 hash (for storage/revocation)
+ *
+ * Uses RS256 (asymmetric) for tokens that need external verification via JWKS.
+ * The `aud` claim identifies the intended recipient (e.g., 'chatgpt-mcp').
  */
 export function generateAgentAccessToken(
   agent: Pick<Agent, 'id' | 'clientId' | 'userId' | 'permissions'>,
-  scope?: string
+  scope?: string,
+  audience?: string
 ): { token: string; tokenHash: string; expiresAt: Date } {
   const now = Math.floor(Date.now() / 1000);
   const expiresIn = env.AGENT_ACCESS_TOKEN_EXPIRY;
@@ -117,11 +123,17 @@ export function generateAgentAccessToken(
     owner_id: agent.userId,
     permissions: agent.permissions,
     ...(scope && { scope }),
+    ...(audience && { aud: audience }),
   };
 
-  const token = jwt.sign(payload, env.AGENT_JWT_SECRET, {
+  // Use RS256 for tokens that may be verified externally via JWKS
+  const { key: privateKey, kid, algorithm } = getSigningKey();
+
+  const token = jwt.sign(payload, privateKey, {
+    algorithm,
     expiresIn,
     issuer: env.APP_URL,
+    keyid: kid,
   });
 
   // Hash token for storage (used for revocation lookup)
@@ -133,14 +145,28 @@ export function generateAgentAccessToken(
 /**
  * Verify and decode an agent access token
  * Returns null if invalid or expired
+ *
+ * Supports both RS256 (new) and HS256 (legacy) tokens for backwards compatibility.
  */
 export function verifyAgentAccessToken(token: string): AgentAccessTokenPayload | null {
   try {
-    const payload = jwt.verify(token, env.AGENT_JWT_SECRET, {
-      issuer: env.APP_URL,
-    }) as AgentAccessTokenPayload;
+    // First, try RS256 verification (new tokens)
+    const { key: publicKey } = getVerifyKey();
 
-    return payload;
+    try {
+      const payload = jwt.verify(token, publicKey, {
+        algorithms: ['RS256'],
+        issuer: env.APP_URL,
+      }) as AgentAccessTokenPayload;
+      return payload;
+    } catch {
+      // Fall back to HS256 for legacy tokens
+      const payload = jwt.verify(token, env.AGENT_JWT_SECRET, {
+        algorithms: ['HS256'],
+        issuer: env.APP_URL,
+      }) as AgentAccessTokenPayload;
+      return payload;
+    }
   } catch {
     return null;
   }

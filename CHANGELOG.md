@@ -2,6 +2,27 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.18] - 2026-01-30
+
+### Added
+- **ChatGPT MCP OAuth foundation**: OAuth 2.0 infrastructure for MCP-based AI tool integration
+  - `GET /.well-known/oauth-protected-resource` (RFC 9728) - Protected resource metadata for MCP clients
+  - `GET /.well-known/jwks.json` (RFC 7517) - JSON Web Key Set for external token verification
+  - Updated `/.well-known/oauth-authorization-server` to include `jwks_uri`
+  - Registered `chatgpt-mcp` OAuth client for ChatGPT MCP server integration
+- **RS256 JWT signing**: Access tokens now signed with RS256 (asymmetric) instead of HS256
+  - Enables external services (MCP Gateway) to verify tokens without shared secrets
+  - JWKS endpoint exposes public key for verification
+  - Backwards-compatible: verifies both RS256 and HS256 (legacy) tokens
+- **Audience claim**: Tokens issued via OAuth Authorization Code flow include `aud` claim
+  - Set to the OAuth client_id (e.g., `chatgpt-mcp`)
+  - Allows clients to verify tokens are intended for them
+
+### Changed
+- JWT key management: Added `jwt-keys.ts` service for RSA key pair management
+  - Development: Auto-generates ephemeral keys (with warning)
+  - Production: Configure via `AGENT_JWT_RSA_PRIVATE_KEY_PEM` and `AGENT_JWT_RSA_PUBLIC_KEY_PEM` env vars
+
 ## [1.2.17] - 2026-01-29
 
 ### Added

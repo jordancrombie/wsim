@@ -17,6 +17,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import yaml from 'js-yaml';
 import { env } from '../config/env';
+import { getJWKS } from '../services/jwt-keys';
 
 const router = Router();
 
@@ -146,6 +147,56 @@ router.get('/agent-api', (req: Request, res: Response) => {
 });
 
 /**
+ * GET /.well-known/oauth-protected-resource
+ * OAuth 2.0 Protected Resource Metadata (RFC 9728)
+ *
+ * Enables MCP clients (like ChatGPT) to discover the authorization server
+ * for this protected resource. When a tool returns _meta["mcp/www_authenticate"],
+ * the client fetches this endpoint to find where to authenticate.
+ */
+router.get('/oauth-protected-resource', (req: Request, res: Response) => {
+  const baseUrl = env.APP_URL;
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+
+  res.json({
+    // The protected resource identifier (RFC 9728 Section 2)
+    resource: baseUrl,
+
+    // Authorization servers that can issue tokens for this resource
+    authorization_servers: [baseUrl],
+
+    // Scopes supported by this protected resource
+    scopes_supported: ['purchase', 'browse', 'cart', 'history'],
+
+    // Bearer token methods supported (RFC 9728 Section 2)
+    bearer_methods_supported: ['header'],
+
+    // Resource documentation
+    resource_documentation: `${baseUrl}/.well-known/openapi.json`,
+  });
+});
+
+/**
+ * GET /.well-known/jwks.json
+ * JSON Web Key Set (RFC 7517)
+ *
+ * Exposes the public key(s) used to sign JWTs (RS256).
+ * External services (like the Agents/MCP Gateway) can fetch this endpoint
+ * to verify tokens without needing shared secrets.
+ */
+router.get('/jwks.json', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+  // CORS for cross-origin token verification
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
+  res.json(getJWKS());
+});
+
+/**
  * GET /.well-known/oauth-authorization-server
  * OAuth 2.0 Authorization Server Metadata (RFC 8414)
  *
@@ -166,6 +217,9 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
     // Device Authorization Grant (RFC 8628)
     device_authorization_endpoint: `${baseUrl}/api/agent/v1/oauth/device_authorization`,
 
+    // JWKS endpoint for token verification (RFC 7517)
+    jwks_uri: `${baseUrl}/.well-known/jwks.json`,
+
     // Optional but recommended
     introspection_endpoint: `${baseUrl}/api/agent/v1/oauth/introspect`,
     revocation_endpoint: `${baseUrl}/api/agent/v1/oauth/revoke`,
@@ -184,8 +238,8 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
     response_types_supported: ['code'],
     code_challenge_methods_supported: ['S256'],
 
-    // Token info
-    token_endpoint_auth_signing_alg_values_supported: ['HS256'],
+    // Token signing algorithms (RS256 for external verification via JWKS)
+    id_token_signing_alg_values_supported: ['RS256'],
 
     // Scopes (mapped from permissions)
     scopes_supported: ['browse', 'cart', 'purchase', 'history'],
