@@ -1239,7 +1239,117 @@ agentAccessRequestRouter.get('/:requestId/qr', async (req: Request, res: Respons
 
 export const mobileDeviceCodesRouter = Router();
 
-// Forward to the same claim handler (avoid code duplication)
+/**
+ * GET /api/mobile/device-codes/lookup
+ * Look up a device authorization code without claiming it
+ *
+ * Used by mwsim when handling Universal Links - the app receives just the code
+ * from the URL and needs to look up the access request details to display
+ * the approval screen.
+ *
+ * Query params:
+ *   - code: The device code (e.g., "WSIM-EF8LLS" or just "EF8LLS")
+ *
+ * Returns access request details if valid, error if expired/invalid.
+ * Does NOT claim the code - use POST /claim for that.
+ */
+mobileDeviceCodesRouter.get('/lookup', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { userId } = req;
+    const code = req.query.code as string | undefined;
+
+    if (!code) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'code query parameter is required',
+      });
+    }
+
+    // Normalize code: strip prefix, uppercase
+    const normalizedCode = code.toUpperCase().trim().replace(/^WSIM-/, '');
+    const fullCode = `WSIM-${normalizedCode}`;
+
+    // Find the pairing code
+    const pairingCode = await prisma.pairingCode.findUnique({
+      where: { code: fullCode },
+      include: { accessRequest: true },
+    });
+
+    if (!pairingCode) {
+      return res.status(404).json({
+        error: 'not_found',
+        message: 'Invalid code. Please check and try again.',
+      });
+    }
+
+    // Check if this is a device authorization code
+    // Allow if userId is null (unclaimed) or matches requesting user (pre-linked)
+    if (pairingCode.userId !== null && pairingCode.userId !== userId) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'This code is not available for this user',
+      });
+    }
+
+    if (pairingCode.status !== 'active') {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'This code has already been used',
+      });
+    }
+
+    if (pairingCode.expiresAt < new Date()) {
+      await prisma.pairingCode.update({
+        where: { id: pairingCode.id },
+        data: { status: 'expired' },
+      });
+      return res.status(400).json({
+        error: 'expired',
+        message: 'This code has expired',
+      });
+    }
+
+    const accessRequest = pairingCode.accessRequest;
+    if (!accessRequest || (accessRequest.status !== 'pending_claim' && accessRequest.status !== 'pending')) {
+      return res.status(400).json({
+        error: 'invalid_request',
+        message: 'No pending authorization for this code',
+      });
+    }
+
+    console.log(`[Device Auth] Code ${fullCode} looked up by user ${userId}`);
+
+    // Return access request details (without claiming)
+    return res.json({
+      access_request: {
+        id: accessRequest.id,
+        agent_name: accessRequest.agentName,
+        agent_description: accessRequest.agentDescription,
+        requested_permissions: accessRequest.requestedPermissions,
+        requested_limits: {
+          per_transaction: accessRequest.requestedPerTransaction.toString(),
+          daily: accessRequest.requestedDailyLimit.toString(),
+          monthly: accessRequest.requestedMonthlyLimit.toString(),
+          currency: accessRequest.requestedCurrency,
+        },
+        status: accessRequest.status,
+        expires_at: accessRequest.expiresAt.toISOString(),
+        time_remaining_seconds: Math.max(0, Math.floor((accessRequest.expiresAt.getTime() - Date.now()) / 1000)),
+      },
+    });
+  } catch (error) {
+    console.error('[Device Auth] Lookup error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      message: 'Failed to look up code',
+    });
+  }
+});
+
+/**
+ * POST /api/mobile/device-codes/claim
+ * Claim a device authorization code and link it to the user
+ */
 mobileDeviceCodesRouter.post('/claim', requireMobileAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { userId } = req;

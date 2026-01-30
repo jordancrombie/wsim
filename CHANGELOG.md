@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.17] - 2026-01-29
+
+### Added
+- **Device code lookup endpoint**: `GET /api/mobile/device-codes/lookup?code=WSIM-XXXXXX`
+  - Allows mwsim to look up device code details from Universal Link URLs
+  - Returns access request details without claiming the code
+  - Enables displaying the approval screen before user confirms
+  - Used when app opens from QR code scan (only has the code, needs to fetch details)
+
 ## [1.2.16] - 2026-01-29
 
 ### Added
