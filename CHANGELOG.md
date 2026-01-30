@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.15] - 2026-01-29
+
+### Added
+- **Apple Universal Links support**: Added `/.well-known/apple-app-site-association` for iOS deep linking:
+  - Enables mwsim iOS app to handle device authorization URLs directly
+  - When users scan QR codes, iOS opens mwsim instead of Safari (if app is installed)
+  - Configured for Team ID `ZJHD6JAC94` and Bundle ID `com.banksim.wsim`
+  - Also includes webcredentials for future password autofill support
+
 ## [1.2.14] - 2026-01-29
 
 ### Fixed

@@ -8,6 +8,7 @@
  * - GET /.well-known/agent-api - Agent API discovery document (SACP-specific)
  * - GET /.well-known/oauth-authorization-server - OAuth server metadata (RFC 8414)
  * - GET /.well-known/ai-plugin.json - ChatGPT/AI plugin manifest
+ * - GET /.well-known/apple-app-site-association - iOS Universal Links (mwsim app)
  * - GET /.well-known/mcp-server - Model Context Protocol tool discovery
  */
 
@@ -258,6 +259,43 @@ SCOPES: browse, cart, purchase, history`,
     logo_url: `${baseUrl}/logo.png`,
     contact_email: 'support@banksim.ca',
     legal_info_url: `${baseUrl}/terms`,
+  });
+});
+
+/**
+ * GET /.well-known/apple-app-site-association
+ * Apple Universal Links configuration
+ *
+ * Enables mwsim iOS app to handle device authorization URLs directly.
+ * When users scan a QR code with a device code URL, iOS opens the app instead of Safari.
+ *
+ * See: https://developer.apple.com/documentation/xcode/supporting-universal-links-in-your-app
+ */
+router.get('/apple-app-site-association', (req: Request, res: Response) => {
+  // Must be served as application/json (not application/pkcs7-mime)
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+
+  res.json({
+    applinks: {
+      // Empty apps array is required
+      apps: [],
+      details: [
+        {
+          // Format: <TEAM_ID>.<BUNDLE_ID>
+          appID: 'ZJHD6JAC94.com.banksim.wsim',
+          // Paths that should open in the app
+          paths: [
+            '/api/m/device',       // Device code entry (with or without ?code=)
+            '/api/m/device/*',     // Any subpaths
+          ],
+        },
+      ],
+    },
+    // Web credentials for password autofill (optional, for future use)
+    webcredentials: {
+      apps: ['ZJHD6JAC94.com.banksim.wsim'],
+    },
   });
 });
 
