@@ -266,8 +266,11 @@ SCOPES: browse, cart, purchase, history`,
  * GET /.well-known/apple-app-site-association
  * Apple Universal Links configuration
  *
- * Enables mwsim iOS app to handle device authorization URLs directly.
- * When users scan a QR code with a device code URL, iOS opens the app instead of Safari.
+ * Enables mwsim iOS app to handle WSIM URLs directly:
+ * - /pay/:requestId - Payment approval (QR code from SSIM/Regalmoose)
+ * - /api/m/device - Device authorization (QR code from ChatGPT/agents)
+ *
+ * When users scan these QR codes, iOS opens mwsim instead of Safari.
  *
  * See: https://developer.apple.com/documentation/xcode/supporting-universal-links-in-your-app
  */
@@ -286,8 +289,9 @@ router.get('/apple-app-site-association', (req: Request, res: Response) => {
           appID: 'ZJHD6JAC94.com.banksim.wsim',
           // Paths that should open in the app
           paths: [
+            '/pay/*',              // Payment approval (SSIM/Regalmoose QR codes)
             '/api/m/device',       // Device code entry (with or without ?code=)
-            '/api/m/device/*',     // Any subpaths
+            '/api/m/device/*',     // Device auth subpaths
           ],
         },
       ],

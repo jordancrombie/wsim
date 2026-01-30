@@ -2,6 +2,14 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.16] - 2026-01-29
+
+### Added
+- **Payment Universal Links**: Extended apple-app-site-association to include `/pay/*` paths:
+  - Enables mwsim to handle SSIM/Regalmoose payment QR codes directly
+  - When users scan payment QR codes, iOS opens mwsim instead of the web landing page
+  - mwsim can call `GET /api/mobile/payment/:requestId` to get payment details
+
 ## [1.2.15] - 2026-01-29
 
 ### Added
