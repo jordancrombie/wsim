@@ -893,23 +893,104 @@ function renderErrorPage(message: string): string {
  * Supports optimized QR flow when both `code` and `t` (token) params are provided.
  * Token format: base64url(email).hmac_sha256(email:code, INTERNAL_API_SECRET)
  * When valid, skips manual code entry and email login - sends push directly.
+ *
+ * Also auto-processes code when provided in URL (skips manual submit).
  */
 router.get('/', async (req: Request, res: Response) => {
   const code = req.query.code as string | undefined;
   const token = req.query.t as string | undefined;
 
-  // If no token provided, show normal code entry page
-  if (!token || !code) {
-    return res.send(renderDeviceCodeEntryPage(code));
+  // If no code provided, show empty code entry page
+  if (!code) {
+    return res.send(renderDeviceCodeEntryPage());
   }
 
-  // Optimized flow: verify token and auto-authenticate
-  try {
-    // Normalize the code
-    let normalizedCode = code.toUpperCase().trim();
-    if (!normalizedCode.startsWith('WSIM-')) {
-      normalizedCode = `WSIM-${normalizedCode}`;
+  // Auto-process code (skip manual submit step)
+  // Normalize the code first
+  let normalizedCode = code.toUpperCase().trim();
+  if (!normalizedCode.startsWith('WSIM-')) {
+    normalizedCode = `WSIM-${normalizedCode}`;
+  }
+
+  // If no token, auto-process the code (no user identity known)
+  if (!token) {
+    try {
+      // Find and validate the pairing code
+      const pairingCode = await prisma.pairingCode.findUnique({
+        where: { code: normalizedCode },
+        include: { accessRequest: true },
+      });
+
+      if (!pairingCode) {
+        return res.send(renderDeviceCodeEntryPage(code, 'Invalid code. Please check and try again.'));
+      }
+
+      if (pairingCode.status !== 'active') {
+        return res.send(renderDeviceCodeEntryPage(code, 'This code has already been used.'));
+      }
+
+      if (pairingCode.expiresAt < new Date()) {
+        await prisma.pairingCode.update({
+          where: { id: pairingCode.id },
+          data: { status: 'expired' },
+        });
+        return res.send(renderDeviceCodeEntryPage(code, 'This code has expired.'));
+      }
+
+      const accessRequest = pairingCode.accessRequest;
+      if (!accessRequest || (accessRequest.status !== 'pending_claim' && accessRequest.status !== 'pending')) {
+        return res.send(renderDeviceCodeEntryPage(code, 'No pending authorization for this code.'));
+      }
+
+      // Store in session for later
+      req.session.deviceAuthCode = normalizedCode;
+      req.session.deviceAuthRequestId = accessRequest.id;
+
+      // Check if user is logged in
+      const userId = (req.session as { userId?: string }).userId;
+
+      if (userId) {
+        // User is logged in - claim code and show approval page
+        if (accessRequest.status === 'pending_claim') {
+          await prisma.$transaction(async (tx) => {
+            await tx.pairingCode.update({
+              where: { id: pairingCode.id },
+              data: { userId },
+            });
+            await tx.accessRequest.update({
+              where: { id: accessRequest.id },
+              data: { status: 'pending' },
+            });
+          });
+        }
+
+        return res.send(renderApprovalPage(
+          accessRequest.id,
+          accessRequest.agentName,
+          accessRequest.agentDescription,
+          accessRequest.requestedPermissions,
+          {
+            perTransaction: accessRequest.requestedPerTransaction.toString(),
+            daily: accessRequest.requestedDailyLimit.toString(),
+            monthly: accessRequest.requestedMonthlyLimit.toString(),
+            currency: accessRequest.requestedCurrency,
+          },
+          accessRequest.expiresAt
+        ));
+      }
+
+      // User not logged in - show login page
+      console.log(`[Device Auth Web] Auto-processed code ${normalizedCode}, showing login page`);
+      return res.send(renderLoginPage(accessRequest.agentName, accessRequest.id));
+    } catch (error) {
+      console.error('[Device Auth Web] Auto-process code error:', error);
+      return res.send(renderDeviceCodeEntryPage(code, 'Something went wrong. Please try again.'));
     }
+  }
+
+  // Optimized flow with token: verify token and auto-authenticate
+  try {
+    // Note: normalizedCode is already set above
 
     // Verify the token
     const email = verifyDeviceAuthToken(token, normalizedCode);

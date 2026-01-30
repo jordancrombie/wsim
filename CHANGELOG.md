@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.14] - 2026-01-29
+
+### Fixed
+- **Auto-process device code from URL**: When visiting `/api/m/device?code=WSIM-xxx`, the code is now automatically validated:
+  - No longer requires user to click "Continue" button when code is in URL
+  - Validates code immediately and shows login or approval page
+  - If user is already logged in, goes directly to approval page
+  - Only shows empty code entry form when no code is provided
+
 ## [1.2.13] - 2026-01-27
 
 ### Fixed
