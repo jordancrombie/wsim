@@ -2,6 +2,14 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.19] - 2026-01-31
+
+### Fixed
+- **ChatGPT Apps SDK OAuth redirect URIs**: Added correct redirect URIs for ChatGPT Apps SDK integration:
+  - `https://chatgpt.com/connector_platform_oauth_redirect`
+  - `https://platform.openai.com/apps-manage/oauth`
+  - These are the URIs used by the current Apps SDK OAuth flow (previously had only legacy callback patterns)
+
 ## [1.2.18] - 2026-01-30
 
 ### Added

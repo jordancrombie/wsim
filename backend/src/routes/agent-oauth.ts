@@ -281,7 +281,10 @@ const KNOWN_OAUTH_CLIENTS: Record<string, OAuthClientConfig> = {
     name: 'ChatGPT (MCP)',
     type: 'public',  // MCP uses PKCE, no client_secret needed
     allowedRedirectUris: [
-      // OpenAI's OAuth callback endpoints
+      // OpenAI Apps SDK OAuth redirect URIs (current)
+      'https://chatgpt.com/connector_platform_oauth_redirect',
+      'https://platform.openai.com/apps-manage/oauth',
+      // Legacy/alternative OAuth callback endpoints
       'https://chat.openai.com/oauth/callback',
       'https://chatgpt.com/oauth/callback',
       'https://platform.openai.com/oauth/callback',
