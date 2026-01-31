@@ -69,10 +69,35 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
       spending_limits,
       response_type,
       buyer_email, // Optional: if provided, send push notification to user
+      // Payment-Bootstrapped OAuth fields (NEW)
+      request_type, // 'first_purchase' | 'step_up' | 'permission_only'
+      existing_agent_id, // For step_up: the agent that already has delegation
+      payment_context, // { amount, currency, item_description, merchant_name, merchant_id }
+      exceeded_limit, // For step_up: { type, limit, requested, currency }
     } = req.body;
 
     // Validate response_type if provided (default to 'credentials')
     const responseType = response_type === 'token' ? 'token' : 'credentials';
+
+    // Validate request_type (default to 'permission_only' for backward compatibility)
+    const validRequestTypes = ['first_purchase', 'step_up', 'permission_only'];
+    const requestType = validRequestTypes.includes(request_type) ? request_type : 'permission_only';
+
+    // For step_up requests, validate that we have the required fields
+    if (requestType === 'step_up') {
+      if (!existing_agent_id) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'existing_agent_id is required for step_up requests',
+        });
+      }
+      if (!exceeded_limit || !exceeded_limit.type) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'exceeded_limit with type is required for step_up requests',
+        });
+      }
+    }
 
     // agent_name is required for device authorization
     if (!agent_name) {
@@ -157,6 +182,12 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
           expiresAt,
           // Mark as 'pending_claim' until a user claims it
           status: 'pending_claim',
+          // Payment-Bootstrapped OAuth fields
+          requestType,
+          paymentContext: payment_context || null,
+          exceededLimit: exceeded_limit || null,
+          // showDelegationOption will be determined after user is identified
+          showDelegationOption: requestType !== 'step_up', // No delegation option for step-up
         },
       });
 
@@ -178,6 +209,24 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
         });
 
         if (user) {
+          // Check if user has declined delegation 3+ times for this merchant
+          let showDelegation = requestType !== 'step_up'; // Never show for step-up
+          if (showDelegation && payment_context?.merchant_id) {
+            const preference = await prisma.agentDelegationPreference.findUnique({
+              where: {
+                userId_agentClientId_merchantId: {
+                  userId: user.id,
+                  agentClientId: 'chatgpt-mcp', // TODO: make this dynamic based on client_id
+                  merchantId: payment_context.merchant_id,
+                },
+              },
+            });
+            if (preference && preference.declineCount >= 3) {
+              showDelegation = false;
+              console.log(`[Device Auth] Suppressing delegation option for user ${user.id} (${preference.declineCount} declines)`);
+            }
+          }
+
           // Pre-link the pairing code to this user and update status
           await prisma.$transaction(async (tx) => {
             await tx.pairingCode.update({
@@ -186,17 +235,41 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
             });
             await tx.accessRequest.update({
               where: { id: result.accessRequest.id },
-              data: { status: 'pending' }, // Skip 'pending_claim' since we know the user
+              data: {
+                status: 'pending', // Skip 'pending_claim' since we know the user
+                showDelegationOption: showDelegation,
+              },
             });
           });
+
+          // Build notification content based on request type
+          let notifTitle: string;
+          let notifBody: string;
+          const paymentAmount = payment_context?.amount || perTransaction.toString();
+          const paymentCurrency = payment_context?.currency || currency;
+          const itemDescription = payment_context?.item_description;
+
+          if (requestType === 'step_up' && exceeded_limit) {
+            // Step-up: emphasize that this exceeds their limit
+            notifTitle = `${agent_name} wants to charge ${paymentCurrency} ${paymentAmount}`;
+            notifBody = `Exceeds your ${paymentCurrency} ${exceeded_limit.limit} ${exceeded_limit.type.replace('_', ' ')} limit`;
+          } else if (requestType === 'first_purchase' && itemDescription) {
+            // First purchase with item context
+            notifTitle = `${agent_name} wants to charge ${paymentCurrency} ${paymentAmount}`;
+            notifBody = `for: ${itemDescription}`;
+          } else {
+            // Default/permission_only or first_purchase without item
+            notifTitle = `${agent_name} wants to pay`;
+            notifBody = `Tap to authorize ${paymentCurrency} ${paymentAmount} payment`;
+          }
 
           // Send push notification
           await sendNotificationToUser(
             user.id,
             'agent.access_request',
             {
-              title: `${agent_name} wants to pay`,
-              body: `Tap to authorize ${currency} ${perTransaction.toFixed(2)} payment`,
+              title: notifTitle,
+              body: notifBody,
               data: {
                 type: 'device_authorization.payment',
                 screen: 'DeviceAuthApproval',
@@ -204,8 +277,12 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
                 access_request_id: result.accessRequest.id,
                 user_code: userCode,
                 agent_name,
-                amount: perTransaction.toString(),
-                currency,
+                amount: paymentAmount,
+                currency: paymentCurrency,
+                // Payment-Bootstrapped OAuth: include request_type for mwsim routing
+                request_type: requestType,
+                ...(payment_context && { payment_context }),
+                ...(exceeded_limit && { exceeded_limit }),
               },
             },
             result.accessRequest.id
@@ -1648,11 +1725,15 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
         console.log(`[Device Auth] Access token issued for agent ${accessRequest.agent.clientId} (guest checkout)`);
 
         // Return RFC 8628 Section 3.5 compliant response
+        // Extended with Payment-Bootstrapped OAuth delegation fields
         return res.json({
           access_token: accessToken,
           token_type: 'Bearer',
           expires_in: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
           scope,
+          // Payment-Bootstrapped OAuth: delegation status
+          delegation_granted: accessRequest.delegationGranted,
+          delegation_pending: accessRequest.delegationPending,
         });
       }
 
@@ -1670,6 +1751,7 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
       console.log(`[Device Auth] Credentials issued for agent ${accessRequest.agent.clientId}`);
 
       // Return credentials (device code flow returns credentials, not tokens directly)
+      // Extended with Payment-Bootstrapped OAuth delegation fields
       return res.json({
         client_id: accessRequest.agent.clientId,
         client_secret: clientSecret,
@@ -1681,6 +1763,9 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
           monthly: (accessRequest.grantedMonthlyLimit || accessRequest.requestedMonthlyLimit).toString(),
           currency: accessRequest.requestedCurrency,
         },
+        // Payment-Bootstrapped OAuth: delegation status
+        delegation_granted: accessRequest.delegationGranted,
+        delegation_pending: accessRequest.delegationPending,
       });
 
     default:

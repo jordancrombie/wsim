@@ -2,6 +2,26 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.21] - 2026-01-31
+
+### Added
+- **Payment-Bootstrapped OAuth backend support**: Core API changes for the new delegation model where OAuth is earned at first purchase
+  - New `AccessRequest` fields: `requestType`, `paymentContext`, `exceededLimit`, `showDelegationOption`, `delegationGranted`, `delegationPending`, `delegationPerTransaction`, `delegationDailyLimit`
+  - New `AgentDelegationPreference` model for tracking delegation declines per user+agent+merchant
+  - `/device_authorization` accepts new parameters: `request_type` (`first_purchase`, `step_up`, `permission_only`), `payment_context`, `exceeded_limit`
+  - Poll response returns `delegation_granted` and `delegation_pending` for MCP to trigger OAuth challenge
+  - Mobile approve endpoint accepts `grant_delegation` and `delegation_limits`
+  - Web approve endpoint accepts delegation fields
+- **Contextual push notifications**: Notification content varies by request type:
+  - First purchase: "wants to charge $X for Y"
+  - Step-up: "wants to charge $X (exceeds your $Y limit)"
+  - Permission-only: "Tap to authorize $X payment"
+- **Delegation decline tracking**: Suppress delegation option after 3 consecutive declines for same user+merchant combination
+
+### Changed
+- Step-up requests (`request_type: 'step_up'`) never show delegation option (user already has delegation)
+- Delegation decline count resets when user grants delegation
+
 ## [1.2.20] - 2026-01-31
 
 ### Fixed

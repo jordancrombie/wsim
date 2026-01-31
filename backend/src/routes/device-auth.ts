@@ -1521,6 +1521,10 @@ router.post('/approve', async (req: Request, res: Response) => {
   try {
     const userId = (req.session as { userId?: string }).userId;
     const requestId = req.body.request_id || req.session.deviceAuthRequestId;
+    // Payment-Bootstrapped OAuth fields (from form or JSON)
+    const grantDelegation = req.body.grant_delegation === 'true' || req.body.grant_delegation === true;
+    const delegationPerTxn = req.body.delegation_per_transaction;
+    const delegationDaily = req.body.delegation_daily;
 
     if (!userId) {
       return res.redirect('/api/m/device');
@@ -1556,6 +1560,19 @@ router.post('/approve', async (req: Request, res: Response) => {
       return res.send(renderErrorPage('This request has expired'));
     }
 
+    // Handle delegation for Payment-Bootstrapped OAuth
+    let delegationGranted = false;
+    let delegationPending = false;
+    let delegationPerTransaction: Decimal | null = null;
+    let delegationDailyLimit: Decimal | null = null;
+
+    if (accessRequest.requestType === 'first_purchase' && grantDelegation) {
+      delegationGranted = true;
+      delegationPending = true;
+      delegationPerTransaction = delegationPerTxn ? new Decimal(delegationPerTxn) : new Decimal('25.00');
+      delegationDailyLimit = delegationDaily ? new Decimal(delegationDaily) : new Decimal('100.00');
+    }
+
     // Generate credentials
     const clientId = generateAgentClientId();
     const clientSecret = generateAgentClientSecret();
@@ -1588,6 +1605,11 @@ router.post('/approve', async (req: Request, res: Response) => {
           grantedMonthlyLimit: accessRequest.requestedMonthlyLimit,
           agentId: agent.id,
           resolvedAt: new Date(),
+          // Payment-Bootstrapped OAuth delegation fields
+          delegationGranted,
+          delegationPending,
+          delegationPerTransaction,
+          delegationDailyLimit,
         },
       });
 

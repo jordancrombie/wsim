@@ -48,6 +48,7 @@ model WalletUser {
   agents                Agent[]
   pairingCodes          PairingCode[]
   oauthAuthorizationCodes OAuthAuthorizationCode[]
+  delegationPreferences AgentDelegationPreference[]
 }
 
 // =============================================================================
@@ -802,6 +803,23 @@ model AccessRequest {
   // "token" = return access_token directly (guest checkout, one-time use)
   responseType    String   @default("credentials") // "credentials", "token"
 
+  // Request type (Payment-Bootstrapped OAuth)
+  // "first_purchase" = payment approval with optional delegation
+  // "step_up" = over-limit purchase requiring one-time approval
+  // "permission_only" = traditional permission grant (no payment context)
+  requestType     String   @default("permission_only") // "first_purchase", "step_up", "permission_only"
+
+  // Payment context (for first_purchase and step_up flows)
+  // JSON: { amount, currency, item_description, merchant_name, merchant_id }
+  paymentContext  Json?
+
+  // Exceeded limit info (for step_up flows)
+  // JSON: { type: "per_transaction"|"daily"|"monthly", limit, requested, currency }
+  exceededLimit   Json?
+
+  // Whether to show the delegation option (false after 3 declines)
+  showDelegationOption Boolean @default(true)
+
   // Status
   status          String   @default("pending") // "pending", "approved", "rejected", "expired"
 
@@ -810,6 +828,15 @@ model AccessRequest {
   grantedPerTransaction   Decimal? @db.Decimal(15, 2)
   grantedDailyLimit       Decimal? @db.Decimal(15, 2)
   grantedMonthlyLimit     Decimal? @db.Decimal(15, 2)
+
+  // Delegation (Payment-Bootstrapped OAuth)
+  // Whether user opted in to ongoing delegation during first_purchase approval
+  delegationGranted       Boolean  @default(false)
+  // Whether OAuth linking is still pending (user granted but hasn't completed OAuth flow)
+  delegationPending       Boolean  @default(false)
+  // User-specified delegation limits (may differ from requested)
+  delegationPerTransaction Decimal? @db.Decimal(15, 2)
+  delegationDailyLimit     Decimal? @db.Decimal(15, 2)
 
   // Result
   rejectionReason String?
@@ -825,4 +852,37 @@ model AccessRequest {
 
   @@index([status, expiresAt])
   @@map("access_requests")
+}
+
+// Tracks delegation preferences per user+agent+merchant combination
+// Used to suppress delegation prompts after repeated declines
+model AgentDelegationPreference {
+  id              String   @id @default(cuid())
+
+  // User who declined delegation
+  userId          String
+  user            WalletUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Agent client ID (e.g., "chatgpt-mcp")
+  agentClientId   String
+
+  // Merchant identifier (from payment_context.merchant_id)
+  merchantId      String
+
+  // Number of times user declined delegation for this combination
+  declineCount    Int      @default(0)
+
+  // Last time delegation was declined
+  lastDeclinedAt  DateTime?
+
+  // If set, don't show delegation option until this time (optional)
+  suppressUntil   DateTime?
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, agentClientId, merchantId])
+  @@index([userId])
+  @@map("agent_delegation_preferences")
 }
