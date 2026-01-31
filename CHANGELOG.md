@@ -2,6 +2,43 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.20] - 2026-01-31
+
+### Fixed
+- **CORS headers on OAuth discovery endpoints**: Added `Access-Control-Allow-Origin: *` to:
+  - `/.well-known/oauth-protected-resource`
+  - `/.well-known/oauth-authorization-server`
+  - ChatGPT was failing silently on cross-origin fetch of these endpoints, causing the "Connected" loop without actually initiating OAuth
+
+## [1.2.19] - 2026-01-31
+
+### Fixed
+- **ChatGPT Apps SDK OAuth redirect URIs**: Added correct redirect URIs for ChatGPT Apps SDK integration:
+  - `https://chatgpt.com/connector_platform_oauth_redirect`
+  - `https://platform.openai.com/apps-manage/oauth`
+  - These are the URIs used by the current Apps SDK OAuth flow (previously had only legacy callback patterns)
+
+## [1.2.18] - 2026-01-30
+
+### Added
+- **ChatGPT MCP OAuth foundation**: OAuth 2.0 infrastructure for MCP-based AI tool integration
+  - `GET /.well-known/oauth-protected-resource` (RFC 9728) - Protected resource metadata for MCP clients
+  - `GET /.well-known/jwks.json` (RFC 7517) - JSON Web Key Set for external token verification
+  - Updated `/.well-known/oauth-authorization-server` to include `jwks_uri`
+  - Registered `chatgpt-mcp` OAuth client for ChatGPT MCP server integration
+- **RS256 JWT signing**: Access tokens now signed with RS256 (asymmetric) instead of HS256
+  - Enables external services (MCP Gateway) to verify tokens without shared secrets
+  - JWKS endpoint exposes public key for verification
+  - Backwards-compatible: verifies both RS256 and HS256 (legacy) tokens
+- **Audience claim**: Tokens issued via OAuth Authorization Code flow include `aud` claim
+  - Set to the OAuth client_id (e.g., `chatgpt-mcp`)
+  - Allows clients to verify tokens are intended for them
+
+### Changed
+- JWT key management: Added `jwt-keys.ts` service for RSA key pair management
+  - Development: Auto-generates ephemeral keys (with warning)
+  - Production: Configure via `AGENT_JWT_RSA_PRIVATE_KEY_PEM` and `AGENT_JWT_RSA_PUBLIC_KEY_PEM` env vars
+
 ## [1.2.17] - 2026-01-29
 
 ### Added

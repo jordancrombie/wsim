@@ -274,6 +274,25 @@ const KNOWN_OAUTH_CLIENTS: Record<string, OAuthClientConfig> = {
       'https://chatgpt.com/aip/*/oauth/callback',
     ],
   },
+  // ChatGPT MCP - OAuth for Model Context Protocol tools
+  // ChatGPT hosts the OAuth popup, WSIM is the auth server
+  // Uses PKCE for security (MCP pattern)
+  'chatgpt-mcp': {
+    name: 'ChatGPT (MCP)',
+    type: 'public',  // MCP uses PKCE, no client_secret needed
+    allowedRedirectUris: [
+      // OpenAI Apps SDK OAuth redirect URIs (current)
+      'https://chatgpt.com/connector_platform_oauth_redirect',
+      'https://platform.openai.com/apps-manage/oauth',
+      // Legacy/alternative OAuth callback endpoints
+      'https://chat.openai.com/oauth/callback',
+      'https://chatgpt.com/oauth/callback',
+      'https://platform.openai.com/oauth/callback',
+      // MCP-specific callback patterns
+      'https://chatgpt.com/mcp/*/oauth/callback',
+      'https://chat.openai.com/mcp/*/oauth/callback',
+    ],
+  },
   'claude-mcp': {
     name: 'Claude (MCP)',
     type: 'public',  // MCP uses PKCE
@@ -1520,8 +1539,13 @@ async function handleAuthorizationCodeGrant(
     console.log(`[OAuth Token] Created agent ${agentClientId} for OAuth client ${clientId}`);
   }
 
-  // Generate access token
-  const { token, tokenHash, expiresAt } = generateAgentAccessToken(agent, authRequest.scope || undefined);
+  // Generate access token with audience set to the OAuth client_id
+  // This allows the MCP Gateway (or other clients) to verify the token is intended for them
+  const { token, tokenHash, expiresAt } = generateAgentAccessToken(
+    agent,
+    authRequest.scope || undefined,
+    clientId  // audience - e.g., 'chatgpt-mcp'
+  );
 
   // Store token record
   await storeAgentAccessToken(agent.id, tokenHash, expiresAt, authRequest.scope || undefined);
