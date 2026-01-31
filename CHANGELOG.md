@@ -2,6 +2,14 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.20] - 2026-01-31
+
+### Fixed
+- **CORS headers on OAuth discovery endpoints**: Added `Access-Control-Allow-Origin: *` to:
+  - `/.well-known/oauth-protected-resource`
+  - `/.well-known/oauth-authorization-server`
+  - ChatGPT was failing silently on cross-origin fetch of these endpoints, causing the "Connected" loop without actually initiating OAuth
+
 ## [1.2.19] - 2026-01-31
 
 ### Fixed

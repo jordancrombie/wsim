@@ -159,6 +159,9 @@ router.get('/oauth-protected-resource', (req: Request, res: Response) => {
 
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+  // CORS for cross-origin OAuth discovery (ChatGPT, etc.)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
   res.json({
     // The protected resource identifier (RFC 9728 Section 2)
@@ -207,6 +210,9 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
 
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+  // CORS for cross-origin OAuth discovery (ChatGPT, etc.)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
   res.json({
     // Required fields (RFC 8414)
