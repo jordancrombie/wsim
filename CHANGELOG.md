@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.23] - 2026-02-01
+
+### Changed
+- **Hide registration_endpoint from OAuth metadata**: Removed `registration_endpoint` from `/.well-known/oauth-authorization-server`
+  - The RFC 7591 `/register` endpoint still exists but is no longer advertised in discovery
+  - ChatGPT auto-discovers `registration_endpoint` and demands OAuth at connector setup time
+  - This breaks Payment-Bootstrapped OAuth model where OAuth should only trigger at first purchase
+  - Pre-registered clients (like `chatgpt-mcp`) still work; dynamic registration is available but not advertised
+
 ## [1.2.22] - 2026-02-01
 
 ### Added
