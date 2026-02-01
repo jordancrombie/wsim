@@ -2,6 +2,16 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.27] - 2026-02-01
+
+### Fixed
+- **Require per-request authentication for known user flow**: Security fix for device auth web flow
+  - Previously, if a user had an existing session from a prior login, they could approve new device auth requests without re-authenticating
+  - Now for the known user flow (when `buyer_email` is provided to `/device_authorization`), authentication is ALWAYS required for EACH request
+  - Tracks `deviceAuthAuthenticatedForRequestId` in session to ensure user authenticates via passkey/password/push for this specific request
+  - Reordered checks: `pairingCode.userId` is now checked BEFORE `req.session.userId` to prevent session bypass
+  - This ensures users verify their identity for every payment authorization, even if they have an existing web session
+
 ## [1.2.26] - 2026-02-01
 
 ### Fixed
