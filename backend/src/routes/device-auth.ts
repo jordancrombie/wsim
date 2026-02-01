@@ -979,7 +979,57 @@ router.get('/', async (req: Request, res: Response) => {
         ));
       }
 
-      // User not logged in - show login page
+      // Check if pairing code already has a user linked (from buyer_email in /device_authorization)
+      // If so, we already know who this is and have sent a push - show waiting page with auth options
+      if (pairingCode.userId) {
+        const knownUser = await prisma.walletUser.findUnique({
+          where: { id: pairingCode.userId },
+        });
+
+        if (knownUser) {
+          console.log(`[Device Auth Web] Code ${normalizedCode} already linked to user ${knownUser.id.substring(0, 8)}... (via buyer_email)`);
+
+          // Store known user ID for fallback auth
+          req.session.deviceAuthUserId = knownUser.id;
+
+          // Create a login request for tracking passkey/password authentication
+          const { nanoid } = await import('nanoid');
+          const loginId = nanoid(16);
+
+          await prisma.oAuthAuthorizationCode.create({
+            data: {
+              id: loginId,
+              clientId: 'device-auth-web',
+              userId: knownUser.id,
+              redirectUri: `${env.APP_URL}/api/m/device/approve`,
+              codeChallenge: null,
+              codeChallengeMethod: null,
+              scope: 'device-auth',
+              status: 'pending_approval',
+              expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
+            },
+          });
+
+          req.session.loginRequestId = loginId;
+
+          // Check if user has passkeys for fallback auth options
+          const passkeyCount = await prisma.passkeyCredential.count({
+            where: { userId: knownUser.id },
+          });
+
+          // Show waiting page with passkey/password options
+          // DO NOT send another push - /device_authorization already sent one
+          const nonce = generateNonce();
+          setCSPHeader(res, nonce);
+          return res.send(renderWaitingPage(loginId, {
+            email: knownUser.email,
+            hasPasskey: passkeyCount > 0,
+            nonce,
+          }));
+        }
+      }
+
+      // User not logged in and no pre-linked user - show login page to collect email
       console.log(`[Device Auth Web] Auto-processed code ${normalizedCode}, showing login page`);
       return res.send(renderLoginPage(accessRequest.agentName, accessRequest.id));
     } catch (error) {
@@ -1194,7 +1244,57 @@ router.post('/lookup', async (req: Request, res: Response) => {
       ));
     }
 
-    // User not logged in - show login page
+    // Check if pairing code already has a user linked (from buyer_email in /device_authorization)
+    // If so, we already know who this is and have sent a push - show waiting page with auth options
+    if (pairingCode.userId) {
+      const knownUser = await prisma.walletUser.findUnique({
+        where: { id: pairingCode.userId },
+      });
+
+      if (knownUser) {
+        console.log(`[Device Auth Web] Code ${code} already linked to user ${knownUser.id.substring(0, 8)}... (via buyer_email)`);
+
+        // Store session data for approval flow
+        req.session.deviceAuthUserId = knownUser.id;
+
+        // Create a login request for tracking passkey/password authentication
+        const { nanoid } = await import('nanoid');
+        const loginId = nanoid(16);
+
+        await prisma.oAuthAuthorizationCode.create({
+          data: {
+            id: loginId,
+            clientId: 'device-auth-web',
+            userId: knownUser.id,
+            redirectUri: `${env.APP_URL}/api/m/device/approve`,
+            codeChallenge: null,
+            codeChallengeMethod: null,
+            scope: 'device-auth',
+            status: 'pending_approval',
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
+          },
+        });
+
+        req.session.loginRequestId = loginId;
+
+        // Check if user has passkeys for fallback auth options
+        const passkeyCount = await prisma.passkeyCredential.count({
+          where: { userId: knownUser.id },
+        });
+
+        // Show waiting page with passkey/password options
+        // DO NOT send another push - /device_authorization already sent one
+        const nonce = generateNonce();
+        setCSPHeader(res, nonce);
+        return res.send(renderWaitingPage(loginId, {
+          email: knownUser.email,
+          hasPasskey: passkeyCount > 0,
+          nonce,
+        }));
+      }
+    }
+
+    // User not logged in and no pre-linked user - show login page to collect email
     return res.send(renderLoginPage(accessRequest.agentName, accessRequest.id));
   } catch (error) {
     console.error('[Device Auth Web] Lookup error:', error);

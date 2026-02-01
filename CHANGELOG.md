@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.26] - 2026-02-01
+
+### Fixed
+- **Skip email prompt in device auth web flow when user is already known**: When `/device_authorization` is called with `buyer_email`, we already know the user and send them a push notification
+  - Previously, if the user clicked the device auth link instead of approving via push, they were asked for their email again
+  - Now the web flow detects that `pairingCode.userId` is already set and shows the waiting page with passkey/password fallback options directly
+  - No duplicate push notification is sent since `/device_authorization` already sent one
+  - This provides a smoother experience for known users: click link → authenticate (passkey/password) → approve
+
 ## [1.2.25] - 2026-02-01
 
 ### Fixed
