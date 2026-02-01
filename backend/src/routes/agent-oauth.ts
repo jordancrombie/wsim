@@ -31,6 +31,7 @@ import {
   generateAgentClientId,
   generateAgentClientSecret,
   hashClientSecret,
+  verifyClientSecret as verifyClientSecretBcrypt,
 } from '../services/agent-auth';
 import { getSpendingUsage } from '../services/spending-limits';
 import { dispatchTokenRevoked } from '../services/webhook-dispatch';
@@ -432,25 +433,6 @@ function verifyClientSecret(clientId: string, clientSecret: string): boolean {
 }
 
 /**
- * Validate redirect URI against allowed patterns
- * Supports wildcards for dynamic segments (e.g., localhost:*, plugin IDs)
- * Wildcard matches alphanumeric characters, hyphens, and underscores
- */
-function isValidRedirectUri(clientId: string, redirectUri: string): boolean {
-  const client = KNOWN_OAUTH_CLIENTS[clientId];
-  if (!client) return false;
-
-  return client.allowedRedirectUris.some(pattern => {
-    if (pattern.includes('*')) {
-      // Convert wildcard pattern to regex - match alphanumeric, hyphens, underscores
-      const regex = new RegExp('^' + pattern.replace(/\*/g, '[\\w-]+') + '$');
-      return regex.test(redirectUri);
-    }
-    return pattern === redirectUri;
-  });
-}
-
-/**
  * Generate authorization code (URL-safe random string)
  */
 function generateAuthorizationCode(): string {
@@ -471,11 +453,74 @@ function verifyPkceChallenge(codeVerifier: string, codeChallenge: string, method
 }
 
 /**
+ * Resolved client info - either from hardcoded list or database
+ */
+interface ResolvedClient {
+  name: string;
+  type: 'confidential' | 'public';
+  allowedRedirectUris: string[];
+  isDynamic: boolean; // true if from database (DCR)
+}
+
+/**
+ * Look up a client by ID, checking both hardcoded clients and database
+ * Dynamically registered clients (dyn_*) are stored in the OAuthClient table
+ */
+async function resolveClient(clientId: string): Promise<ResolvedClient | null> {
+  // First check hardcoded clients
+  const knownClient = KNOWN_OAUTH_CLIENTS[clientId];
+  if (knownClient) {
+    return {
+      name: knownClient.name,
+      type: knownClient.type,
+      allowedRedirectUris: knownClient.allowedRedirectUris,
+      isDynamic: false,
+    };
+  }
+
+  // Check database for dynamically registered clients
+  const dbClient = await prisma.oAuthClient.findUnique({
+    where: { clientId },
+  });
+
+  if (dbClient) {
+    return {
+      name: dbClient.clientName,
+      // Dynamic clients are treated as confidential (they have a client_secret from DCR)
+      // But they can also use PKCE - we'll check which auth method they use at token exchange
+      type: 'confidential',
+      allowedRedirectUris: dbClient.redirectUris,
+      isDynamic: true,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Validate redirect URI against a resolved client's allowed URIs
+ */
+function isValidRedirectUriForClient(client: ResolvedClient, redirectUri: string): boolean {
+  return client.allowedRedirectUris.some(pattern => {
+    if (pattern.includes('*')) {
+      // Convert wildcard pattern to regex - match alphanumeric, hyphens, underscores
+      const regex = new RegExp('^' + pattern.replace(/\*/g, '[\\w-]+') + '$');
+      return regex.test(redirectUri);
+    }
+    return pattern === redirectUri;
+  });
+}
+
+/**
  * GET /api/agent/v1/oauth/authorize
  * OAuth 2.0 Authorization endpoint (RFC 6749)
  *
  * Browser-based authorization for AI platforms like ChatGPT Connectors.
  * Renders a page asking user to enter their email, then sends push notification.
+ *
+ * Supports both:
+ * - Hardcoded clients (chatgpt, chatgpt-mcp, claude-mcp, etc.)
+ * - Dynamically registered clients (dyn_* from /register endpoint)
  */
 router.get('/authorize', async (req: Request, res: Response) => {
   try {
@@ -511,8 +556,8 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // Check if client is known
-    const client = KNOWN_OAUTH_CLIENTS[client_id];
+    // Check if client is known (hardcoded or dynamically registered)
+    const client = await resolveClient(client_id);
     if (!client) {
       return res.status(400).send(renderErrorPage(
         'Unknown Client',
@@ -531,8 +576,10 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // Validate redirect URI
-    if (!isValidRedirectUri(client_id, redirect_uri)) {
+    // Validate redirect URI against client's allowed URIs
+    if (!isValidRedirectUriForClient(client, redirect_uri)) {
+      console.log(`[OAuth Authorize] Invalid redirect_uri: ${redirect_uri} for client ${client_id}`);
+      console.log(`[OAuth Authorize] Allowed URIs: ${JSON.stringify(client.allowedRedirectUris)}`);
       return res.status(400).send(renderErrorPage(
         'Invalid Redirect URI',
         'The redirect_uri is not registered for this client',
@@ -541,11 +588,13 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // PKCE validation: required for public clients, optional for confidential clients
+    // PKCE validation
+    // - Required for hardcoded public clients (they can't securely store client_secret)
+    // - Optional for confidential and dynamic clients (they have client_secret but can also use PKCE)
     const hasPkce = code_challenge && code_challenge_method === 'S256';
 
-    if (client.type === 'public' && !hasPkce) {
-      // Public clients MUST use PKCE (they can't securely store client_secret)
+    if (!client.isDynamic && client.type === 'public' && !hasPkce) {
+      // Hardcoded public clients MUST use PKCE
       return res.status(400).send(renderErrorPage(
         'PKCE Required',
         'code_challenge with method S256 is required for this client type',
@@ -554,8 +603,8 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // For confidential clients without PKCE, verify they have a secret configured
-    if (client.type === 'confidential' && !hasPkce) {
+    // For hardcoded confidential clients without PKCE, verify they have a secret configured
+    if (!client.isDynamic && client.type === 'confidential' && !hasPkce) {
       const hasSecret = getClientSecret(client_id) !== null;
       if (!hasSecret) {
         console.error(`[OAuth Authorize] Confidential client ${client_id} has no secret configured`);
@@ -582,7 +631,7 @@ router.get('/authorize', async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`[OAuth Authorize] Created authorization request ${authRequest.id} for ${client.name}`);
+    console.log(`[OAuth Authorize] Created authorization request ${authRequest.id} for ${client.name}${client.isDynamic ? ' (dynamic)' : ''}`);
 
     // Generate a cryptographic nonce for CSP
     const nonce = crypto.randomBytes(16).toString('base64');
@@ -1536,7 +1585,6 @@ async function handleAuthorizationCodeGrant(
 
   // Verify authentication: either PKCE (public client) or client_secret (confidential client)
   const usedPkce = authRequest.codeChallenge !== null;
-  const client = KNOWN_OAUTH_CLIENTS[clientId];
 
   if (usedPkce) {
     // Authorization used PKCE, verify code_verifier
@@ -1560,7 +1608,24 @@ async function handleAuthorizationCodeGrant(
         error_description: 'client_secret is required for this client',
       });
     }
-    if (!verifyClientSecret(clientId, clientSecret)) {
+
+    // Verify client_secret - check both hardcoded clients and database (DCR) clients
+    let secretValid = false;
+
+    // First try hardcoded clients (from environment variables)
+    if (verifyClientSecret(clientId, clientSecret)) {
+      secretValid = true;
+    } else {
+      // Check database for dynamically registered clients
+      const dbClient = await prisma.oAuthClient.findUnique({
+        where: { clientId },
+      });
+      if (dbClient && dbClient.clientSecret) {
+        secretValid = await verifyClientSecretBcrypt(clientSecret, dbClient.clientSecret);
+      }
+    }
+
+    if (!secretValid) {
       return res.status(401).json({
         error: 'invalid_client',
         error_description: 'Invalid client credentials',
@@ -1580,7 +1645,9 @@ async function handleAuthorizationCodeGrant(
   // Get or create an agent for this user + client combination
   // For OAuth Authorization Code flow, we create a "virtual" agent representing
   // the AI platform's access to the user's wallet
-  const clientName = KNOWN_OAUTH_CLIENTS[clientId]?.name || clientId;
+  // Resolve client name from hardcoded list or database
+  const resolvedClient = await resolveClient(clientId);
+  const clientName = resolvedClient?.name || clientId;
   const agentClientId = `oauth_${clientId}_${authRequest.userId!.slice(0, 8)}`;
 
   let agent = await prisma.agent.findUnique({

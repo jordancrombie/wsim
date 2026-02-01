@@ -2,6 +2,15 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.25] - 2026-02-01
+
+### Fixed
+- **Fix "Unknown Client" error for DCR clients**: The `/authorize` endpoint now recognizes dynamically registered clients (dyn_*) from the database
+  - Previously, `/authorize` only checked the hardcoded `KNOWN_OAUTH_CLIENTS` dictionary
+  - Now it also queries the `OAuthClient` database table for clients created via RFC 7591 `/register`
+  - Token endpoint also updated to verify `client_secret` against database for DCR clients
+  - This fixes the ChatGPT connector error: "Unknown Client dyn_xxxxx is not registered"
+
 ## [1.2.24] - 2026-02-01
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "wsim-backend",
-  "version": "1.2.24",
+  "version": "1.2.25",
   "description": "WSIM Wallet Simulator - Backend API Server",
   "main": "dist/index.js",
   "scripts": {
