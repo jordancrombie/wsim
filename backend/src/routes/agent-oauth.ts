@@ -31,6 +31,7 @@ import {
   generateAgentClientId,
   generateAgentClientSecret,
   hashClientSecret,
+  verifyClientSecret as verifyClientSecretBcrypt,
 } from '../services/agent-auth';
 import { getSpendingUsage } from '../services/spending-limits';
 import { dispatchTokenRevoked } from '../services/webhook-dispatch';
@@ -69,10 +70,35 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
       spending_limits,
       response_type,
       buyer_email, // Optional: if provided, send push notification to user
+      // Payment-Bootstrapped OAuth fields (NEW)
+      request_type, // 'first_purchase' | 'step_up' | 'permission_only'
+      existing_agent_id, // For step_up: the agent that already has delegation
+      payment_context, // { amount, currency, item_description, merchant_name, merchant_id }
+      exceeded_limit, // For step_up: { type, limit, requested, currency }
     } = req.body;
 
     // Validate response_type if provided (default to 'credentials')
     const responseType = response_type === 'token' ? 'token' : 'credentials';
+
+    // Validate request_type (default to 'permission_only' for backward compatibility)
+    const validRequestTypes = ['first_purchase', 'step_up', 'permission_only'];
+    const requestType = validRequestTypes.includes(request_type) ? request_type : 'permission_only';
+
+    // For step_up requests, validate that we have the required fields
+    if (requestType === 'step_up') {
+      if (!existing_agent_id) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'existing_agent_id is required for step_up requests',
+        });
+      }
+      if (!exceeded_limit || !exceeded_limit.type) {
+        return res.status(400).json({
+          error: 'invalid_request',
+          error_description: 'exceeded_limit with type is required for step_up requests',
+        });
+      }
+    }
 
     // agent_name is required for device authorization
     if (!agent_name) {
@@ -157,6 +183,12 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
           expiresAt,
           // Mark as 'pending_claim' until a user claims it
           status: 'pending_claim',
+          // Payment-Bootstrapped OAuth fields
+          requestType,
+          paymentContext: payment_context || null,
+          exceededLimit: exceeded_limit || null,
+          // showDelegationOption will be determined after user is identified
+          showDelegationOption: requestType !== 'step_up', // No delegation option for step-up
         },
       });
 
@@ -178,6 +210,24 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
         });
 
         if (user) {
+          // Check if user has declined delegation 3+ times for this merchant
+          let showDelegation = requestType !== 'step_up'; // Never show for step-up
+          if (showDelegation && payment_context?.merchant_id) {
+            const preference = await prisma.agentDelegationPreference.findUnique({
+              where: {
+                userId_agentClientId_merchantId: {
+                  userId: user.id,
+                  agentClientId: 'chatgpt-mcp', // TODO: make this dynamic based on client_id
+                  merchantId: payment_context.merchant_id,
+                },
+              },
+            });
+            if (preference && preference.declineCount >= 3) {
+              showDelegation = false;
+              console.log(`[Device Auth] Suppressing delegation option for user ${user.id} (${preference.declineCount} declines)`);
+            }
+          }
+
           // Pre-link the pairing code to this user and update status
           await prisma.$transaction(async (tx) => {
             await tx.pairingCode.update({
@@ -186,17 +236,41 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
             });
             await tx.accessRequest.update({
               where: { id: result.accessRequest.id },
-              data: { status: 'pending' }, // Skip 'pending_claim' since we know the user
+              data: {
+                status: 'pending', // Skip 'pending_claim' since we know the user
+                showDelegationOption: showDelegation,
+              },
             });
           });
+
+          // Build notification content based on request type
+          let notifTitle: string;
+          let notifBody: string;
+          const paymentAmount = payment_context?.amount || perTransaction.toString();
+          const paymentCurrency = payment_context?.currency || currency;
+          const itemDescription = payment_context?.item_description;
+
+          if (requestType === 'step_up' && exceeded_limit) {
+            // Step-up: emphasize that this exceeds their limit
+            notifTitle = `${agent_name} wants to charge ${paymentCurrency} ${paymentAmount}`;
+            notifBody = `Exceeds your ${paymentCurrency} ${exceeded_limit.limit} ${exceeded_limit.type.replace('_', ' ')} limit`;
+          } else if (requestType === 'first_purchase' && itemDescription) {
+            // First purchase with item context
+            notifTitle = `${agent_name} wants to charge ${paymentCurrency} ${paymentAmount}`;
+            notifBody = `for: ${itemDescription}`;
+          } else {
+            // Default/permission_only or first_purchase without item
+            notifTitle = `${agent_name} wants to pay`;
+            notifBody = `Tap to authorize ${paymentCurrency} ${paymentAmount} payment`;
+          }
 
           // Send push notification
           await sendNotificationToUser(
             user.id,
             'agent.access_request',
             {
-              title: `${agent_name} wants to pay`,
-              body: `Tap to authorize ${currency} ${perTransaction.toFixed(2)} payment`,
+              title: notifTitle,
+              body: notifBody,
               data: {
                 type: 'device_authorization.payment',
                 screen: 'DeviceAuthApproval',
@@ -204,8 +278,12 @@ router.post('/device_authorization', async (req: Request, res: Response) => {
                 access_request_id: result.accessRequest.id,
                 user_code: userCode,
                 agent_name,
-                amount: perTransaction.toString(),
-                currency,
+                amount: paymentAmount,
+                currency: paymentCurrency,
+                // Payment-Bootstrapped OAuth: include request_type for mwsim routing
+                request_type: requestType,
+                ...(payment_context && { payment_context }),
+                ...(exceeded_limit && { exceeded_limit }),
               },
             },
             result.accessRequest.id
@@ -274,6 +352,25 @@ const KNOWN_OAUTH_CLIENTS: Record<string, OAuthClientConfig> = {
       'https://chatgpt.com/aip/*/oauth/callback',
     ],
   },
+  // ChatGPT MCP - OAuth for Model Context Protocol tools
+  // ChatGPT hosts the OAuth popup, WSIM is the auth server
+  // Uses PKCE for security (MCP pattern)
+  'chatgpt-mcp': {
+    name: 'ChatGPT (MCP)',
+    type: 'public',  // MCP uses PKCE, no client_secret needed
+    allowedRedirectUris: [
+      // OpenAI Apps SDK OAuth redirect URIs (current)
+      'https://chatgpt.com/connector_platform_oauth_redirect',
+      'https://platform.openai.com/apps-manage/oauth',
+      // Legacy/alternative OAuth callback endpoints
+      'https://chat.openai.com/oauth/callback',
+      'https://chatgpt.com/oauth/callback',
+      'https://platform.openai.com/oauth/callback',
+      // MCP-specific callback patterns
+      'https://chatgpt.com/mcp/*/oauth/callback',
+      'https://chat.openai.com/mcp/*/oauth/callback',
+    ],
+  },
   'claude-mcp': {
     name: 'Claude (MCP)',
     type: 'public',  // MCP uses PKCE
@@ -336,25 +433,6 @@ function verifyClientSecret(clientId: string, clientSecret: string): boolean {
 }
 
 /**
- * Validate redirect URI against allowed patterns
- * Supports wildcards for dynamic segments (e.g., localhost:*, plugin IDs)
- * Wildcard matches alphanumeric characters, hyphens, and underscores
- */
-function isValidRedirectUri(clientId: string, redirectUri: string): boolean {
-  const client = KNOWN_OAUTH_CLIENTS[clientId];
-  if (!client) return false;
-
-  return client.allowedRedirectUris.some(pattern => {
-    if (pattern.includes('*')) {
-      // Convert wildcard pattern to regex - match alphanumeric, hyphens, underscores
-      const regex = new RegExp('^' + pattern.replace(/\*/g, '[\\w-]+') + '$');
-      return regex.test(redirectUri);
-    }
-    return pattern === redirectUri;
-  });
-}
-
-/**
  * Generate authorization code (URL-safe random string)
  */
 function generateAuthorizationCode(): string {
@@ -375,11 +453,74 @@ function verifyPkceChallenge(codeVerifier: string, codeChallenge: string, method
 }
 
 /**
+ * Resolved client info - either from hardcoded list or database
+ */
+interface ResolvedClient {
+  name: string;
+  type: 'confidential' | 'public';
+  allowedRedirectUris: string[];
+  isDynamic: boolean; // true if from database (DCR)
+}
+
+/**
+ * Look up a client by ID, checking both hardcoded clients and database
+ * Dynamically registered clients (dyn_*) are stored in the OAuthClient table
+ */
+async function resolveClient(clientId: string): Promise<ResolvedClient | null> {
+  // First check hardcoded clients
+  const knownClient = KNOWN_OAUTH_CLIENTS[clientId];
+  if (knownClient) {
+    return {
+      name: knownClient.name,
+      type: knownClient.type,
+      allowedRedirectUris: knownClient.allowedRedirectUris,
+      isDynamic: false,
+    };
+  }
+
+  // Check database for dynamically registered clients
+  const dbClient = await prisma.oAuthClient.findUnique({
+    where: { clientId },
+  });
+
+  if (dbClient) {
+    return {
+      name: dbClient.clientName,
+      // Dynamic clients are treated as confidential (they have a client_secret from DCR)
+      // But they can also use PKCE - we'll check which auth method they use at token exchange
+      type: 'confidential',
+      allowedRedirectUris: dbClient.redirectUris,
+      isDynamic: true,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Validate redirect URI against a resolved client's allowed URIs
+ */
+function isValidRedirectUriForClient(client: ResolvedClient, redirectUri: string): boolean {
+  return client.allowedRedirectUris.some(pattern => {
+    if (pattern.includes('*')) {
+      // Convert wildcard pattern to regex - match alphanumeric, hyphens, underscores
+      const regex = new RegExp('^' + pattern.replace(/\*/g, '[\\w-]+') + '$');
+      return regex.test(redirectUri);
+    }
+    return pattern === redirectUri;
+  });
+}
+
+/**
  * GET /api/agent/v1/oauth/authorize
  * OAuth 2.0 Authorization endpoint (RFC 6749)
  *
  * Browser-based authorization for AI platforms like ChatGPT Connectors.
  * Renders a page asking user to enter their email, then sends push notification.
+ *
+ * Supports both:
+ * - Hardcoded clients (chatgpt, chatgpt-mcp, claude-mcp, etc.)
+ * - Dynamically registered clients (dyn_* from /register endpoint)
  */
 router.get('/authorize', async (req: Request, res: Response) => {
   try {
@@ -415,8 +556,8 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // Check if client is known
-    const client = KNOWN_OAUTH_CLIENTS[client_id];
+    // Check if client is known (hardcoded or dynamically registered)
+    const client = await resolveClient(client_id);
     if (!client) {
       return res.status(400).send(renderErrorPage(
         'Unknown Client',
@@ -435,8 +576,10 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // Validate redirect URI
-    if (!isValidRedirectUri(client_id, redirect_uri)) {
+    // Validate redirect URI against client's allowed URIs
+    if (!isValidRedirectUriForClient(client, redirect_uri)) {
+      console.log(`[OAuth Authorize] Invalid redirect_uri: ${redirect_uri} for client ${client_id}`);
+      console.log(`[OAuth Authorize] Allowed URIs: ${JSON.stringify(client.allowedRedirectUris)}`);
       return res.status(400).send(renderErrorPage(
         'Invalid Redirect URI',
         'The redirect_uri is not registered for this client',
@@ -445,11 +588,13 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // PKCE validation: required for public clients, optional for confidential clients
+    // PKCE validation
+    // - Required for hardcoded public clients (they can't securely store client_secret)
+    // - Optional for confidential and dynamic clients (they have client_secret but can also use PKCE)
     const hasPkce = code_challenge && code_challenge_method === 'S256';
 
-    if (client.type === 'public' && !hasPkce) {
-      // Public clients MUST use PKCE (they can't securely store client_secret)
+    if (!client.isDynamic && client.type === 'public' && !hasPkce) {
+      // Hardcoded public clients MUST use PKCE
       return res.status(400).send(renderErrorPage(
         'PKCE Required',
         'code_challenge with method S256 is required for this client type',
@@ -458,8 +603,8 @@ router.get('/authorize', async (req: Request, res: Response) => {
       ));
     }
 
-    // For confidential clients without PKCE, verify they have a secret configured
-    if (client.type === 'confidential' && !hasPkce) {
+    // For hardcoded confidential clients without PKCE, verify they have a secret configured
+    if (!client.isDynamic && client.type === 'confidential' && !hasPkce) {
       const hasSecret = getClientSecret(client_id) !== null;
       if (!hasSecret) {
         console.error(`[OAuth Authorize] Confidential client ${client_id} has no secret configured`);
@@ -486,7 +631,7 @@ router.get('/authorize', async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`[OAuth Authorize] Created authorization request ${authRequest.id} for ${client.name}`);
+    console.log(`[OAuth Authorize] Created authorization request ${authRequest.id} for ${client.name}${client.isDynamic ? ' (dynamic)' : ''}`);
 
     // Generate a cryptographic nonce for CSP
     const nonce = crypto.randomBytes(16).toString('base64');
@@ -1440,7 +1585,6 @@ async function handleAuthorizationCodeGrant(
 
   // Verify authentication: either PKCE (public client) or client_secret (confidential client)
   const usedPkce = authRequest.codeChallenge !== null;
-  const client = KNOWN_OAUTH_CLIENTS[clientId];
 
   if (usedPkce) {
     // Authorization used PKCE, verify code_verifier
@@ -1464,7 +1608,24 @@ async function handleAuthorizationCodeGrant(
         error_description: 'client_secret is required for this client',
       });
     }
-    if (!verifyClientSecret(clientId, clientSecret)) {
+
+    // Verify client_secret - check both hardcoded clients and database (DCR) clients
+    let secretValid = false;
+
+    // First try hardcoded clients (from environment variables)
+    if (verifyClientSecret(clientId, clientSecret)) {
+      secretValid = true;
+    } else {
+      // Check database for dynamically registered clients
+      const dbClient = await prisma.oAuthClient.findUnique({
+        where: { clientId },
+      });
+      if (dbClient && dbClient.clientSecret) {
+        secretValid = await verifyClientSecretBcrypt(clientSecret, dbClient.clientSecret);
+      }
+    }
+
+    if (!secretValid) {
       return res.status(401).json({
         error: 'invalid_client',
         error_description: 'Invalid client credentials',
@@ -1484,7 +1645,9 @@ async function handleAuthorizationCodeGrant(
   // Get or create an agent for this user + client combination
   // For OAuth Authorization Code flow, we create a "virtual" agent representing
   // the AI platform's access to the user's wallet
-  const clientName = KNOWN_OAUTH_CLIENTS[clientId]?.name || clientId;
+  // Resolve client name from hardcoded list or database
+  const resolvedClient = await resolveClient(clientId);
+  const clientName = resolvedClient?.name || clientId;
   const agentClientId = `oauth_${clientId}_${authRequest.userId!.slice(0, 8)}`;
 
   let agent = await prisma.agent.findUnique({
@@ -1520,8 +1683,13 @@ async function handleAuthorizationCodeGrant(
     console.log(`[OAuth Token] Created agent ${agentClientId} for OAuth client ${clientId}`);
   }
 
-  // Generate access token
-  const { token, tokenHash, expiresAt } = generateAgentAccessToken(agent, authRequest.scope || undefined);
+  // Generate access token with audience set to the OAuth client_id
+  // This allows the MCP Gateway (or other clients) to verify the token is intended for them
+  const { token, tokenHash, expiresAt } = generateAgentAccessToken(
+    agent,
+    authRequest.scope || undefined,
+    clientId  // audience - e.g., 'chatgpt-mcp'
+  );
 
   // Store token record
   await storeAgentAccessToken(agent.id, tokenHash, expiresAt, authRequest.scope || undefined);
@@ -1624,11 +1792,15 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
         console.log(`[Device Auth] Access token issued for agent ${accessRequest.agent.clientId} (guest checkout)`);
 
         // Return RFC 8628 Section 3.5 compliant response
+        // Extended with Payment-Bootstrapped OAuth delegation fields
         return res.json({
           access_token: accessToken,
           token_type: 'Bearer',
           expires_in: Math.floor((expiresAt.getTime() - Date.now()) / 1000),
           scope,
+          // Payment-Bootstrapped OAuth: delegation status
+          delegation_granted: accessRequest.delegationGranted,
+          delegation_pending: accessRequest.delegationPending,
         });
       }
 
@@ -1646,6 +1818,7 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
       console.log(`[Device Auth] Credentials issued for agent ${accessRequest.agent.clientId}`);
 
       // Return credentials (device code flow returns credentials, not tokens directly)
+      // Extended with Payment-Bootstrapped OAuth delegation fields
       return res.json({
         client_id: accessRequest.agent.clientId,
         client_secret: clientSecret,
@@ -1657,6 +1830,9 @@ async function handleDeviceCodeGrant(req: Request, res: Response, deviceCode: st
           monthly: (accessRequest.grantedMonthlyLimit || accessRequest.requestedMonthlyLimit).toString(),
           currency: accessRequest.requestedCurrency,
         },
+        // Payment-Bootstrapped OAuth: delegation status
+        delegation_granted: accessRequest.delegationGranted,
+        delegation_pending: accessRequest.delegationPending,
       });
 
     default:
@@ -1788,6 +1964,181 @@ router.post('/revoke', async (req: Request, res: Response) => {
     console.error('[Agent OAuth] Revoke error:', error);
     // Per RFC 7009, errors should still return 200 for the token
     return res.status(200).json({ revoked: true });
+  }
+});
+
+// =============================================================================
+// DYNAMIC CLIENT REGISTRATION (RFC 7591)
+// =============================================================================
+
+/**
+ * POST /api/agent/v1/oauth/register
+ * OAuth 2.0 Dynamic Client Registration (RFC 7591)
+ *
+ * ChatGPT and other MCP clients call this to register themselves as OAuth clients
+ * when a user adds the MCP server. Returns client credentials for subsequent OAuth flows.
+ *
+ * Required for ChatGPT MCP integration - ChatGPT needs to dynamically register
+ * to get a client_id before initiating OAuth flows.
+ */
+router.post('/register', async (req: Request, res: Response) => {
+  try {
+    const {
+      client_name,
+      redirect_uris,
+      grant_types,
+      token_endpoint_auth_method,
+      scope,
+      logo_uri,
+      // These are accepted per RFC 7591 but not currently stored
+      client_uri: _client_uri,
+      policy_uri: _policy_uri,
+      tos_uri: _tos_uri,
+      software_id: _software_id,
+      software_version: _software_version,
+    } = req.body;
+
+    // Log optional fields for debugging (not stored)
+    if (_client_uri || _policy_uri || _tos_uri || _software_id || _software_version) {
+      console.log(`[OAuth Register] Optional fields received: client_uri=${_client_uri}, software_id=${_software_id}`);
+    }
+
+    // Validate required fields (RFC 7591 Section 2)
+    if (!client_name || typeof client_name !== 'string') {
+      return res.status(400).json({
+        error: 'invalid_client_metadata',
+        error_description: 'client_name is required',
+      });
+    }
+
+    if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+      return res.status(400).json({
+        error: 'invalid_redirect_uri',
+        error_description: 'redirect_uris is required and must be a non-empty array',
+      });
+    }
+
+    // Validate redirect URIs are valid HTTPS URLs (except localhost for dev)
+    for (const uri of redirect_uris) {
+      try {
+        const url = new URL(uri);
+        if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+          return res.status(400).json({
+            error: 'invalid_redirect_uri',
+            error_description: `redirect_uri must use HTTPS: ${uri}`,
+          });
+        }
+      } catch {
+        return res.status(400).json({
+          error: 'invalid_redirect_uri',
+          error_description: `Invalid redirect_uri format: ${uri}`,
+        });
+      }
+    }
+
+    // Default grant types if not specified
+    const grantTypesArray = grant_types && Array.isArray(grant_types)
+      ? grant_types
+      : ['authorization_code'];
+
+    // Validate grant types
+    const allowedGrantTypes = ['authorization_code', 'refresh_token', 'client_credentials', 'urn:ietf:params:oauth:grant-type:device_code'];
+    for (const gt of grantTypesArray) {
+      if (!allowedGrantTypes.includes(gt)) {
+        return res.status(400).json({
+          error: 'invalid_client_metadata',
+          error_description: `Unsupported grant_type: ${gt}`,
+        });
+      }
+    }
+
+    // Default token endpoint auth method
+    const authMethod = token_endpoint_auth_method || 'client_secret_post';
+    const allowedAuthMethods = ['client_secret_post', 'client_secret_basic', 'none'];
+    if (!allowedAuthMethods.includes(authMethod)) {
+      return res.status(400).json({
+        error: 'invalid_client_metadata',
+        error_description: `Unsupported token_endpoint_auth_method: ${authMethod}`,
+      });
+    }
+
+    // Default scope
+    const scopeString = scope || 'browse cart purchase';
+
+    // Check if a client with these exact redirect_uris already exists
+    // This provides idempotent registration for the same client
+    const sortedUris = [...redirect_uris].sort();
+    const existingClients = await prisma.oAuthClient.findMany({
+      where: {
+        clientName: client_name,
+      },
+    });
+
+    // Check for exact redirect_uris match
+    for (const existing of existingClients) {
+      const existingSortedUris = [...existing.redirectUris].sort();
+      if (JSON.stringify(existingSortedUris) === JSON.stringify(sortedUris)) {
+        // Found existing client - return it (but can't return the secret)
+        // Per RFC 7591, we should return the existing registration
+        // For security, we don't return the secret again
+        console.log(`[OAuth Register] Returning existing client ${existing.clientId} for ${client_name}`);
+
+        return res.status(200).json({
+          client_id: existing.clientId,
+          // Note: client_secret is NOT returned for existing registrations (security)
+          client_id_issued_at: Math.floor(existing.createdAt.getTime() / 1000),
+          client_name: existing.clientName,
+          redirect_uris: existing.redirectUris,
+          grant_types: existing.grantTypes,
+          token_endpoint_auth_method: authMethod,
+          scope: existing.scope,
+          ...(existing.logoUri && { logo_uri: existing.logoUri }),
+        });
+      }
+    }
+
+    // Generate new client credentials
+    const clientId = `dyn_${nanoid(16)}`; // Prefix with 'dyn_' to identify dynamically registered clients
+    const clientSecret = generateAgentClientSecret();
+    const clientSecretHash = await hashClientSecret(clientSecret);
+
+    // Create the client
+    const client = await prisma.oAuthClient.create({
+      data: {
+        clientId,
+        clientSecret: clientSecretHash,
+        clientName: client_name,
+        redirectUris: redirect_uris,
+        postLogoutRedirectUris: [],
+        grantTypes: grantTypesArray,
+        scope: scopeString,
+        logoUri: logo_uri || null,
+        trusted: false, // Dynamically registered clients are never trusted
+      },
+    });
+
+    console.log(`[OAuth Register] Created new client ${clientId} for ${client_name}`);
+
+    // Return RFC 7591 compliant response (Section 3.2)
+    return res.status(201).json({
+      client_id: client.clientId,
+      client_secret: clientSecret, // Only returned on initial registration
+      client_secret_expires_at: 0, // 0 = never expires
+      client_id_issued_at: Math.floor(client.createdAt.getTime() / 1000),
+      client_name: client.clientName,
+      redirect_uris: client.redirectUris,
+      grant_types: client.grantTypes,
+      token_endpoint_auth_method: authMethod,
+      scope: client.scope,
+      ...(client.logoUri && { logo_uri: client.logoUri }),
+    });
+
+  } catch (error) {
+    console.error('[OAuth Register] Error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      error_description: 'Failed to register client',
+    });
   }
 });
 

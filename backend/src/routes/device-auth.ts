@@ -149,6 +149,7 @@ declare module 'express-session' {
     deviceAuthRequestId?: string;
     loginRequestId?: string;
     deviceAuthUserId?: string;  // Known user from token verification (for fallback auth)
+    deviceAuthAuthenticatedForRequestId?: string;  // Tracks per-request auth for known user flow
   }
 }
 
@@ -946,7 +947,95 @@ router.get('/', async (req: Request, res: Response) => {
       req.session.deviceAuthCode = normalizedCode;
       req.session.deviceAuthRequestId = accessRequest.id;
 
-      // Check if user is logged in
+      // IMPORTANT: Check known user flow FIRST (from buyer_email in /device_authorization)
+      // For known user flow, require authentication FOR THIS SPECIFIC REQUEST
+      // even if user has an existing session - they must verify identity for each request
+      if (pairingCode.userId) {
+        const knownUser = await prisma.walletUser.findUnique({
+          where: { id: pairingCode.userId },
+        });
+
+        if (knownUser) {
+          // Check if user has authenticated for THIS specific request
+          const authenticatedForThisRequest = req.session.deviceAuthAuthenticatedForRequestId === accessRequest.id;
+
+          if (authenticatedForThisRequest) {
+            // User has authenticated for this request - show approval page
+            console.log(`[Device Auth Web] Known user ${knownUser.id.substring(0, 8)}... authenticated for request, showing approval`);
+
+            // Claim the code if not already claimed
+            if (accessRequest.status === 'pending_claim') {
+              await prisma.$transaction(async (tx) => {
+                await tx.pairingCode.update({
+                  where: { id: pairingCode.id },
+                  data: { userId: knownUser.id },
+                });
+                await tx.accessRequest.update({
+                  where: { id: accessRequest.id },
+                  data: { status: 'pending' },
+                });
+              });
+            }
+
+            return res.send(renderApprovalPage(
+              accessRequest.id,
+              accessRequest.agentName,
+              accessRequest.agentDescription,
+              accessRequest.requestedPermissions,
+              {
+                perTransaction: accessRequest.requestedPerTransaction.toString(),
+                daily: accessRequest.requestedDailyLimit.toString(),
+                monthly: accessRequest.requestedMonthlyLimit.toString(),
+                currency: accessRequest.requestedCurrency,
+              },
+              accessRequest.expiresAt
+            ));
+          }
+
+          // User needs to authenticate for this request - show waiting page
+          console.log(`[Device Auth Web] Code ${normalizedCode} linked to user ${knownUser.id.substring(0, 8)}... (via buyer_email), requiring authentication`);
+
+          // Store known user ID for fallback auth
+          req.session.deviceAuthUserId = knownUser.id;
+
+          // Create a login request for tracking passkey/password authentication
+          const { nanoid } = await import('nanoid');
+          const loginId = nanoid(16);
+
+          await prisma.oAuthAuthorizationCode.create({
+            data: {
+              id: loginId,
+              clientId: 'device-auth-web',
+              userId: knownUser.id,
+              redirectUri: `${env.APP_URL}/api/m/device/approve`,
+              codeChallenge: null,
+              codeChallengeMethod: null,
+              scope: 'device-auth',
+              status: 'pending_approval',
+              expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
+            },
+          });
+
+          req.session.loginRequestId = loginId;
+
+          // Check if user has passkeys for fallback auth options
+          const passkeyCount = await prisma.passkeyCredential.count({
+            where: { userId: knownUser.id },
+          });
+
+          // Show waiting page with passkey/password options
+          // DO NOT send another push - /device_authorization already sent one
+          const nonce = generateNonce();
+          setCSPHeader(res, nonce);
+          return res.send(renderWaitingPage(loginId, {
+            email: knownUser.email,
+            hasPasskey: passkeyCount > 0,
+            nonce,
+          }));
+        }
+      }
+
+      // Not a known user flow - check if user has existing session
       const userId = (req.session as { userId?: string }).userId;
 
       if (userId) {
@@ -979,7 +1068,7 @@ router.get('/', async (req: Request, res: Response) => {
         ));
       }
 
-      // User not logged in - show login page
+      // User not logged in and no pre-linked user - show login page to collect email
       console.log(`[Device Auth Web] Auto-processed code ${normalizedCode}, showing login page`);
       return res.send(renderLoginPage(accessRequest.agentName, accessRequest.id));
     } catch (error) {
@@ -1160,7 +1249,95 @@ router.post('/lookup', async (req: Request, res: Response) => {
     req.session.deviceAuthCode = code;
     req.session.deviceAuthRequestId = accessRequest.id;
 
-    // Check if user is logged in
+    // IMPORTANT: Check known user flow FIRST (from buyer_email in /device_authorization)
+    // For known user flow, require authentication FOR THIS SPECIFIC REQUEST
+    // even if user has an existing session - they must verify identity for each request
+    if (pairingCode.userId) {
+      const knownUser = await prisma.walletUser.findUnique({
+        where: { id: pairingCode.userId },
+      });
+
+      if (knownUser) {
+        // Check if user has authenticated for THIS specific request
+        const authenticatedForThisRequest = req.session.deviceAuthAuthenticatedForRequestId === accessRequest.id;
+
+        if (authenticatedForThisRequest) {
+          // User has authenticated for this request - show approval page
+          console.log(`[Device Auth Web] Known user ${knownUser.id.substring(0, 8)}... authenticated for request, showing approval`);
+
+          // Claim the code if not already claimed
+          if (accessRequest.status === 'pending_claim') {
+            await prisma.$transaction(async (tx) => {
+              await tx.pairingCode.update({
+                where: { id: pairingCode.id },
+                data: { userId: knownUser.id },
+              });
+              await tx.accessRequest.update({
+                where: { id: accessRequest.id },
+                data: { status: 'pending' },
+              });
+            });
+          }
+
+          return res.send(renderApprovalPage(
+            accessRequest.id,
+            accessRequest.agentName,
+            accessRequest.agentDescription,
+            accessRequest.requestedPermissions,
+            {
+              perTransaction: accessRequest.requestedPerTransaction.toString(),
+              daily: accessRequest.requestedDailyLimit.toString(),
+              monthly: accessRequest.requestedMonthlyLimit.toString(),
+              currency: accessRequest.requestedCurrency,
+            },
+            accessRequest.expiresAt
+          ));
+        }
+
+        // User needs to authenticate for this request - show waiting page
+        console.log(`[Device Auth Web] Code ${code} linked to user ${knownUser.id.substring(0, 8)}... (via buyer_email), requiring authentication`);
+
+        // Store session data for approval flow
+        req.session.deviceAuthUserId = knownUser.id;
+
+        // Create a login request for tracking passkey/password authentication
+        const { nanoid } = await import('nanoid');
+        const loginId = nanoid(16);
+
+        await prisma.oAuthAuthorizationCode.create({
+          data: {
+            id: loginId,
+            clientId: 'device-auth-web',
+            userId: knownUser.id,
+            redirectUri: `${env.APP_URL}/api/m/device/approve`,
+            codeChallenge: null,
+            codeChallengeMethod: null,
+            scope: 'device-auth',
+            status: 'pending_approval',
+            expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minute expiry
+          },
+        });
+
+        req.session.loginRequestId = loginId;
+
+        // Check if user has passkeys for fallback auth options
+        const passkeyCount = await prisma.passkeyCredential.count({
+          where: { userId: knownUser.id },
+        });
+
+        // Show waiting page with passkey/password options
+        // DO NOT send another push - /device_authorization already sent one
+        const nonce = generateNonce();
+        setCSPHeader(res, nonce);
+        return res.send(renderWaitingPage(loginId, {
+          email: knownUser.email,
+          hasPasskey: passkeyCount > 0,
+          nonce,
+        }));
+      }
+    }
+
+    // Not a known user flow - check if user has existing session
     const userId = (req.session as { userId?: string }).userId;
 
     if (userId) {
@@ -1194,7 +1371,7 @@ router.post('/lookup', async (req: Request, res: Response) => {
       ));
     }
 
-    // User not logged in - show login page
+    // User not logged in and no pre-linked user - show login page to collect email
     return res.send(renderLoginPage(accessRequest.agentName, accessRequest.id));
   } catch (error) {
     console.error('[Device Auth Web] Lookup error:', error);
@@ -1356,6 +1533,12 @@ router.get('/login/wait/:id', async (req: Request, res: Response) => {
       const requestId = req.session.deviceAuthRequestId;
       const code = req.session.deviceAuthCode;
 
+      // Mark user as authenticated for this specific device auth request
+      // This is critical for the known user flow to require per-request authentication
+      if (requestId) {
+        req.session.deviceAuthAuthenticatedForRequestId = requestId;
+      }
+
       if (!requestId || !code) {
         return res.redirect('/api/m/device');
       }
@@ -1480,6 +1663,7 @@ router.get('/approve', async (req: Request, res: Response) => {
 
     const accessRequest = await prisma.accessRequest.findUnique({
       where: { id: requestId },
+      include: { pairingCode: true },
     });
 
     if (!accessRequest) {
@@ -1492,6 +1676,17 @@ router.get('/approve', async (req: Request, res: Response) => {
 
     if (accessRequest.expiresAt < new Date()) {
       return res.send(renderErrorPage('This request has expired'));
+    }
+
+    // IMPORTANT: For known user flow (buyer_email provided), require per-request authentication
+    // Check if this was a known user flow by checking if pairingCode.userId was set
+    if (accessRequest.pairingCode?.userId) {
+      const authenticatedForThisRequest = req.session.deviceAuthAuthenticatedForRequestId === requestId;
+      if (!authenticatedForThisRequest) {
+        console.log(`[Device Auth Web] Known user flow but not authenticated for this request, redirecting to auth`);
+        // Redirect back to device page to show auth options
+        return res.redirect(`/api/m/device?code=${accessRequest.pairingCode.code}`);
+      }
     }
 
     return res.send(renderApprovalPage(
@@ -1521,6 +1716,10 @@ router.post('/approve', async (req: Request, res: Response) => {
   try {
     const userId = (req.session as { userId?: string }).userId;
     const requestId = req.body.request_id || req.session.deviceAuthRequestId;
+    // Payment-Bootstrapped OAuth fields (from form or JSON)
+    const grantDelegation = req.body.grant_delegation === 'true' || req.body.grant_delegation === true;
+    const delegationPerTxn = req.body.delegation_per_transaction;
+    const delegationDaily = req.body.delegation_daily;
 
     if (!userId) {
       return res.redirect('/api/m/device');
@@ -1556,6 +1755,19 @@ router.post('/approve', async (req: Request, res: Response) => {
       return res.send(renderErrorPage('This request has expired'));
     }
 
+    // Handle delegation for Payment-Bootstrapped OAuth
+    let delegationGranted = false;
+    let delegationPending = false;
+    let delegationPerTransaction: Decimal | null = null;
+    let delegationDailyLimit: Decimal | null = null;
+
+    if (accessRequest.requestType === 'first_purchase' && grantDelegation) {
+      delegationGranted = true;
+      delegationPending = true;
+      delegationPerTransaction = delegationPerTxn ? new Decimal(delegationPerTxn) : new Decimal('25.00');
+      delegationDailyLimit = delegationDaily ? new Decimal(delegationDaily) : new Decimal('100.00');
+    }
+
     // Generate credentials
     const clientId = generateAgentClientId();
     const clientSecret = generateAgentClientSecret();
@@ -1588,6 +1800,11 @@ router.post('/approve', async (req: Request, res: Response) => {
           grantedMonthlyLimit: accessRequest.requestedMonthlyLimit,
           agentId: agent.id,
           resolvedAt: new Date(),
+          // Payment-Bootstrapped OAuth delegation fields
+          delegationGranted,
+          delegationPending,
+          delegationPerTransaction,
+          delegationDailyLimit,
         },
       });
 
@@ -1733,6 +1950,12 @@ router.post('/login/password', async (req: Request, res: Response) => {
 
     (req.session as { userId?: string }).userId = user.id;
 
+    // Mark user as authenticated for this specific device auth request
+    // This is critical for the known user flow to require per-request authentication
+    if (req.session.deviceAuthRequestId) {
+      req.session.deviceAuthAuthenticatedForRequestId = req.session.deviceAuthRequestId;
+    }
+
     console.log(`[Device Auth Web] Password auth success for user ${user.id.substring(0, 8)}...`);
 
     // Redirect to approval page
@@ -1876,6 +2099,12 @@ router.post('/login/passkey/verify', async (req: Request, res: Response) => {
 
     // Set session
     (req.session as { userId?: string }).userId = credential.userId;
+
+    // Mark user as authenticated for this specific device auth request
+    // This is critical for the known user flow to require per-request authentication
+    if (req.session.deviceAuthRequestId) {
+      req.session.deviceAuthAuthenticatedForRequestId = req.session.deviceAuthRequestId;
+    }
 
     console.log(`[Device Auth Web] Passkey auth success for user ${credential.userId.substring(0, 8)}...`);
 

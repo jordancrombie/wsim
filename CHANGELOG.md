@@ -2,6 +2,122 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.27] - 2026-02-01
+
+### Fixed
+- **Require per-request authentication for known user flow**: Security fix for device auth web flow
+  - Previously, if a user had an existing session from a prior login, they could approve new device auth requests without re-authenticating
+  - Now for the known user flow (when `buyer_email` is provided to `/device_authorization`), authentication is ALWAYS required for EACH request
+  - Tracks `deviceAuthAuthenticatedForRequestId` in session to ensure user authenticates via passkey/password/push for this specific request
+  - Reordered checks: `pairingCode.userId` is now checked BEFORE `req.session.userId` to prevent session bypass
+  - This ensures users verify their identity for every payment authorization, even if they have an existing web session
+
+## [1.2.26] - 2026-02-01
+
+### Fixed
+- **Skip email prompt in device auth web flow when user is already known**: When `/device_authorization` is called with `buyer_email`, we already know the user and send them a push notification
+  - Previously, if the user clicked the device auth link instead of approving via push, they were asked for their email again
+  - Now the web flow detects that `pairingCode.userId` is already set and shows the waiting page with passkey/password fallback options directly
+  - No duplicate push notification is sent since `/device_authorization` already sent one
+  - This provides a smoother experience for known users: click link → authenticate (passkey/password) → approve
+
+## [1.2.25] - 2026-02-01
+
+### Fixed
+- **Fix "Unknown Client" error for DCR clients**: The `/authorize` endpoint now recognizes dynamically registered clients (dyn_*) from the database
+  - Previously, `/authorize` only checked the hardcoded `KNOWN_OAUTH_CLIENTS` dictionary
+  - Now it also queries the `OAuthClient` database table for clients created via RFC 7591 `/register`
+  - Token endpoint also updated to verify `client_secret` against database for DCR clients
+  - This fixes the ChatGPT connector error: "Unknown Client dyn_xxxxx is not registered"
+
+## [1.2.24] - 2026-02-01
+
+### Changed
+- **Re-add registration_endpoint to OAuth metadata**: Restored `registration_endpoint` in `/.well-known/oauth-authorization-server`
+  - OpenAI clarified: ChatGPT validates DCR exists at connector creation but doesn't prompt users
+  - The key is connector configuration ("Mixed" auth) + per-tool `securitySchemes`
+  - With "Mixed" + `noauth` on browse tools: users can browse immediately, OAuth triggered later via challenge
+  - DCR validation at setup ≠ OAuth prompt at setup (they're independent)
+  - Previous removal (v1.2.23) broke connector creation with "MCP server doesn't support RFC 7591" error
+
+## [1.2.23] - 2026-02-01
+
+### Changed
+- **Hide registration_endpoint from OAuth metadata**: Removed `registration_endpoint` from `/.well-known/oauth-authorization-server`
+  - The RFC 7591 `/register` endpoint still exists but is no longer advertised in discovery
+  - ChatGPT auto-discovers `registration_endpoint` and demands OAuth at connector setup time
+  - This breaks Payment-Bootstrapped OAuth model where OAuth should only trigger at first purchase
+  - Pre-registered clients (like `chatgpt-mcp`) still work; dynamic registration is available but not advertised
+  - **NOTE**: This was reverted in v1.2.24 - the real fix is connector config + per-tool securitySchemes
+
+## [1.2.22] - 2026-02-01
+
+### Added
+- **RFC 7591 Dynamic Client Registration**: `POST /api/agent/v1/oauth/register`
+  - Required for ChatGPT MCP integration - ChatGPT needs to dynamically register as an OAuth client
+  - Accepts: `client_name`, `redirect_uris`, `grant_types`, `token_endpoint_auth_method`, `scope`, `logo_uri`
+  - Returns: `client_id`, `client_secret`, and registration metadata
+  - Idempotent: re-registration with same client_name + redirect_uris returns existing client
+  - Dynamically registered clients are prefixed with `dyn_` and are never trusted (require explicit consent)
+- Added `registration_endpoint` to OAuth Authorization Server Metadata (`/.well-known/oauth-authorization-server`)
+
+## [1.2.21] - 2026-01-31
+
+### Added
+- **Payment-Bootstrapped OAuth backend support**: Core API changes for the new delegation model where OAuth is earned at first purchase
+  - New `AccessRequest` fields: `requestType`, `paymentContext`, `exceededLimit`, `showDelegationOption`, `delegationGranted`, `delegationPending`, `delegationPerTransaction`, `delegationDailyLimit`
+  - New `AgentDelegationPreference` model for tracking delegation declines per user+agent+merchant
+  - `/device_authorization` accepts new parameters: `request_type` (`first_purchase`, `step_up`, `permission_only`), `payment_context`, `exceeded_limit`
+  - Poll response returns `delegation_granted` and `delegation_pending` for MCP to trigger OAuth challenge
+  - Mobile approve endpoint accepts `grant_delegation` and `delegation_limits`
+  - Web approve endpoint accepts delegation fields
+- **Contextual push notifications**: Notification content varies by request type:
+  - First purchase: "wants to charge $X for Y"
+  - Step-up: "wants to charge $X (exceeds your $Y limit)"
+  - Permission-only: "Tap to authorize $X payment"
+- **Delegation decline tracking**: Suppress delegation option after 3 consecutive declines for same user+merchant combination
+
+### Changed
+- Step-up requests (`request_type: 'step_up'`) never show delegation option (user already has delegation)
+- Delegation decline count resets when user grants delegation
+
+## [1.2.20] - 2026-01-31
+
+### Fixed
+- **CORS headers on OAuth discovery endpoints**: Added `Access-Control-Allow-Origin: *` to:
+  - `/.well-known/oauth-protected-resource`
+  - `/.well-known/oauth-authorization-server`
+  - ChatGPT was failing silently on cross-origin fetch of these endpoints, causing the "Connected" loop without actually initiating OAuth
+
+## [1.2.19] - 2026-01-31
+
+### Fixed
+- **ChatGPT Apps SDK OAuth redirect URIs**: Added correct redirect URIs for ChatGPT Apps SDK integration:
+  - `https://chatgpt.com/connector_platform_oauth_redirect`
+  - `https://platform.openai.com/apps-manage/oauth`
+  - These are the URIs used by the current Apps SDK OAuth flow (previously had only legacy callback patterns)
+
+## [1.2.18] - 2026-01-30
+
+### Added
+- **ChatGPT MCP OAuth foundation**: OAuth 2.0 infrastructure for MCP-based AI tool integration
+  - `GET /.well-known/oauth-protected-resource` (RFC 9728) - Protected resource metadata for MCP clients
+  - `GET /.well-known/jwks.json` (RFC 7517) - JSON Web Key Set for external token verification
+  - Updated `/.well-known/oauth-authorization-server` to include `jwks_uri`
+  - Registered `chatgpt-mcp` OAuth client for ChatGPT MCP server integration
+- **RS256 JWT signing**: Access tokens now signed with RS256 (asymmetric) instead of HS256
+  - Enables external services (MCP Gateway) to verify tokens without shared secrets
+  - JWKS endpoint exposes public key for verification
+  - Backwards-compatible: verifies both RS256 and HS256 (legacy) tokens
+- **Audience claim**: Tokens issued via OAuth Authorization Code flow include `aud` claim
+  - Set to the OAuth client_id (e.g., `chatgpt-mcp`)
+  - Allows clients to verify tokens are intended for them
+
+### Changed
+- JWT key management: Added `jwt-keys.ts` service for RSA key pair management
+  - Development: Auto-generates ephemeral keys (with warning)
+  - Production: Configure via `AGENT_JWT_RSA_PRIVATE_KEY_PEM` and `AGENT_JWT_RSA_PUBLIC_KEY_PEM` env vars
+
 ## [1.2.17] - 2026-01-29
 
 ### Added

@@ -428,7 +428,14 @@ mobileAccessRequestRouter.post('/:requestId/approve', requireMobileAuth, async (
   try {
     const { userId } = req;
     const { requestId } = req.params;
-    const { consent, permissions, spending_limits } = req.body;
+    const {
+      consent,
+      permissions,
+      spending_limits,
+      // Payment-Bootstrapped OAuth fields (NEW)
+      grant_delegation,
+      delegation_limits,
+    } = req.body;
 
     // Consent is required
     if (consent !== true) {
@@ -513,6 +520,63 @@ mobileAccessRequestRouter.post('/:requestId/approve', requireMobileAuth, async (
       }
     }
 
+    // Handle delegation for Payment-Bootstrapped OAuth
+    // Only applicable for first_purchase request types
+    let delegationGranted = false;
+    let delegationPending = false;
+    let delegationPerTransaction: Decimal | null = null;
+    let delegationDailyLimit: Decimal | null = null;
+
+    if (request.requestType === 'first_purchase') {
+      if (grant_delegation === true) {
+        // User opted in to delegation
+        delegationGranted = true;
+        delegationPending = true; // OAuth linking still required (see PKCE constraint)
+
+        // Use delegation_limits if provided, otherwise use sensible defaults
+        if (delegation_limits) {
+          delegationPerTransaction = delegation_limits.per_transaction
+            ? new Decimal(delegation_limits.per_transaction)
+            : new Decimal('25.00');
+          delegationDailyLimit = delegation_limits.daily
+            ? new Decimal(delegation_limits.daily)
+            : new Decimal('100.00');
+        } else {
+          delegationPerTransaction = new Decimal('25.00');
+          delegationDailyLimit = new Decimal('100.00');
+        }
+
+        console.log(`[Access Request] User granted delegation with limits: per_txn=${delegationPerTransaction}, daily=${delegationDailyLimit}`);
+      } else if (grant_delegation === false && request.showDelegationOption) {
+        // User explicitly declined delegation - track it
+        const paymentContext = request.paymentContext as { merchant_id?: string } | null;
+        const merchantId = paymentContext?.merchant_id || 'unknown';
+
+        await prisma.agentDelegationPreference.upsert({
+          where: {
+            userId_agentClientId_merchantId: {
+              userId: userId!,
+              agentClientId: 'chatgpt-mcp', // TODO: make dynamic based on client_id
+              merchantId,
+            },
+          },
+          create: {
+            userId: userId!,
+            agentClientId: 'chatgpt-mcp',
+            merchantId,
+            declineCount: 1,
+            lastDeclinedAt: new Date(),
+          },
+          update: {
+            declineCount: { increment: 1 },
+            lastDeclinedAt: new Date(),
+          },
+        });
+
+        console.log(`[Access Request] User declined delegation for merchant ${merchantId}`);
+      }
+    }
+
     // Generate credentials
     const clientId = generateAgentClientId();
     const clientSecret = generateAgentClientSecret();
@@ -547,6 +611,11 @@ mobileAccessRequestRouter.post('/:requestId/approve', requireMobileAuth, async (
           grantedMonthlyLimit: finalMonthly,
           agentId: agent.id,
           resolvedAt: new Date(),
+          // Payment-Bootstrapped OAuth delegation fields
+          delegationGranted,
+          delegationPending,
+          delegationPerTransaction,
+          delegationDailyLimit,
         },
       });
 
@@ -576,6 +645,15 @@ mobileAccessRequestRouter.post('/:requestId/approve', requireMobileAuth, async (
         currency: request.requestedCurrency,
       },
       approved_at: new Date().toISOString(),
+      // Payment-Bootstrapped OAuth delegation status
+      delegation_granted: delegationGranted,
+      delegation_pending: delegationPending,
+      ...(delegationGranted && {
+        delegation_limits: {
+          per_transaction: delegationPerTransaction?.toString(),
+          daily: delegationDailyLimit?.toString(),
+        },
+      }),
     });
   } catch (error) {
     console.error('[Access Request] Approve error:', error);
