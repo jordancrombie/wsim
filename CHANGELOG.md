@@ -2,6 +2,16 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.24] - 2026-02-01
+
+### Changed
+- **Re-add registration_endpoint to OAuth metadata**: Restored `registration_endpoint` in `/.well-known/oauth-authorization-server`
+  - OpenAI clarified: ChatGPT validates DCR exists at connector creation but doesn't prompt users
+  - The key is connector configuration ("Mixed" auth) + per-tool `securitySchemes`
+  - With "Mixed" + `noauth` on browse tools: users can browse immediately, OAuth triggered later via challenge
+  - DCR validation at setup ≠ OAuth prompt at setup (they're independent)
+  - Previous removal (v1.2.23) broke connector creation with "MCP server doesn't support RFC 7591" error
+
 ## [1.2.23] - 2026-02-01
 
 ### Changed
@@ -10,6 +20,7 @@ All notable changes to WSIM (Wallet Simulator) will be documented in this file.
   - ChatGPT auto-discovers `registration_endpoint` and demands OAuth at connector setup time
   - This breaks Payment-Bootstrapped OAuth model where OAuth should only trigger at first purchase
   - Pre-registered clients (like `chatgpt-mcp`) still work; dynamic registration is available but not advertised
+  - **NOTE**: This was reverted in v1.2.24 - the real fix is connector config + per-tool securitySchemes
 
 ## [1.2.22] - 2026-02-01
 

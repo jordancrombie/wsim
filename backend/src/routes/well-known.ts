@@ -230,10 +230,13 @@ router.get('/oauth-authorization-server', (req: Request, res: Response) => {
     introspection_endpoint: `${baseUrl}/api/agent/v1/oauth/introspect`,
     revocation_endpoint: `${baseUrl}/api/agent/v1/oauth/revoke`,
 
-    // NOTE: Dynamic Client Registration (RFC 7591) endpoint exists at /api/agent/v1/oauth/register
-    // but is NOT advertised here. Advertising registration_endpoint causes ChatGPT to demand
-    // OAuth at connector setup time, which breaks our Payment-Bootstrapped OAuth model.
-    // OAuth should only be triggered at first purchase, not upfront.
+    // Dynamic Client Registration (RFC 7591)
+    // Required for ChatGPT to validate OAuth exists at connector creation time.
+    // With connector configured as "Mixed" auth + per-tool noauth on browse tools:
+    // - ChatGPT validates DCR exists (this endpoint)
+    // - Users are NOT prompted for OAuth at setup
+    // - OAuth is only triggered when a tool returns mcp/www_authenticate challenge
+    registration_endpoint: `${baseUrl}/api/agent/v1/oauth/register`,
 
     // Supported features
     grant_types_supported: [
