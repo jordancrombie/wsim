@@ -1900,4 +1900,179 @@ router.post('/revoke', async (req: Request, res: Response) => {
   }
 });
 
+// =============================================================================
+// DYNAMIC CLIENT REGISTRATION (RFC 7591)
+// =============================================================================
+
+/**
+ * POST /api/agent/v1/oauth/register
+ * OAuth 2.0 Dynamic Client Registration (RFC 7591)
+ *
+ * ChatGPT and other MCP clients call this to register themselves as OAuth clients
+ * when a user adds the MCP server. Returns client credentials for subsequent OAuth flows.
+ *
+ * Required for ChatGPT MCP integration - ChatGPT needs to dynamically register
+ * to get a client_id before initiating OAuth flows.
+ */
+router.post('/register', async (req: Request, res: Response) => {
+  try {
+    const {
+      client_name,
+      redirect_uris,
+      grant_types,
+      token_endpoint_auth_method,
+      scope,
+      logo_uri,
+      // These are accepted per RFC 7591 but not currently stored
+      client_uri: _client_uri,
+      policy_uri: _policy_uri,
+      tos_uri: _tos_uri,
+      software_id: _software_id,
+      software_version: _software_version,
+    } = req.body;
+
+    // Log optional fields for debugging (not stored)
+    if (_client_uri || _policy_uri || _tos_uri || _software_id || _software_version) {
+      console.log(`[OAuth Register] Optional fields received: client_uri=${_client_uri}, software_id=${_software_id}`);
+    }
+
+    // Validate required fields (RFC 7591 Section 2)
+    if (!client_name || typeof client_name !== 'string') {
+      return res.status(400).json({
+        error: 'invalid_client_metadata',
+        error_description: 'client_name is required',
+      });
+    }
+
+    if (!redirect_uris || !Array.isArray(redirect_uris) || redirect_uris.length === 0) {
+      return res.status(400).json({
+        error: 'invalid_redirect_uri',
+        error_description: 'redirect_uris is required and must be a non-empty array',
+      });
+    }
+
+    // Validate redirect URIs are valid HTTPS URLs (except localhost for dev)
+    for (const uri of redirect_uris) {
+      try {
+        const url = new URL(uri);
+        if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+          return res.status(400).json({
+            error: 'invalid_redirect_uri',
+            error_description: `redirect_uri must use HTTPS: ${uri}`,
+          });
+        }
+      } catch {
+        return res.status(400).json({
+          error: 'invalid_redirect_uri',
+          error_description: `Invalid redirect_uri format: ${uri}`,
+        });
+      }
+    }
+
+    // Default grant types if not specified
+    const grantTypesArray = grant_types && Array.isArray(grant_types)
+      ? grant_types
+      : ['authorization_code'];
+
+    // Validate grant types
+    const allowedGrantTypes = ['authorization_code', 'refresh_token', 'client_credentials', 'urn:ietf:params:oauth:grant-type:device_code'];
+    for (const gt of grantTypesArray) {
+      if (!allowedGrantTypes.includes(gt)) {
+        return res.status(400).json({
+          error: 'invalid_client_metadata',
+          error_description: `Unsupported grant_type: ${gt}`,
+        });
+      }
+    }
+
+    // Default token endpoint auth method
+    const authMethod = token_endpoint_auth_method || 'client_secret_post';
+    const allowedAuthMethods = ['client_secret_post', 'client_secret_basic', 'none'];
+    if (!allowedAuthMethods.includes(authMethod)) {
+      return res.status(400).json({
+        error: 'invalid_client_metadata',
+        error_description: `Unsupported token_endpoint_auth_method: ${authMethod}`,
+      });
+    }
+
+    // Default scope
+    const scopeString = scope || 'browse cart purchase';
+
+    // Check if a client with these exact redirect_uris already exists
+    // This provides idempotent registration for the same client
+    const sortedUris = [...redirect_uris].sort();
+    const existingClients = await prisma.oAuthClient.findMany({
+      where: {
+        clientName: client_name,
+      },
+    });
+
+    // Check for exact redirect_uris match
+    for (const existing of existingClients) {
+      const existingSortedUris = [...existing.redirectUris].sort();
+      if (JSON.stringify(existingSortedUris) === JSON.stringify(sortedUris)) {
+        // Found existing client - return it (but can't return the secret)
+        // Per RFC 7591, we should return the existing registration
+        // For security, we don't return the secret again
+        console.log(`[OAuth Register] Returning existing client ${existing.clientId} for ${client_name}`);
+
+        return res.status(200).json({
+          client_id: existing.clientId,
+          // Note: client_secret is NOT returned for existing registrations (security)
+          client_id_issued_at: Math.floor(existing.createdAt.getTime() / 1000),
+          client_name: existing.clientName,
+          redirect_uris: existing.redirectUris,
+          grant_types: existing.grantTypes,
+          token_endpoint_auth_method: authMethod,
+          scope: existing.scope,
+          ...(existing.logoUri && { logo_uri: existing.logoUri }),
+        });
+      }
+    }
+
+    // Generate new client credentials
+    const clientId = `dyn_${nanoid(16)}`; // Prefix with 'dyn_' to identify dynamically registered clients
+    const clientSecret = generateAgentClientSecret();
+    const clientSecretHash = await hashClientSecret(clientSecret);
+
+    // Create the client
+    const client = await prisma.oAuthClient.create({
+      data: {
+        clientId,
+        clientSecret: clientSecretHash,
+        clientName: client_name,
+        redirectUris: redirect_uris,
+        postLogoutRedirectUris: [],
+        grantTypes: grantTypesArray,
+        scope: scopeString,
+        logoUri: logo_uri || null,
+        trusted: false, // Dynamically registered clients are never trusted
+      },
+    });
+
+    console.log(`[OAuth Register] Created new client ${clientId} for ${client_name}`);
+
+    // Return RFC 7591 compliant response (Section 3.2)
+    return res.status(201).json({
+      client_id: client.clientId,
+      client_secret: clientSecret, // Only returned on initial registration
+      client_secret_expires_at: 0, // 0 = never expires
+      client_id_issued_at: Math.floor(client.createdAt.getTime() / 1000),
+      client_name: client.clientName,
+      redirect_uris: client.redirectUris,
+      grant_types: client.grantTypes,
+      token_endpoint_auth_method: authMethod,
+      scope: client.scope,
+      ...(client.logoUri && { logo_uri: client.logoUri }),
+    });
+
+  } catch (error) {
+    console.error('[OAuth Register] Error:', error);
+    return res.status(500).json({
+      error: 'server_error',
+      error_description: 'Failed to register client',
+    });
+  }
+});
+
 export default router;

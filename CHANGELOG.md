@@ -2,6 +2,17 @@
 
 All notable changes to WSIM (Wallet Simulator) will be documented in this file.
 
+## [1.2.22] - 2026-02-01
+
+### Added
+- **RFC 7591 Dynamic Client Registration**: `POST /api/agent/v1/oauth/register`
+  - Required for ChatGPT MCP integration - ChatGPT needs to dynamically register as an OAuth client
+  - Accepts: `client_name`, `redirect_uris`, `grant_types`, `token_endpoint_auth_method`, `scope`, `logo_uri`
+  - Returns: `client_id`, `client_secret`, and registration metadata
+  - Idempotent: re-registration with same client_name + redirect_uris returns existing client
+  - Dynamically registered clients are prefixed with `dyn_` and are never trusted (require explicit consent)
+- Added `registration_endpoint` to OAuth Authorization Server Metadata (`/.well-known/oauth-authorization-server`)
+
 ## [1.2.21] - 2026-01-31
 
 ### Added
